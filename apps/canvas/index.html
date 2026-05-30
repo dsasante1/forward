@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Design Connector — Canvas</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font: 14px/1.5 system-ui, sans-serif;
+        background: #0f1115; color: #e6e6e6; display: flex; height: 100vh;
+      }
+      #canvas { flex: 1; }
+      .node rect { fill: #1b2030; stroke: #3a4250; }
+      .node:hover rect { stroke: #5b8cff; cursor: pointer; }
+      .node.changed rect { stroke: #ffb020; stroke-width: 2; }
+      .node text { fill: #e6e6e6; }
+      .node .method { font-weight: 700; }
+      #drawer {
+        width: 380px; background: #14171f; border-left: 1px solid #262b36;
+        padding: 16px; overflow: auto; transform: translateX(100%);
+        transition: transform .18s ease; position: fixed; right: 0; top: 0; bottom: 0;
+      }
+      #drawer.open { transform: translateX(0); }
+      #drawer h2 { margin: 0 0 4px; font-size: 16px; }
+      table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+      td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #262b36; }
+      .timeline li { margin-bottom: 8px; }
+      code { background: #0c0e13; padding: 1px 5px; border-radius: 4px; }
+      .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #243; }
+    </style>
+  </head>
+  <body>
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+    <aside id="drawer"><p>Select a block to view its API contract.</p></aside>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

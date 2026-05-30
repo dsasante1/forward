@@ -1,0 +1,12 @@
+node_modules/
+dist/
+out/
+*.vsix
+*.log
+.DS_Store
+
+# Local Firebase config / secrets — BYOD, never commit
+.env
+.env.local
+firebase-config.local.json
+.vscode-test/

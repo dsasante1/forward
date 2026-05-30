@@ -1,0 +1,43 @@
+{
+  "canvas_nodes": {
+    "project_xyz": {
+      "screen_login_card_99": {
+        "endpoint": "/api/v1/users/login",
+        "method": "POST",
+        "description": "Authenticates user accounts and issues transient JWT session keys.",
+        "parameters": [],
+        "requestBody": { "email": "string", "password": "string" },
+        "responseSample": { "status": "success", "token": "eyJhbG..." },
+        "updatedAt": "2026-05-28T11:45:00Z"
+      },
+      "screen_profile_42": {
+        "endpoint": "/api/v1/users/:id",
+        "method": "GET",
+        "description": "Fetches a user profile by id.",
+        "parameters": ["id"],
+        "responseSample": { "id": "u_1", "name": "Ada" },
+        "updatedAt": "2026-05-27T09:00:00Z"
+      }
+    }
+  },
+  "version_timeline": {
+    "project_xyz": {
+      "screen_login_card_99": [
+        {
+          "version": "v1.0.0",
+          "timestamp": 1774000000,
+          "author": "BackendDevGuy",
+          "commitHash": "9f0a1b2",
+          "changeLog": "Initial login endpoint."
+        },
+        {
+          "version": "v1.2.0",
+          "timestamp": 1774864000,
+          "author": "BackendDevGuy",
+          "commitHash": "ab12cd3",
+          "changeLog": "Strict regex restriction enforced on the email field."
+        }
+      ]
+    }
+  }
+}

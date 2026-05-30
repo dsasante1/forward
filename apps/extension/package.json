@@ -1,0 +1,49 @@
+{
+  "name": "api-design-connector-extension",
+  "displayName": "API Design Connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "publisher": "adc",
+  "description": "Connect highlighted API routes to your design canvas via your own Firebase RTDB.",
+  "engines": {
+    "vscode": "^1.85.0",
+    "node": ">=20"
+  },
+  "categories": ["Other"],
+  "main": "./dist/extension.cjs",
+  "contributes": {
+    "commands": [
+      {
+        "command": "api-design-connector.connectEndpoint",
+        "title": "Connect API Route to Design Canvas"
+      }
+    ],
+    "configuration": {
+      "title": "API Design Connector",
+      "properties": {
+        "apiDesignConnector.firebaseDatabaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Your Firebase Realtime Database URL (BYOD)."
+        },
+        "apiDesignConnector.projectId": {
+          "type": "string",
+          "default": "",
+          "description": "Canvas project id to push nodes under."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@adc/shared": "*"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0"
+  }
+}

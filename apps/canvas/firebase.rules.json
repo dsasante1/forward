@@ -1,0 +1,23 @@
+{
+  "//": "BYOD privacy: scope every write to the authenticated owner. Deploy with `firebase deploy --only database`.",
+  "rules": {
+    "user_configs": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "canvas_nodes": {
+      "$projectId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    },
+    "version_timeline": {
+      "$projectId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
