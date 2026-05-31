@@ -7,7 +7,7 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-    "canvas_nodes": {
+    "design_elements": {
       "$projectId": {
         ".read": "auth != null",
         ".write": "auth != null"

@@ -1,89 +1,182 @@
-import { CanvasNode, VersionEntry, paths } from "@adc/shared";
+import { DesignElement, VersionEntry, normalizeList, paths } from "@adc/shared";
 
 /**
- * Live data source for the canvas. Two implementations:
- *  - LiveSource: subscribes to the user's Firebase RTDB.
- *  - FixtureSource: reads a static JSON tree (offline dev / demo / tests).
+ * Data source for the canvas editor. Implementations:
+ *  - FixtureSource: reads/writes a static JSON tree in memory (offline dev/demo).
+ *  - LiveSource:    subscribes to / writes the user's Firebase RTDB (BYOD).
+ *  - RestSource:    polls the RTDB REST API — used against the local mock-rtdb
+ *                   server for end-to-end testing without a cloud project.
+ *                   (see ./rest-source.ts)
  *
- * Both speak the same interface so the canvas never knows which it's using.
+ * All speak the same interface so the editor never knows which it's using.
  */
-export interface NodeSnapshot {
-  nodeId: string;
-  node: CanvasNode;
+export interface ElementSnapshot {
+  element: DesignElement;
   timeline: VersionEntry[];
 }
 
 export interface CanvasSource {
-  /** Subscribe to all nodes in the project; callback fires on every change. */
-  subscribe(onChange: (nodes: NodeSnapshot[]) => void): () => void;
+  /** Subscribe to all elements in the project; fires on every change. */
+  subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
+  /** Create or update an element (the editor persists geometry/style here). */
+  saveElement(element: DesignElement): Promise<void>;
+  /** Remove an element. */
+  deleteElement(elementId: string): Promise<void>;
 }
 
-/** Offline source backed by a static tree — see public/fixture.json. */
+/**
+ * Offline source backed by a static tree (public/fixture.json), held in memory.
+ * Edits mutate the in-memory copy and re-emit, so the editor is fully usable
+ * with zero Firebase setup — handy for dev, demos and tests.
+ */
 export class FixtureSource implements CanvasSource {
+  private elements = new Map<string, DesignElement>();
+  private timelines = new Map<string, VersionEntry[]>();
+  private listeners = new Set<(els: ElementSnapshot[]) => void>();
+  private loaded = false;
+
   constructor(
     private readonly projectId: string,
     private readonly fixtureUrl = "/fixture.json",
   ) {}
 
-  subscribe(onChange: (nodes: NodeSnapshot[]) => void): () => void {
-    void fetch(this.fixtureUrl)
-      .then((r) => r.json())
-      .then((tree) => onChange(this.flatten(tree)));
-    return () => {};
+  subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void {
+    this.listeners.add(onChange);
+    if (!this.loaded) {
+      this.loaded = true;
+      void this.load().then(() => this.emit());
+    } else {
+      onChange(this.snapshot());
+    }
+    return () => this.listeners.delete(onChange);
   }
 
-  private flatten(tree: any): NodeSnapshot[] {
-    const nodes = tree.canvas_nodes?.[this.projectId] ?? {};
-    const timelines = tree.version_timeline?.[this.projectId] ?? {};
-    return Object.entries(nodes).map(([nodeId, raw]) => ({
-      nodeId,
-      node: CanvasNode.parse(raw),
-      timeline: (timelines[nodeId] ?? []).map((v: unknown) =>
-        VersionEntry.parse(v),
-      ),
+  async saveElement(element: DesignElement): Promise<void> {
+    this.elements.set(element.id, DesignElement.parse(element));
+    this.emit();
+  }
+
+  async deleteElement(elementId: string): Promise<void> {
+    this.elements.delete(elementId);
+    this.timelines.delete(elementId);
+    this.emit();
+  }
+
+  private async load(): Promise<void> {
+    const res = await fetch(this.fixtureUrl);
+    const tree = (await res.json()) as Record<string, unknown>;
+    const els =
+      (tree.design_elements as Record<string, Record<string, unknown>>)?.[
+        this.projectId
+      ] ?? {};
+    const tls =
+      (tree.version_timeline as Record<string, Record<string, unknown[]>>)?.[
+        this.projectId
+      ] ?? {};
+    for (const raw of Object.values(els)) {
+      const el = DesignElement.parse(raw);
+      this.elements.set(el.id, el);
+    }
+    for (const [id, list] of Object.entries(tls)) {
+      this.timelines.set(id, list.map((v) => VersionEntry.parse(v)));
+    }
+  }
+
+  private snapshot(): ElementSnapshot[] {
+    return [...this.elements.values()].map((element) => ({
+      element,
+      timeline: this.timelines.get(element.id) ?? [],
     }));
+  }
+
+  private emit(): void {
+    const snap = this.snapshot();
+    for (const fn of this.listeners) fn(snap);
   }
 }
 
 /**
  * Live RTDB source. Lazy-imports the firebase SDK so the fixture path has zero
- * SDK cost. `config` is the user's own runtime config (BYOD).
+ * SDK cost. `config` is the user's own Firebase web config (BYOD).
+ *
+ * With `useAnonAuth`, it signs in anonymously before any read/write so
+ * locked-down rules (`auth != null`) are satisfied. For test-mode (open) rules
+ * leave it off.
  */
+export interface LiveSourceOptions {
+  useAnonAuth?: boolean;
+}
+
 export class LiveSource implements CanvasSource {
+  private dbPromise?: Promise<{
+    db: import("firebase/database").Database;
+    ref: typeof import("firebase/database").ref;
+    onValue: typeof import("firebase/database").onValue;
+    set: typeof import("firebase/database").set;
+    remove: typeof import("firebase/database").remove;
+    get: typeof import("firebase/database").get;
+  }>;
+
   constructor(
     private readonly config: Record<string, string>,
     private readonly projectId: string,
+    private readonly options: LiveSourceOptions = {},
   ) {}
 
-  subscribe(onChange: (nodes: NodeSnapshot[]) => void): () => void {
+  private async fb() {
+    if (!this.dbPromise) {
+      this.dbPromise = (async () => {
+        const { initializeApp } = await import("firebase/app");
+        const { getDatabase, ref, onValue, set, remove, get } = await import(
+          "firebase/database"
+        );
+        const app = initializeApp(this.config);
+        if (this.options.useAnonAuth) {
+          const { getAuth, signInAnonymously } = await import("firebase/auth");
+          await signInAnonymously(getAuth(app));
+        }
+        return { db: getDatabase(app), ref, onValue, set, remove, get };
+      })();
+    }
+    return this.dbPromise;
+  }
+
+  subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void {
     let unsub = () => {};
     void (async () => {
-      const { initializeApp } = await import("firebase/app");
-      const { getDatabase, ref, onValue } = await import("firebase/database");
-      const app = initializeApp(this.config);
-      const db = getDatabase(app);
-
-      const nodesRef = ref(db, paths.projectNodes(this.projectId));
-      unsub = onValue(nodesRef, async (snap) => {
-        const nodes = snap.val() ?? {};
-        const result: NodeSnapshot[] = [];
-        for (const [nodeId, raw] of Object.entries(nodes)) {
-          const tlSnap = await new Promise<any>((res) =>
-            onValue(
-              ref(db, paths.timeline(this.projectId, nodeId)),
-              (s) => res(s.val()),
-              { onlyOnce: true },
-            ),
+      const { db, ref, onValue, get } = await this.fb();
+      const elsRef = ref(db, paths.projectElements(this.projectId));
+      unsub = onValue(elsRef, async (snap) => {
+        const raw = (snap.val() ?? {}) as Record<string, unknown>;
+        const result: ElementSnapshot[] = [];
+        for (const value of Object.values(raw)) {
+          const element = DesignElement.parse(value);
+          const tlSnap = await get(
+            ref(db, paths.timeline(this.projectId, element.id)),
           );
+          // Timeline may be an array or a push-keyed object — normalize.
+          const tl = normalizeList(tlSnap.val());
           result.push({
-            nodeId,
-            node: CanvasNode.parse(raw),
-            timeline: (tlSnap ?? []).map((v: unknown) => VersionEntry.parse(v)),
+            element,
+            timeline: tl.map((v) => VersionEntry.parse(v)),
           });
         }
         onChange(result);
       });
     })();
     return () => unsub();
+  }
+
+  async saveElement(element: DesignElement): Promise<void> {
+    const { db, ref, set } = await this.fb();
+    await set(
+      ref(db, paths.element(this.projectId, element.id)),
+      DesignElement.parse(element),
+    );
+  }
+
+  async deleteElement(elementId: string): Promise<void> {
+    const { db, ref, remove } = await this.fb();
+    await remove(ref(db, paths.element(this.projectId, elementId)));
   }
 }

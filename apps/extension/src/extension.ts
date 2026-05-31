@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
+import {
+  bindApiToElement,
+  listElements,
+  type FirebaseConfig,
+} from "./firebase.js";
 import { parseHighlightedCode } from "./parser.js";
-import { listNodeIds, pushEndpoint, type FirebaseConfig } from "./firebase.js";
 
 export function activate(context: vscode.ExtensionContext): void {
   const cmd = vscode.commands.registerCommand(
@@ -16,13 +20,18 @@ function readConfig(): FirebaseConfig | undefined {
   const c = vscode.workspace.getConfiguration("apiDesignConnector");
   const databaseUrl = c.get<string>("firebaseDatabaseUrl") ?? "";
   const projectId = c.get<string>("projectId") ?? "";
+  const authToken = c.get<string>("authToken") ?? "";
   if (!databaseUrl || !projectId) {
     vscode.window.showErrorMessage(
       "Set apiDesignConnector.firebaseDatabaseUrl and projectId in Settings (BYOD).",
     );
     return undefined;
   }
-  return { databaseUrl, projectId };
+  return {
+    databaseUrl,
+    projectId,
+    ...(authToken ? { authToken } : {}),
+  };
 }
 
 async function connectEndpoint(): Promise<void> {
@@ -41,10 +50,9 @@ async function connectEndpoint(): Promise<void> {
   const cfg = readConfig();
   if (!cfg) return;
 
-  // Let the user pick an existing canvas node or type a new id — avoids drift
-  // between the editor and the canvas.
-  const nodeId = await pickNodeId(cfg);
-  if (!nodeId) return;
+  // Backend devs annotate elements the designers already drew. Pick one.
+  const elementId = await pickElement(cfg);
+  if (!elementId) return;
 
   const changeLog = await vscode.window.showInputBox({
     prompt: `Change log for ${payload.method} ${payload.endpoint}`,
@@ -53,31 +61,50 @@ async function connectEndpoint(): Promise<void> {
   if (changeLog === undefined) return;
 
   try {
-    await pushEndpoint(cfg, nodeId, payload, {
+    await bindApiToElement(cfg, elementId, payload, {
       version: new Date().toISOString(),
       author: process.env.USER ?? "unknown",
       changeLog,
     });
     vscode.window.showInformationMessage(
-      `Connected ${payload.method} ${payload.endpoint} → ${nodeId}`,
+      `Annotated ${elementId} with ${payload.method} ${payload.endpoint}`,
     );
   } catch (err) {
     vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
   }
 }
 
-async function pickNodeId(cfg: FirebaseConfig): Promise<string | undefined> {
-  let existing: string[] = [];
+/**
+ * Quick-pick of design elements that exist on the canvas. The backend can only
+ * annotate elements the designer has already created — there is no "new element"
+ * path here, which keeps the two sides from drifting.
+ */
+async function pickElement(cfg: FirebaseConfig): Promise<string | undefined> {
+  let elements: Array<{ id: string; name: string; type: string }> = [];
   try {
-    existing = await listNodeIds(cfg);
+    elements = await listElements(cfg);
   } catch {
-    /* offline / empty project — fall through to free text */
+    /* offline / unreachable */
   }
-  const NEW = "$(add) New canvas node…";
-  const choice = await vscode.window.showQuickPick([NEW, ...existing], {
-    placeHolder: "Select a canvas node to bind this route to",
+
+  if (!elements.length) {
+    vscode.window.showWarningMessage(
+      "No design elements found. Ask the designer to create one on the canvas first.",
+    );
+    return undefined;
+  }
+
+  const items: Array<vscode.QuickPickItem & { id: string }> = elements.map(
+    (el) => ({
+      label: el.name || el.id,
+      description: el.type,
+      detail: el.id,
+      id: el.id,
+    }),
+  );
+  const choice = await vscode.window.showQuickPick(items, {
+    placeHolder: "Select the design element to annotate with this endpoint",
+    matchOnDetail: true,
   });
-  if (!choice) return undefined;
-  if (choice !== NEW) return choice;
-  return vscode.window.showInputBox({ prompt: "New canvas node id" });
+  return choice?.id;
 }

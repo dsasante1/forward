@@ -1,0 +1,10 @@
+{
+  "name": "api-design-connector-mock-rtdb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A tiny in-memory stand-in for the Firebase Realtime Database REST API, for end-to-end testing without a cloud Firebase project.",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}

@@ -1,14 +1,13 @@
-import {
-  ApiPayload,
-  CanvasNode,
-  VersionEntry,
-  paths,
-} from "@adc/shared";
+import { ApiPayload, VersionEntry, paths } from "@adc/shared";
 
 /**
  * Thin RTDB writer over the REST API so the extension stays dependency-light
  * (no firebase-admin in the editor process). BYOD: the database URL comes from
  * the user's own settings.
+ *
+ * The extension never creates design elements — designers do that on the canvas.
+ * It only *annotates* an existing element by writing into that element's
+ * `apiBinding` sub-tree, then appends a version-history entry.
  *
  * For private databases, pass an auth token (Firebase ID token / DB secret) and
  * it is appended as `?auth=` — keep it out of source control.
@@ -21,43 +20,60 @@ export interface FirebaseConfig {
 
 function url(cfg: FirebaseConfig, path: string): string {
   const base = cfg.databaseUrl.replace(/\/$/, "");
-  const suffix = cfg.authToken ? `?auth=${encodeURIComponent(cfg.authToken)}` : "";
+  const suffix = cfg.authToken
+    ? `?auth=${encodeURIComponent(cfg.authToken)}`
+    : "";
   return `${base}/${path}.json${suffix}`;
 }
 
-/** Upsert a canvas node (latest state) and append an immutable version entry. */
-export async function pushEndpoint(
+/**
+ * Attach (or update) the API binding on an existing design element, and append
+ * an immutable version entry to its history.
+ */
+export async function bindApiToElement(
   cfg: FirebaseConfig,
-  nodeId: string,
+  elementId: string,
   payload: ApiPayload,
   version: Omit<VersionEntry, "timestamp">,
 ): Promise<void> {
-  const node: CanvasNode = CanvasNode.parse({
-    ...payload,
-    updatedAt: new Date().toISOString(),
-  });
+  const binding: ApiPayload = ApiPayload.parse(payload);
 
-  // 1. Upsert the current node state.
-  await put(url(cfg, paths.node(cfg.projectId, nodeId)), node);
+  // 1. Write the binding onto the element (leaves the element's geometry intact).
+  await put(url(cfg, paths.apiBinding(cfg.projectId, elementId)), binding);
 
-  // 2. Append to the append-only timeline (POST = push id under the list path).
+  // 2. Touch updatedAt so the canvas flags the change live.
+  await put(
+    url(cfg, `${paths.element(cfg.projectId, elementId)}/updatedAt`),
+    new Date().toISOString(),
+  );
+
+  // 3. Append to the append-only timeline (POST = push id under the list path).
   const entry: VersionEntry = VersionEntry.parse({
     ...version,
     timestamp: Date.now(),
   });
-  await post(url(cfg, paths.timeline(cfg.projectId, nodeId)), entry);
+  await post(url(cfg, paths.timeline(cfg.projectId, elementId)), entry);
 }
 
-/** Read existing node ids for a project (powers a quick-pick in the editor). */
-export async function listNodeIds(cfg: FirebaseConfig): Promise<string[]> {
-  const res = await fetch(
-    url(cfg, paths.projectNodes(cfg.projectId)) +
-      (cfg.authToken ? "&" : "?") +
-      "shallow=true",
-  );
+/**
+ * Read existing design elements (id + display name) so the editor can offer a
+ * quick-pick of elements to annotate. Backend devs bind to what designers made.
+ */
+export async function listElements(
+  cfg: FirebaseConfig,
+): Promise<Array<{ id: string; name: string; type: string }>> {
+  const res = await fetch(url(cfg, paths.projectElements(cfg.projectId)));
   if (!res.ok) throw new Error(`Firebase read failed: ${res.status}`);
-  const body = (await res.json()) as Record<string, true> | null;
-  return body ? Object.keys(body) : [];
+  const body = (await res.json()) as Record<
+    string,
+    { name?: string; type?: string }
+  > | null;
+  if (!body) return [];
+  return Object.entries(body).map(([id, el]) => ({
+    id,
+    name: el.name ?? "",
+    type: el.type ?? "element",
+  }));
 }
 
 async function put(u: string, body: unknown): Promise<void> {

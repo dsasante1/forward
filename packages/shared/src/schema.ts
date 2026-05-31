@@ -6,12 +6,25 @@ import { z } from "zod";
  * Mirrors the Firebase Realtime Database JSON tree. Keep this flat (Firebase
  * favours shallow trees) and treat it as the single source of truth: if a shape
  * changes, change it here once and both apps follow.
+ *
+ * Two layers, intentionally separate:
+ *   1. DESIGN  — what a designer draws on the canvas (frames, shapes, text,
+ *      components). This is the primary artefact and exists on its own.
+ *   2. API BINDING — an OPTIONAL annotation the backend attaches to a design
+ *      element from VS Code. Most elements never get one.
+ *
+ * So: a design element MAY own an apiBinding; an endpoint is never a first-class
+ * canvas object by itself.
  */
+
+// --------------------------------------------------------------------------
+// API binding (the backend annotation — pillar 2)
+// --------------------------------------------------------------------------
 
 export const HttpMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 export type HttpMethod = z.infer<typeof HttpMethod>;
 
-/** What the extension parses out of a highlighted route. */
+/** What the VS Code extension parses out of a highlighted route. */
 export const ApiPayload = z.object({
   endpoint: z.string().min(1),
   method: HttpMethod,
@@ -22,14 +35,61 @@ export const ApiPayload = z.object({
 });
 export type ApiPayload = z.infer<typeof ApiPayload>;
 
-/** A single design block on the canvas, bound to one API endpoint. */
-export const CanvasNode = ApiPayload.extend({
+// --------------------------------------------------------------------------
+// Design layer (what the designer draws — pillar 1)
+// --------------------------------------------------------------------------
+
+export const ElementType = z.enum([
+  "frame", // a container / screen
+  "rectangle", // generic box (buttons, cards, inputs…)
+  "text", // a text label
+  "component", // a reusable master definition
+  "instance", // a placed copy of a component
+]);
+export type ElementType = z.infer<typeof ElementType>;
+
+/** Visual styling — all optional, sensible defaults applied at render time. */
+export const Style = z.object({
+  fill: z.string().optional(),
+  stroke: z.string().optional(),
+  strokeWidth: z.number().nonnegative().optional(),
+  radius: z.number().nonnegative().optional(),
+  fontSize: z.number().positive().optional(),
+  fontWeight: z.number().int().optional(),
+  color: z.string().optional(),
+});
+export type Style = z.infer<typeof Style>;
+
+/**
+ * A single element on the design canvas. Geometry is absolute (canvas space);
+ * `parentId` records hierarchy/nesting. `apiBinding` is the optional backend
+ * annotation. `componentId` links an instance back to its master component.
+ */
+export const DesignElement = z.object({
+  id: z.string().min(1),
+  type: ElementType,
+  name: z.string().default(""),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  parentId: z.string().nullable().default(null),
+  text: z.string().optional(),
+  style: Style.optional(),
+  /** For type === "instance": the id of the source component element. */
+  componentId: z.string().optional(),
+  /** Optional API annotation attached by the backend from VS Code. */
+  apiBinding: ApiPayload.optional(),
   /** ISO-8601 timestamp of the last write. */
   updatedAt: z.string().datetime(),
 });
-export type CanvasNode = z.infer<typeof CanvasNode>;
+export type DesignElement = z.infer<typeof DesignElement>;
 
-/** One immutable entry in a node's append-only history. */
+// --------------------------------------------------------------------------
+// Versioning + config
+// --------------------------------------------------------------------------
+
+/** One immutable entry in an element's append-only history. */
 export const VersionEntry = z.object({
   version: z.string(),
   timestamp: z.number().int(),
@@ -51,17 +111,20 @@ export type UserConfig = z.infer<typeof UserConfig>;
  */
 export const DatabaseTree = z.object({
   user_configs: z.record(UserConfig).default({}),
-  canvas_nodes: z.record(z.record(CanvasNode)).default({}),
+  design_elements: z.record(z.record(DesignElement)).default({}),
   version_timeline: z.record(z.record(z.array(VersionEntry))).default({}),
 });
 export type DatabaseTree = z.infer<typeof DatabaseTree>;
 
 /** RTDB path helpers — the one place paths are constructed. */
 export const paths = {
-  node: (projectId: string, nodeId: string) =>
-    `canvas_nodes/${projectId}/${nodeId}`,
-  projectNodes: (projectId: string) => `canvas_nodes/${projectId}`,
-  timeline: (projectId: string, nodeId: string) =>
-    `version_timeline/${projectId}/${nodeId}`,
+  element: (projectId: string, elementId: string) =>
+    `design_elements/${projectId}/${elementId}`,
+  projectElements: (projectId: string) => `design_elements/${projectId}`,
+  /** Just the apiBinding sub-tree of one element — what VS Code writes to. */
+  apiBinding: (projectId: string, elementId: string) =>
+    `design_elements/${projectId}/${elementId}/apiBinding`,
+  timeline: (projectId: string, elementId: string) =>
+    `version_timeline/${projectId}/${elementId}`,
   userConfig: (userId: string) => `user_configs/${userId}`,
 } as const;
