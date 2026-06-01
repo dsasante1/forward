@@ -69,6 +69,107 @@
       }
     }
   },
+  "infra_nodes": {
+    "project_xyz": {
+      "infra_web": {
+        "id": "infra_web",
+        "kind": "frontend",
+        "label": "Web Client",
+        "tech": "React / Vite",
+        "description": "Single-page app served from the CDN.",
+        "x": 80,
+        "y": 460,
+        "width": 160,
+        "height": 72,
+        "parentId": null,
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "infra_api": {
+        "id": "infra_api",
+        "kind": "backend",
+        "label": "API Server",
+        "tech": "Node / Express",
+        "description": "REST API behind the load balancer.",
+        "x": 320,
+        "y": 460,
+        "width": 160,
+        "height": 72,
+        "parentId": null,
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "infra_pg": {
+        "id": "infra_pg",
+        "kind": "database",
+        "label": "PostgreSQL",
+        "tech": "v15",
+        "description": "Primary relational store.",
+        "x": 560,
+        "y": 400,
+        "width": 160,
+        "height": 72,
+        "parentId": null,
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "infra_redis": {
+        "id": "infra_redis",
+        "kind": "cache",
+        "label": "Redis",
+        "tech": "v7",
+        "description": "Session + rate-limit cache.",
+        "x": 560,
+        "y": 520,
+        "width": 160,
+        "height": 72,
+        "parentId": null,
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "infra_ci": {
+        "id": "infra_ci",
+        "kind": "devops",
+        "label": "GitHub Actions",
+        "tech": "CI/CD",
+        "description": "Builds, tests and deploys on push to main.",
+        "x": 320,
+        "y": 580,
+        "width": 160,
+        "height": 72,
+        "parentId": null,
+        "updatedAt": "2026-05-28T09:00:00Z"
+      }
+    }
+  },
+  "infra_edges": {
+    "project_xyz": {
+      "edge_web_api": {
+        "id": "edge_web_api",
+        "from": "infra_web",
+        "to": "infra_api",
+        "label": "HTTPS",
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "edge_api_pg": {
+        "id": "edge_api_pg",
+        "from": "infra_api",
+        "to": "infra_pg",
+        "label": "reads/writes",
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "edge_api_redis": {
+        "id": "edge_api_redis",
+        "from": "infra_api",
+        "to": "infra_redis",
+        "label": "cache",
+        "updatedAt": "2026-05-28T09:00:00Z"
+      },
+      "edge_ci_api": {
+        "id": "edge_ci_api",
+        "from": "infra_ci",
+        "to": "infra_api",
+        "label": "deploys",
+        "updatedAt": "2026-05-28T09:00:00Z"
+      }
+    }
+  },
   "version_timeline": {
     "project_xyz": {
       "el_login_submit": [

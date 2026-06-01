@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { DesignElement, DatabaseTree, paths } from "./schema.js";
+import {
+  DesignElement,
+  DatabaseTree,
+  InfraNode,
+  InfraEdge,
+  paths,
+} from "./schema.js";
 
 describe("DesignElement contract", () => {
   it("accepts a plain shape with no API binding and applies defaults", () => {
@@ -137,10 +143,86 @@ describe("DatabaseTree", () => {
   });
 });
 
+describe("Infrastructure layer", () => {
+  it("parses a node and applies size defaults", () => {
+    const node = InfraNode.parse({
+      id: "infra_pg",
+      kind: "database",
+      label: "PostgreSQL",
+      tech: "v15",
+      x: 200,
+      y: 120,
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(node.width).toBe(160);
+    expect(node.height).toBe(72);
+    expect(node.parentId).toBeNull();
+    expect(node.description).toBe("");
+  });
+
+  it("rejects an unknown infra kind", () => {
+    expect(() =>
+      InfraNode.parse({
+        id: "x",
+        kind: "spaceship",
+        label: "Nope",
+        x: 0,
+        y: 0,
+        updatedAt: "2026-05-28T11:45:00Z",
+      }),
+    ).toThrow();
+  });
+
+  it("parses a directed edge between two nodes", () => {
+    const edge = InfraEdge.parse({
+      id: "edge_api_pg",
+      from: "infra_api",
+      to: "infra_pg",
+      label: "reads/writes",
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(edge.from).toBe("infra_api");
+    expect(edge.to).toBe("infra_pg");
+  });
+
+  it("accepts a tree carrying infra nodes + edges", () => {
+    const tree = DatabaseTree.parse({
+      infra_nodes: {
+        project_xyz: {
+          infra_api: {
+            id: "infra_api",
+            kind: "backend",
+            label: "API Server",
+            x: 0,
+            y: 0,
+            updatedAt: "2026-05-28T11:45:00Z",
+          },
+        },
+      },
+      infra_edges: {
+        project_xyz: {
+          edge_api_pg: {
+            id: "edge_api_pg",
+            from: "infra_api",
+            to: "infra_pg",
+            updatedAt: "2026-05-28T11:45:00Z",
+          },
+        },
+      },
+    });
+    expect(tree.infra_nodes.project_xyz?.infra_api?.kind).toBe("backend");
+    expect(tree.infra_edges.project_xyz?.edge_api_pg?.to).toBe("infra_pg");
+  });
+});
+
 describe("paths", () => {
   it("builds RTDB paths consistently", () => {
     expect(paths.element("p", "e")).toBe("design_elements/p/e");
     expect(paths.apiBinding("p", "e")).toBe("design_elements/p/e/apiBinding");
     expect(paths.timeline("p", "e")).toBe("version_timeline/p/e");
+    expect(paths.infraNodes("p")).toBe("infra_nodes/p");
+    expect(paths.infraNode("p", "n")).toBe("infra_nodes/p/n");
+    expect(paths.infraEdges("p")).toBe("infra_edges/p");
+    expect(paths.infraEdge("p", "x")).toBe("infra_edges/p/x");
   });
 });

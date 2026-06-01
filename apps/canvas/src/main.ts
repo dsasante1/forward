@@ -1,4 +1,10 @@
-import { DesignElement, type ElementType } from "@adc/shared";
+import {
+  DesignElement,
+  type ElementType,
+  type InfraEdge,
+  type InfraKind,
+  type InfraNode,
+} from "@adc/shared";
 import { loadConfig } from "./config.js";
 import {
   FixtureSource,
@@ -32,32 +38,53 @@ console.info(
 const svg = document.getElementById("canvas") as unknown as SVGSVGElement;
 const panel = document.getElementById("panel") as HTMLElement;
 const toolbar = document.getElementById("toolbar") as HTMLElement;
+const zoomLabel = document.getElementById("zoomLabel") as HTMLElement | null;
 
 // ---- editor state -------------------------------------------------------
 type Tool = "select" | "frame" | "rectangle" | "text";
 const elements = new Map<string, DesignElement>();
 const timelines = new Map<string, ElementSnapshot["timeline"]>();
 const lastSeen = new Map<string, string>();
+const infraNodes = new Map<string, InfraNode>();
+let infraEdges: InfraEdge[] = [];
 let tool: Tool = "select";
 let selectedId: string | null = null;
+let showDocs = true; // show/hide the minimized API indicators on documented elements
+let showInfra = false; // show/hide the infrastructure diagram overlay
+
+// Viewport: `translate(panX, panY) scale(zoom)` applied to everything drawn.
+let zoom = 1;
+let panX = 0;
+let panY = 0;
+const ZOOM_MIN = 0.2;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 1.2;
 
 type Gesture =
   | { kind: "move"; id: string; startX: number; startY: number; orig: Rect }
   | { kind: "resize"; id: string; startX: number; startY: number; orig: Rect }
-  | { kind: "create"; type: ElementType; startX: number; startY: number; id: string };
+  | { kind: "create"; type: ElementType; startX: number; startY: number; id: string }
+  | { kind: "pan"; startX: number; startY: number; origPanX: number; origPanY: number; moved: boolean };
 let gesture: Gesture | null = null;
 let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 
 // ---- bootstrap ----------------------------------------------------------
 buildToolbar();
+wireZoomControls();
 source.subscribe((snaps) => {
   // Don't clobber an element the user is actively dragging.
-  const active = gesture?.id ?? null;
+  const active = gesture && "id" in gesture ? gesture.id : null;
   for (const s of snaps) {
     if (s.element.id === active) continue;
     elements.set(s.element.id, s.element);
     timelines.set(s.element.id, s.timeline);
   }
+  render();
+});
+source.subscribeInfra((infra) => {
+  infraNodes.clear();
+  for (const n of infra.nodes) infraNodes.set(n.id, n);
+  infraEdges = infra.edges;
   render();
 });
 
@@ -80,7 +107,34 @@ function buildToolbar(): void {
   toolbar.append(button("◆\nComp", makeComponent));
   toolbar.append(button("⧉\nInst", placeInstance));
   toolbar.append(button("🗑\nDel", deleteSelected));
+  toolbar.append(divider());
+  const docsBtn = button("🛈\nDocs", toggleDocs);
+  docsBtn.dataset.toggle = "docs";
+  docsBtn.classList.toggle("active", showDocs);
+  toolbar.append(docsBtn);
+  const infraBtn = button("🗄\nInfra", toggleInfra);
+  infraBtn.dataset.toggle = "infra";
+  infraBtn.classList.toggle("active", showInfra);
+  toolbar.append(infraBtn);
   refreshToolbar();
+}
+
+/** Show or hide the project's infrastructure diagram overlay. */
+function toggleInfra(): void {
+  showInfra = !showInfra;
+  toolbar
+    .querySelector('[data-toggle="infra"]')
+    ?.classList.toggle("active", showInfra);
+  render();
+}
+
+/** Show or hide the minimized API indicators on every documented element. */
+function toggleDocs(): void {
+  showDocs = !showDocs;
+  toolbar
+    .querySelector('[data-toggle="docs"]')
+    ?.classList.toggle("active", showDocs);
+  render();
 }
 
 function setTool(t: Tool): void {
@@ -100,14 +154,106 @@ function refreshToolbar(): void {
 // ========================================================================
 function render(): void {
   svg.replaceChildren();
-  for (const el of ordered()) svg.append(drawElement(el));
+  // Everything draws inside a viewport group so pan/zoom is a single transform.
+  const vp = svgEl("g", {
+    transform: `translate(${panX} ${panY}) scale(${zoom})`,
+  }) as SVGGElement;
+
+  // Design layer in its own group so the infra overlay can dim it as a unit.
+  const design = svgEl("g", {}) as SVGGElement;
+  if (showInfra) design.setAttribute("opacity", "0.35");
+  for (const el of ordered()) design.append(drawElement(el));
   if (selectedId) {
     const sel = elements.get(selectedId);
-    if (sel) svg.append(...handles(sel));
+    if (sel) design.append(...handles(sel));
   }
-  for (const x of guides.v) svg.append(line(x, 0, x, 4000));
-  for (const y of guides.h) svg.append(line(0, y, 4000, y));
+  for (const x of guides.v) design.append(line(x, 0, x, 4000));
+  for (const y of guides.h) design.append(line(0, y, 4000, y));
+  vp.append(design);
+
+  if (showInfra) vp.append(drawInfraLayer());
+
+  svg.append(vp);
+  updateZoomLabel();
   renderSelectionPanel();
+}
+
+// ========================================================================
+// Infrastructure overlay (pillar 3)
+// ========================================================================
+const INFRA_COLORS: Record<InfraKind, string> = {
+  frontend: "#5b8cff",
+  backend: "#36c275",
+  database: "#c9a227",
+  cache: "#d1603d",
+  queue: "#b06ad6",
+  service: "#3db6c9",
+  devops: "#e0507a",
+  external: "#8a93a3",
+  group: "#6b7280",
+};
+
+/** Draw the infra diagram: edges between node centres, then the node boxes. */
+function drawInfraLayer(): SVGGElement {
+  const g = svgEl("g", { class: "infra-layer" }) as SVGGElement;
+
+  // Edges first so the node boxes paint on top of the connectors.
+  for (const edge of infraEdges) {
+    const a = infraNodes.get(edge.from);
+    const b = infraNodes.get(edge.to);
+    if (!a || !b) continue; // skip dangling edges
+    const ax = a.x + a.width / 2;
+    const ay = a.y + a.height / 2;
+    const bx = b.x + b.width / 2;
+    const by = b.y + b.height / 2;
+    const l = line(ax, ay, bx, by);
+    l.setAttribute("class", "infra-edge");
+    g.append(l);
+    if (edge.label) {
+      const t = text(edge.label, (ax + bx) / 2, (ay + by) / 2 - 2, "infra-edge-label");
+      g.append(t);
+    }
+  }
+
+  // Group containers first so nodes nested in them paint on top.
+  const ordered = [...infraNodes.values()].sort(
+    (p, q) => q.width * q.height - p.width * p.height,
+  );
+  for (const n of ordered) g.append(drawInfraNode(n));
+  return g;
+}
+
+function drawInfraNode(n: InfraNode): SVGGElement {
+  const g = svgEl("g", {}) as SVGGElement;
+  const color = INFRA_COLORS[n.kind];
+
+  const box = svgEl("rect", {
+    x: String(n.x),
+    y: String(n.y),
+    width: String(n.width),
+    height: String(n.height),
+    rx: "8",
+    class: n.kind === "group" ? "infra-box infra-group" : "infra-box",
+  });
+  box.setAttribute("stroke", color);
+  g.append(box);
+
+  // Left accent stripe in the kind colour.
+  const accent = svgEl("rect", {
+    x: String(n.x),
+    y: String(n.y),
+    width: "4",
+    height: String(n.height),
+    rx: "2",
+  });
+  accent.setAttribute("fill", color);
+  g.append(accent);
+
+  const kind = text(n.kind.toUpperCase(), n.x + 12, n.y + 18, "infra-kind");
+  const label = text(n.label, n.x + 12, n.y + 36, "infra-label");
+  g.append(kind, label);
+  if (n.tech) g.append(text(n.tech, n.x + 12, n.y + 52, "infra-tech"));
+  return g;
 }
 
 /** Parents before children so nested elements draw on top. */
@@ -168,14 +314,14 @@ function drawElement(raw: DesignElement): SVGGElement {
       if (style.color) t.setAttribute("fill", style.color);
       g.append(t);
     }
-    const name = text(raw.name || raw.id, el.x, el.y - 6, "el-label");
-    name.setAttribute("opacity", "0.5");
+    const name = text(raw.name || raw.id, el.x, el.y - 6, "el-name");
+    name.setAttribute("opacity", "0.7");
     name.setAttribute("font-size", "10");
     g.append(name);
   }
 
-  // API documentation badge — the whole point of the tool.
-  if (raw.apiBinding) {
+  // API documentation indicator — shown only while the "Docs" toggle is on.
+  if (raw.apiBinding && showDocs) {
     const b = raw.apiBinding;
     const label =
       b.method || b.endpoint
@@ -272,11 +418,32 @@ svg.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  select(null);
+  // Empty space: start a pan. A click with no movement deselects on pointerup.
+  gesture = {
+    kind: "pan",
+    startX: e.clientX,
+    startY: e.clientY,
+    origPanX: panX,
+    origPanY: panY,
+    moved: false,
+  };
+  svg.classList.add("panning");
+  svg.setPointerCapture(e.pointerId);
 });
 
 svg.addEventListener("pointermove", (e) => {
   if (!gesture) return;
+
+  if (gesture.kind === "pan") {
+    const ddx = e.clientX - gesture.startX;
+    const ddy = e.clientY - gesture.startY;
+    if (Math.abs(ddx) > 3 || Math.abs(ddy) > 3) gesture.moved = true;
+    panX = gesture.origPanX + ddx;
+    panY = gesture.origPanY + ddy;
+    render();
+    return;
+  }
+
   const pt = toCanvas(e);
   const dx = pt.x - gesture.startX;
   const dy = pt.y - gesture.startY;
@@ -311,6 +478,14 @@ svg.addEventListener("pointermove", (e) => {
 
 svg.addEventListener("pointerup", () => {
   if (!gesture) return;
+
+  if (gesture.kind === "pan") {
+    svg.classList.remove("panning");
+    if (!gesture.moved) select(null); // a plain click on empty space deselects
+    gesture = null;
+    return;
+  }
+
   const el = elements.get(gesture.id);
   guides = { v: [], h: [] };
   if (el) {
@@ -449,7 +624,87 @@ function renderSelectionPanel(): void {
 // ========================================================================
 function toCanvas(e: PointerEvent): { x: number; y: number } {
   const box = svg.getBoundingClientRect();
-  return { x: e.clientX - box.left, y: e.clientY - box.top };
+  // Invert the viewport transform: screen -> world.
+  return {
+    x: (e.clientX - box.left - panX) / zoom,
+    y: (e.clientY - box.top - panY) / zoom,
+  };
+}
+
+// ========================================================================
+// Zoom & pan
+// ========================================================================
+function wireZoomControls(): void {
+  document
+    .getElementById("zoomIn")
+    ?.addEventListener("click", () => zoomToCenter(zoom * ZOOM_STEP));
+  document
+    .getElementById("zoomOut")
+    ?.addEventListener("click", () => zoomToCenter(zoom / ZOOM_STEP));
+  document.getElementById("zoomFit")?.addEventListener("click", fitView);
+  // Ctrl/⌘ + wheel zooms toward the cursor; plain wheel scrolls as usual.
+  window.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      zoomAt(e.deltaY < 0 ? zoom * ZOOM_STEP : zoom / ZOOM_STEP, e.clientX, e.clientY);
+    },
+    { passive: false },
+  );
+}
+
+function clampZoom(z: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+}
+function updateZoomLabel(): void {
+  if (zoomLabel) zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
+}
+/** Zoom toward a screen point, keeping the world point under it fixed. */
+function zoomAt(next: number, clientX: number, clientY: number): void {
+  const box = svg.getBoundingClientRect();
+  const z = clampZoom(next);
+  const wx = (clientX - box.left - panX) / zoom;
+  const wy = (clientY - box.top - panY) / zoom;
+  zoom = z;
+  panX = clientX - box.left - wx * zoom;
+  panY = clientY - box.top - wy * zoom;
+  render();
+}
+function zoomToCenter(next: number): void {
+  const box = svg.getBoundingClientRect();
+  zoomAt(next, box.left + box.width / 2, box.top + box.height / 2);
+}
+/** Fit all elements into the viewport with a little padding. */
+function fitView(): void {
+  const els = [...elements.values()];
+  if (!els.length) {
+    zoom = 1;
+    panX = 0;
+    panY = 0;
+    render();
+    return;
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const el of els) {
+    minX = Math.min(minX, el.x);
+    minY = Math.min(minY, el.y);
+    maxX = Math.max(maxX, el.x + el.width);
+    maxY = Math.max(maxY, el.y + el.height);
+  }
+  const box = svg.getBoundingClientRect();
+  const pad = 40;
+  const w = Math.max(1, maxX - minX);
+  const h = Math.max(1, maxY - minY);
+  zoom = clampZoom(
+    Math.min((box.width - pad * 2) / w, (box.height - pad * 2) / h),
+  );
+  panX = (box.width - w * zoom) / 2 - minX * zoom;
+  panY = (box.height - h * zoom) / 2 - minY * zoom;
+  render();
 }
 function rectOf(el: DesignElement): Rect {
   const r = resolved(el);

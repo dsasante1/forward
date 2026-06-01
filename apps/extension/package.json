@@ -29,6 +29,26 @@
         "title": "Open Design Canvas",
         "category": "API Design Connector",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "api-design-connector.removeDocumentation",
+        "title": "Remove API Documentation from Element",
+        "category": "API Design Connector"
+      },
+      {
+        "command": "api-design-connector.addInfraNode",
+        "title": "Add Infrastructure Node",
+        "category": "API Design Connector"
+      },
+      {
+        "command": "api-design-connector.linkInfraNodes",
+        "title": "Link Infrastructure Nodes",
+        "category": "API Design Connector"
+      },
+      {
+        "command": "api-design-connector.removeInfraNode",
+        "title": "Remove Infrastructure Node",
+        "category": "API Design Connector"
       }
     ],
     "menus": {

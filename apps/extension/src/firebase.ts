@@ -1,4 +1,12 @@
-import { ApiBinding, DesignElement, VersionEntry, paths } from "@adc/shared";
+import {
+  ApiBinding,
+  DesignElement,
+  InfraEdge,
+  InfraNode,
+  VersionEntry,
+  normalizeList,
+  paths,
+} from "@adc/shared";
 
 /**
  * Thin RTDB writer over the REST API so the extension stays dependency-light
@@ -56,6 +64,28 @@ export async function bindApiToElement(
 }
 
 /**
+ * Remove the API binding from an element (the docs "delete"), touch updatedAt so
+ * the canvas drops the pin live, and append a version entry recording the
+ * removal. The design element itself is untouched — only its annotation goes.
+ */
+export async function unbindApiFromElement(
+  cfg: FirebaseConfig,
+  elementId: string,
+  version: Omit<VersionEntry, "timestamp">,
+): Promise<void> {
+  await del(url(cfg, paths.apiBinding(cfg.projectId, elementId)));
+  await put(
+    url(cfg, `${paths.element(cfg.projectId, elementId)}/updatedAt`),
+    new Date().toISOString(),
+  );
+  const entry: VersionEntry = VersionEntry.parse({
+    ...version,
+    timestamp: Date.now(),
+  });
+  await post(url(cfg, paths.timeline(cfg.projectId, elementId)), entry);
+}
+
+/**
  * Read existing design elements (id + display name) so the editor can offer a
  * quick-pick of elements to annotate. Backend devs bind to what designers made.
  */
@@ -97,6 +127,69 @@ export async function fetchElements(
   return out;
 }
 
+/**
+ * Read the project's infrastructure graph (nodes + edges). Both subtrees may
+ * arrive as a literal array or a push-keyed object, so normalize on read; rows
+ * that don't satisfy the schema are skipped rather than failing the whole read.
+ */
+export async function fetchInfra(
+  cfg: FirebaseConfig,
+): Promise<{ nodes: InfraNode[]; edges: InfraEdge[] }> {
+  const [nodesRes, edgesRes] = await Promise.all([
+    fetch(url(cfg, paths.infraNodes(cfg.projectId))),
+    fetch(url(cfg, paths.infraEdges(cfg.projectId))),
+  ]);
+  if (!nodesRes.ok) throw new Error(`Firebase read failed: ${nodesRes.status}`);
+  if (!edgesRes.ok) throw new Error(`Firebase read failed: ${edgesRes.status}`);
+
+  const nodes: InfraNode[] = [];
+  for (const value of normalizeList(await nodesRes.json())) {
+    const parsed = InfraNode.safeParse(value);
+    if (parsed.success) nodes.push(parsed.data);
+  }
+  const edges: InfraEdge[] = [];
+  for (const value of normalizeList(await edgesRes.json())) {
+    const parsed = InfraEdge.safeParse(value);
+    if (parsed.success) edges.push(parsed.data);
+  }
+  return { nodes, edges };
+}
+
+/** Create or update one infrastructure node. */
+export async function saveInfraNode(
+  cfg: FirebaseConfig,
+  node: InfraNode,
+): Promise<void> {
+  const body = InfraNode.parse(node);
+  await put(url(cfg, paths.infraNode(cfg.projectId, body.id)), body);
+}
+
+/** Create or update one infrastructure edge. */
+export async function saveInfraEdge(
+  cfg: FirebaseConfig,
+  edge: InfraEdge,
+): Promise<void> {
+  const body = InfraEdge.parse(edge);
+  await put(url(cfg, paths.infraEdge(cfg.projectId, body.id)), body);
+}
+
+/**
+ * Remove an infrastructure node and any edges touching it, so the diagram never
+ * keeps a dangling connection to a node that no longer exists.
+ */
+export async function deleteInfraNode(
+  cfg: FirebaseConfig,
+  nodeId: string,
+): Promise<void> {
+  await del(url(cfg, paths.infraNode(cfg.projectId, nodeId)));
+  const { edges } = await fetchInfra(cfg);
+  await Promise.all(
+    edges
+      .filter((e) => e.from === nodeId || e.to === nodeId)
+      .map((e) => del(url(cfg, paths.infraEdge(cfg.projectId, e.id)))),
+  );
+}
+
 async function put(u: string, body: unknown): Promise<void> {
   const res = await fetch(u, {
     method: "PUT",
@@ -113,4 +206,9 @@ async function post(u: string, body: unknown): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Firebase append failed: ${res.status}`);
+}
+
+async function del(u: string): Promise<void> {
+  const res = await fetch(u, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Firebase delete failed: ${res.status}`);
 }
