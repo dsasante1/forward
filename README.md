@@ -28,7 +28,7 @@ change it there once and both apps stay in sync.
 | Path | What it is |
 |---|---|
 | [packages/shared](packages/shared) | Zod schemas + TS types for the design/binding tree (the data contract) |
-| [apps/extension](apps/extension) | VS Code extension: highlight a route → parse → annotate an existing design element |
+| [apps/extension](apps/extension) | VS Code extension: pick a design element → write API docs (any language/framework) onto it |
 | [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + version history |
 
 ## Using the canvas editor
@@ -60,6 +60,6 @@ Realtime Database. Config is read from local settings / env and is **never commi
 
 ## Status
 
-Figma-lite design editor + VS Code annotation bridge working offline end-to-end
-(29 unit tests across schema, parser and canvas geometry). Next: wire `LiveSource` to a
-real Firebase RTDB for live two-way sync.
+Figma-lite design editor + VS Code documentation bridge working offline end-to-end
+(26 unit tests across schema, canvas geometry and the extension's RTDB writer). Next: wire
+`LiveSource` to a real Firebase RTDB for live two-way sync.

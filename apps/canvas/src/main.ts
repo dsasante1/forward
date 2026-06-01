@@ -174,11 +174,14 @@ function drawElement(raw: DesignElement): SVGGElement {
     g.append(name);
   }
 
-  // API annotation badge — the whole point of the tool.
+  // API documentation badge — the whole point of the tool.
   if (raw.apiBinding) {
-    g.append(
-      badge(`${raw.apiBinding.method} ${raw.apiBinding.endpoint}`, el.x + 6, el.y + 14),
-    );
+    const b = raw.apiBinding;
+    const label =
+      b.method || b.endpoint
+        ? [b.method, b.endpoint].filter(Boolean).join(" ")
+        : b.title;
+    g.append(badge(label, el.x + 6, el.y + 14));
   }
   return g;
 }

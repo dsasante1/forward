@@ -63,30 +63,23 @@ export function renderPanel(
     );
   }
 
-  // --- API binding (authored from VS Code) ---
-  root.append(h("h3", "API binding"));
+  // --- API documentation (authored from VS Code) ---
+  root.append(h("h3", "API documentation"));
   if (!el.apiBinding) {
     root.append(
       h(
         "p",
-        "No endpoint yet. Annotate this element from VS Code via “Connect API Route to Design Canvas”.",
+        "No documentation yet. Document this element from VS Code via “Document API on Design Element”.",
         "empty",
       ),
     );
   } else {
     const b = el.apiBinding;
-    root.append(h("p", `${b.method} ${b.endpoint}`));
+    root.append(h("p", b.title));
+    if (b.language) root.append(h("p", b.language, "empty"));
+    if (b.method || b.endpoint)
+      root.append(h("p", [b.method, b.endpoint].filter(Boolean).join(" ")));
     if (b.description) root.append(h("p", b.description));
-    if (b.requestBody) root.append(fieldTable("Request body", b.requestBody));
-    if (b.responseSample)
-      root.append(
-        fieldTable(
-          "Response",
-          Object.fromEntries(
-            Object.entries(b.responseSample).map(([k, v]) => [k, String(v)]),
-          ),
-        ),
-      );
   }
 
   // --- version history ---
@@ -136,18 +129,6 @@ function textRow(
   input.value = value;
   input.addEventListener("change", () => onChange(input.value));
   return row(label, input);
-}
-
-function fieldTable(title: string, fields: Record<string, string>): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.append(h("p", title, "empty"));
-  const table = document.createElement("table");
-  const rows = Object.entries(fields)
-    .map(([k, v]) => `<tr><td><code>${esc(k)}</code></td><td>${esc(v)}</td></tr>`)
-    .join("");
-  table.innerHTML = `<tr><th>Field</th><th>Type</th></tr>${rows}`;
-  wrap.append(table);
-  return wrap;
 }
 
 function timelineList(timeline: VersionEntry[]): HTMLElement {
