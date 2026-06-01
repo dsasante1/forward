@@ -29,6 +29,11 @@
         "title": "Open Design Canvas",
         "category": "API Design Connector",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "api-design-connector.removeDocumentation",
+        "title": "Remove API Documentation from Element",
+        "category": "API Design Connector"
       }
     ],
     "menus": {

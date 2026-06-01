@@ -6,7 +6,9 @@ import type { ApiBinding, DesignElement } from "@adc/shared";
  * It never talks to Firebase itself — the extension host polls the RTDB and
  * posts the elements in (keeps the auth token out of the webview and lets the
  * CSP stay strict). For every element carrying an `apiBinding` we drop a
- * minimized pin over the design; clicking the pin expands the documentation.
+ * minimized pin over the design; clicking the pin expands the documentation,
+ * with Edit / Delete actions. Undocumented elements get an add button on hover.
+ * Those actions are sent back to the host, which runs the real prompt flow.
  */
 
 interface ElementsMessage {
@@ -19,11 +21,17 @@ declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
 const vscode = acquireVsCodeApi();
 
 const PAD = 24;
+const ZOOM_MIN = 0.2;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 1.2;
+
 let openId: string | null = null;
 let latest: DesignElement[] = [];
 let latestProject = "";
+let zoom = 1; // multiplier on top of the fit-to-width base scale; 1 = fit.
 
 const root = document.getElementById("app") as HTMLElement;
+const zoomLabel = document.getElementById("zoomLabel") as HTMLElement;
 
 window.addEventListener("message", (e: MessageEvent) => {
   const msg = e.data as ElementsMessage;
@@ -34,8 +42,13 @@ window.addEventListener("message", (e: MessageEvent) => {
   }
 });
 
-// Click anywhere that isn't a pin/card closes the open card.
+// Click anywhere that isn't a pin/card closes the open card — unless that
+// "click" was actually the tail end of a pan drag.
 document.addEventListener("click", (e) => {
+  if (panMoved) {
+    panMoved = false;
+    return;
+  }
   const t = e.target as HTMLElement;
   if (!t.closest(".pin") && !t.closest(".doccard")) {
     openId = null;
@@ -43,12 +56,77 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// --- pan by drag ----------------------------------------------------------
+// Drag the empty canvas to scroll the viewport. Interactive bits (pins, the
+// add button, an open card, the toolbar) keep their own click behaviour.
+let panning = false;
+let panMoved = false;
+let panStartX = 0;
+let panStartY = 0;
+let panScrollX = 0;
+let panScrollY = 0;
+
+root.addEventListener("mousedown", (e: MouseEvent) => {
+  if (e.button !== 0) return;
+  const t = e.target as HTMLElement;
+  if (t.closest(".pin, .addbtn, .doccard, .toolbar")) return;
+  panning = true;
+  panMoved = false;
+  panStartX = e.clientX;
+  panStartY = e.clientY;
+  panScrollX = window.scrollX;
+  panScrollY = window.scrollY;
+  document.body.classList.add("panning");
+  e.preventDefault();
+});
+
+window.addEventListener("mousemove", (e: MouseEvent) => {
+  if (!panning) return;
+  const dx = e.clientX - panStartX;
+  const dy = e.clientY - panStartY;
+  if (Math.abs(dx) > 3 || Math.abs(dy) > 3) panMoved = true;
+  window.scrollTo(panScrollX - dx, panScrollY - dy);
+});
+
+const endPan = () => {
+  if (!panning) return;
+  panning = false;
+  document.body.classList.remove("panning");
+};
+window.addEventListener("mouseup", endPan);
+window.addEventListener("mouseleave", endPan);
+
+// --- zoom controls --------------------------------------------------------
+(document.getElementById("zoomIn") as HTMLElement).addEventListener("click", () =>
+  setZoom(zoom * ZOOM_STEP),
+);
+(document.getElementById("zoomOut") as HTMLElement).addEventListener("click", () =>
+  setZoom(zoom / ZOOM_STEP),
+);
+(document.getElementById("zoomFit") as HTMLElement).addEventListener("click", () =>
+  setZoom(1),
+);
+window.addEventListener(
+  "wheel",
+  (e: WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    e.preventDefault();
+    setZoom(e.deltaY < 0 ? zoom * ZOOM_STEP : zoom / ZOOM_STEP);
+  },
+  { passive: false },
+);
 window.addEventListener("resize", render);
+
+function setZoom(next: number): void {
+  zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+  render();
+}
 
 // Tell the host we're ready to receive the first snapshot.
 vscode.postMessage({ type: "ready" });
 
 function render(): void {
+  zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
   root.replaceChildren();
 
   if (!latest.length) {
@@ -61,7 +139,7 @@ function render(): void {
 
   const bbox = bounds(latest);
   const avail = (root.clientWidth || 800) - PAD * 2;
-  const scale = Math.min(1, avail / Math.max(1, bbox.w));
+  const scale = Math.min(1, avail / Math.max(1, bbox.w)) * zoom;
 
   const world = document.createElement("div");
   world.className = "world";
@@ -115,9 +193,10 @@ function elementNode(
     }
   }
 
-  // The pin — minimized doc marker. Click to expand.
   if (el.apiBinding) {
-    node.append(pin(el.id, el.apiBinding));
+    node.append(pin(el.id, el.apiBinding)); // documented -> pin
+  } else {
+    node.append(addBtn(el.id)); // undocumented -> hover "+ Doc"
   }
   return node;
 }
@@ -134,12 +213,24 @@ function pin(id: string, b: ApiBinding): HTMLElement {
   });
 
   if (openId === id) {
-    button.append(docCard(b));
+    button.append(docCard(id, b));
   }
   return button;
 }
 
-function docCard(b: ApiBinding): HTMLElement {
+function addBtn(id: string): HTMLElement {
+  const button = document.createElement("button");
+  button.className = "addbtn";
+  button.title = "Document this element";
+  button.textContent = "+ Doc";
+  button.addEventListener("click", (e) => {
+    e.stopPropagation();
+    vscode.postMessage({ type: "document", id });
+  });
+  return button;
+}
+
+function docCard(id: string, b: ApiBinding): HTMLElement {
   const card = document.createElement("div");
   card.className = "doccard";
   card.addEventListener("click", (e) => e.stopPropagation());
@@ -156,7 +247,29 @@ function docCard(b: ApiBinding): HTMLElement {
     doc.innerHTML = mdToHtml(b.description);
     card.append(doc);
   }
+
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(
+    actionBtn("Edit", () => vscode.postMessage({ type: "edit", id })),
+    actionBtn("Delete", () =>
+      vscode.postMessage({ type: "delete", id, title: b.title }), "danger",
+    ),
+  );
+  card.append(actions);
   return card;
+}
+
+function actionBtn(label: string, onClick: () => void, cls = ""): HTMLElement {
+  const b = document.createElement("button");
+  b.textContent = label;
+  if (cls) b.className = cls;
+  b.addEventListener("click", () => {
+    openId = null; // host takes over with a prompt; close the card
+    onClick();
+    render();
+  });
+  return b;
 }
 
 function rowEl(tag: string, text: string, cls = ""): HTMLElement {

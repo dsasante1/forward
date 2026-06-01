@@ -56,6 +56,28 @@ export async function bindApiToElement(
 }
 
 /**
+ * Remove the API binding from an element (the docs "delete"), touch updatedAt so
+ * the canvas drops the pin live, and append a version entry recording the
+ * removal. The design element itself is untouched — only its annotation goes.
+ */
+export async function unbindApiFromElement(
+  cfg: FirebaseConfig,
+  elementId: string,
+  version: Omit<VersionEntry, "timestamp">,
+): Promise<void> {
+  await del(url(cfg, paths.apiBinding(cfg.projectId, elementId)));
+  await put(
+    url(cfg, `${paths.element(cfg.projectId, elementId)}/updatedAt`),
+    new Date().toISOString(),
+  );
+  const entry: VersionEntry = VersionEntry.parse({
+    ...version,
+    timestamp: Date.now(),
+  });
+  await post(url(cfg, paths.timeline(cfg.projectId, elementId)), entry);
+}
+
+/**
  * Read existing design elements (id + display name) so the editor can offer a
  * quick-pick of elements to annotate. Backend devs bind to what designers made.
  */
@@ -113,4 +135,9 @@ async function post(u: string, body: unknown): Promise<void> {
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Firebase append failed: ${res.status}`);
+}
+
+async function del(u: string): Promise<void> {
+  const res = await fetch(u, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Firebase delete failed: ${res.status}`);
 }

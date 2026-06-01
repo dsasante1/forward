@@ -4,6 +4,7 @@ import {
   bindApiToElement,
   fetchElements,
   listElements,
+  unbindApiFromElement,
   type FirebaseConfig,
 } from "./firebase.js";
 
@@ -18,6 +19,10 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("api-design-connector.openCanvas", () =>
       openCanvas(context),
+    ),
+    vscode.commands.registerCommand(
+      "api-design-connector.removeDocumentation",
+      removeDocumentationCommand,
     ),
   );
 
@@ -60,16 +65,26 @@ async function connectEndpoint(): Promise<void> {
   // Backend devs document elements the designers already drew. Pick one.
   const elementId = await pickElement(cfg);
   if (!elementId) return;
+  await documentElement(cfg, elementId);
+}
 
-  // The developer writes the documentation by hand — no parsing, no framework
-  // assumptions. Only `title` is required; the HTTP hints are optional, so the
-  // same flow documents a REST route, a GraphQL resolver or a CLI command.
-  const binding = await gatherDocumentation();
+/**
+ * Add or edit the documentation on one element. When `existing` is passed (an
+ * edit), the prompts are pre-filled with the current values. The developer
+ * writes the documentation by hand — no parsing, no framework assumptions —
+ * so the same flow documents a REST route, a GraphQL resolver or a CLI command.
+ */
+async function documentElement(
+  cfg: FirebaseConfig,
+  elementId: string,
+  existing?: ApiBinding,
+): Promise<void> {
+  const binding = await gatherDocumentation(existing);
   if (!binding) return;
 
   const changeLog = await vscode.window.showInputBox({
     prompt: `Change log for "${binding.title}"`,
-    value: "Update API documentation",
+    value: existing ? "Update API documentation" : "Add API documentation",
   });
   if (changeLog === undefined) return;
 
@@ -87,15 +102,69 @@ async function connectEndpoint(): Promise<void> {
   }
 }
 
+/** Palette entry point: pick a documented element, then remove its docs. */
+async function removeDocumentationCommand(): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+
+  let documented: Array<{ id: string; title: string }> = [];
+  try {
+    documented = (await fetchElements(cfg))
+      .filter((el) => el.apiBinding)
+      .map((el) => ({ id: el.id, title: el.apiBinding?.title ?? el.id }));
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!documented.length) {
+    vscode.window.showWarningMessage("No documented elements to remove.");
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    documented.map((d) => ({ label: d.title, detail: d.id, id: d.id })),
+    { placeHolder: "Remove documentation from which element?", matchOnDetail: true },
+  );
+  if (!choice) return;
+  await removeDocumentation(cfg, choice.id, choice.label);
+}
+
+/** Confirm, then strip the binding off one element. Shared by command + canvas. */
+async function removeDocumentation(
+  cfg: FirebaseConfig,
+  elementId: string,
+  title?: string,
+): Promise<void> {
+  const confirm = await vscode.window.showWarningMessage(
+    `Remove API documentation${title ? ` "${title}"` : ""} from ${elementId}?`,
+    { modal: true },
+    "Remove",
+  );
+  if (confirm !== "Remove") return;
+
+  try {
+    await unbindApiFromElement(cfg, elementId, {
+      version: new Date().toISOString(),
+      author: process.env.USER ?? "unknown",
+      changeLog: "Removed API documentation",
+    });
+    vscode.window.showInformationMessage(`Removed documentation from ${elementId}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Remove failed: ${(err as Error).message}`);
+  }
+}
+
 /**
  * Prompt the developer for the documentation to attach. Title is mandatory;
  * everything else is optional. Cancelling any required step (Esc) returns
  * undefined so the caller aborts cleanly.
  */
-async function gatherDocumentation(): Promise<ApiBinding | undefined> {
+async function gatherDocumentation(
+  existing?: ApiBinding,
+): Promise<ApiBinding | undefined> {
   const title = await vscode.window.showInputBox({
     prompt: "Title for this API / endpoint (required)",
     placeHolder: "e.g. Login, Fetch user profile, createOrder mutation",
+    value: existing?.title ?? "",
     validateInput: (v) => (v.trim() ? undefined : "A title is required."),
   });
   if (!title?.trim()) return undefined;
@@ -103,20 +172,25 @@ async function gatherDocumentation(): Promise<ApiBinding | undefined> {
   const description = await vscode.window.showInputBox({
     prompt: "Documentation (Markdown supported)",
     placeHolder: "What it does, params, request/response, gotchas…",
+    value: existing?.description ?? "",
   });
   if (description === undefined) return undefined;
 
   const language = await vscode.window.showInputBox({
     prompt: "Language / framework (optional)",
     placeHolder: "e.g. Python/FastAPI, Go, Node/Express, GraphQL",
+    value: existing?.language ?? "",
   });
   if (language === undefined) return undefined;
 
-  // Optional HTTP hints. Picking "none" documents a non-HTTP API.
-  const methodPick = await vscode.window.showQuickPick(
-    [...HttpMethod.options, NO_METHOD],
-    { placeHolder: "HTTP method (optional)" },
-  );
+  // Optional HTTP hints. Picking "none" documents a non-HTTP API. The current
+  // method (when editing) is floated to the top so it's the obvious default.
+  const methodOptions = existing?.method
+    ? [existing.method, ...HttpMethod.options.filter((m) => m !== existing.method), NO_METHOD]
+    : [...HttpMethod.options, NO_METHOD];
+  const methodPick = await vscode.window.showQuickPick(methodOptions, {
+    placeHolder: "HTTP method (optional)",
+  });
   if (methodPick === undefined) return undefined;
   const isHttp = methodPick !== NO_METHOD;
 
@@ -125,6 +199,7 @@ async function gatherDocumentation(): Promise<ApiBinding | undefined> {
     endpoint = await vscode.window.showInputBox({
       prompt: "Endpoint / path (optional)",
       placeHolder: "/api/v1/users/:id",
+      value: existing?.endpoint ?? "",
     });
     if (endpoint === undefined) return undefined;
   }
@@ -191,14 +266,44 @@ function openCanvas(context: vscode.ExtensionContext): void {
     }
   };
 
-  // The webview asks for the first frame once its script is live; from then on
-  // the interval keeps it fresh.
-  panel.webview.onDidReceiveMessage((msg: { type?: string }) => {
-    if (msg?.type === "ready") {
-      last = ""; // force the next poll to emit
-      void poll();
-    }
-  });
+  const refresh = () => {
+    last = ""; // force the next poll to emit
+    void poll();
+  };
+
+  // The webview asks for the first frame once its script is live; it also
+  // forwards the add/edit/delete actions the user triggers on the canvas.
+  panel.webview.onDidReceiveMessage(
+    async (msg: { type?: string; id?: string; title?: string }) => {
+      switch (msg?.type) {
+        case "ready":
+          refresh();
+          return;
+        case "document":
+        case "edit": {
+          if (!msg.id) return;
+          let existing: ApiBinding | undefined;
+          if (msg.type === "edit") {
+            try {
+              existing = (await fetchElements(cfg)).find(
+                (el) => el.id === msg.id,
+              )?.apiBinding;
+            } catch {
+              /* fall back to a blank form */
+            }
+          }
+          await documentElement(cfg, msg.id, existing);
+          refresh();
+          return;
+        }
+        case "delete":
+          if (!msg.id) return;
+          await removeDocumentation(cfg, msg.id, msg.title);
+          refresh();
+          return;
+      }
+    },
+  );
 
   timer = setInterval(() => void poll(), POLL_MS);
   panel.onDidDispose(() => {
@@ -222,9 +327,23 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
-  body { margin: 0; padding: 16px; font-family: var(--vscode-font-family); color: var(--vscode-foreground); }
-  .empty { opacity: 0.6; }
-  #app { position: relative; }
+  body { margin: 0; padding: 0; font-family: var(--vscode-font-family); color: var(--vscode-foreground); }
+  .empty { opacity: 0.6; padding: 16px; }
+  .toolbar {
+    position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 6px;
+    padding: 6px 12px; background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+  }
+  .toolbar button {
+    min-width: 26px; padding: 2px 8px; cursor: pointer; border: none; border-radius: 4px;
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  }
+  .toolbar button:hover { filter: brightness(1.15); }
+  .toolbar #zoomLabel { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+  .toolbar .hint { margin-left: auto; opacity: 0.55; font-size: 11px; }
+  #app { position: relative; padding: 16px; cursor: grab; }
+  body.panning, body.panning #app { cursor: grabbing; user-select: none; }
   .world { position: relative; }
   .el { position: absolute; box-sizing: border-box; border: 1px solid var(--vscode-panel-border); overflow: visible; }
   .el-frame { background: rgba(127,127,127,0.06); }
@@ -237,6 +356,14 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
     background: var(--vscode-button-background); color: var(--vscode-button-foreground);
   }
   .pin:hover { filter: brightness(1.15); }
+  .addbtn {
+    position: absolute; top: -10px; right: -10px; z-index: 4; opacity: 0;
+    font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 9px; cursor: pointer;
+    border: 1px dashed var(--vscode-panel-border); background: var(--vscode-editor-background);
+    color: var(--vscode-foreground); transition: opacity 0.1s;
+  }
+  .el:hover > .addbtn { opacity: 0.85; }
+  .addbtn:hover { opacity: 1; }
   .doccard {
     position: absolute; top: 18px; right: 0; z-index: 10; cursor: default;
     width: 260px; max-height: 320px; overflow: auto; text-align: left;
@@ -252,9 +379,24 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
   .doccard .params { font-size: 11px; opacity: 0.7; margin-bottom: 6px; }
   .doccard .doc { font-size: 12px; line-height: 1.45; }
   .doccard code { font-family: var(--vscode-editor-font-family, monospace); background: rgba(127,127,127,0.2); padding: 0 3px; border-radius: 3px; }
+  .doccard .actions { display: flex; gap: 6px; margin-top: 10px; }
+  .doccard .actions button {
+    flex: 1; padding: 3px 8px; cursor: pointer; border: none; border-radius: 4px;
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  }
+  .doccard .actions button.danger:hover { background: var(--vscode-errorForeground, #c33); color: #fff; }
+  .doccard .actions button:hover { filter: brightness(1.15); }
 </style>
 </head>
 <body>
+<div class="toolbar">
+  <button id="zoomOut" title="Zoom out">−</button>
+  <span id="zoomLabel">100%</span>
+  <button id="zoomIn" title="Zoom in">+</button>
+  <button id="zoomFit" title="Fit to width">Fit</button>
+  <span class="hint">Ctrl/⌘ + scroll to zoom</span>
+</div>
 <div id="app"></div>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
