@@ -1,4 +1,12 @@
-import { ApiBinding, DesignElement, VersionEntry, paths } from "@adc/shared";
+import {
+  ApiBinding,
+  DesignElement,
+  InfraEdge,
+  InfraNode,
+  VersionEntry,
+  normalizeList,
+  paths,
+} from "@adc/shared";
 
 /**
  * Thin RTDB writer over the REST API so the extension stays dependency-light
@@ -117,6 +125,69 @@ export async function fetchElements(
     if (parsed.success) out.push(parsed.data);
   }
   return out;
+}
+
+/**
+ * Read the project's infrastructure graph (nodes + edges). Both subtrees may
+ * arrive as a literal array or a push-keyed object, so normalize on read; rows
+ * that don't satisfy the schema are skipped rather than failing the whole read.
+ */
+export async function fetchInfra(
+  cfg: FirebaseConfig,
+): Promise<{ nodes: InfraNode[]; edges: InfraEdge[] }> {
+  const [nodesRes, edgesRes] = await Promise.all([
+    fetch(url(cfg, paths.infraNodes(cfg.projectId))),
+    fetch(url(cfg, paths.infraEdges(cfg.projectId))),
+  ]);
+  if (!nodesRes.ok) throw new Error(`Firebase read failed: ${nodesRes.status}`);
+  if (!edgesRes.ok) throw new Error(`Firebase read failed: ${edgesRes.status}`);
+
+  const nodes: InfraNode[] = [];
+  for (const value of normalizeList(await nodesRes.json())) {
+    const parsed = InfraNode.safeParse(value);
+    if (parsed.success) nodes.push(parsed.data);
+  }
+  const edges: InfraEdge[] = [];
+  for (const value of normalizeList(await edgesRes.json())) {
+    const parsed = InfraEdge.safeParse(value);
+    if (parsed.success) edges.push(parsed.data);
+  }
+  return { nodes, edges };
+}
+
+/** Create or update one infrastructure node. */
+export async function saveInfraNode(
+  cfg: FirebaseConfig,
+  node: InfraNode,
+): Promise<void> {
+  const body = InfraNode.parse(node);
+  await put(url(cfg, paths.infraNode(cfg.projectId, body.id)), body);
+}
+
+/** Create or update one infrastructure edge. */
+export async function saveInfraEdge(
+  cfg: FirebaseConfig,
+  edge: InfraEdge,
+): Promise<void> {
+  const body = InfraEdge.parse(edge);
+  await put(url(cfg, paths.infraEdge(cfg.projectId, body.id)), body);
+}
+
+/**
+ * Remove an infrastructure node and any edges touching it, so the diagram never
+ * keeps a dangling connection to a node that no longer exists.
+ */
+export async function deleteInfraNode(
+  cfg: FirebaseConfig,
+  nodeId: string,
+): Promise<void> {
+  await del(url(cfg, paths.infraNode(cfg.projectId, nodeId)));
+  const { edges } = await fetchInfra(cfg);
+  await Promise.all(
+    edges
+      .filter((e) => e.from === nodeId || e.to === nodeId)
+      .map((e) => del(url(cfg, paths.infraEdge(cfg.projectId, e.id)))),
+  );
 }
 
 async function put(u: string, body: unknown): Promise<void> {

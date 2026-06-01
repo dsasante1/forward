@@ -1,4 +1,11 @@
-import { DesignElement, VersionEntry, normalizeList, paths } from "@adc/shared";
+import {
+  DesignElement,
+  InfraEdge,
+  InfraNode,
+  VersionEntry,
+  normalizeList,
+  paths,
+} from "@adc/shared";
 
 /**
  * Data source for the canvas editor. Implementations:
@@ -15,9 +22,17 @@ export interface ElementSnapshot {
   timeline: VersionEntry[];
 }
 
+/** The project's infrastructure graph (pillar 3) — standalone nodes + edges. */
+export interface InfraSnapshot {
+  nodes: InfraNode[];
+  edges: InfraEdge[];
+}
+
 export interface CanvasSource {
   /** Subscribe to all elements in the project; fires on every change. */
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
+  /** Subscribe to the infrastructure graph; fires on every change. */
+  subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
   /** Create or update an element (the editor persists geometry/style here). */
   saveElement(element: DesignElement): Promise<void>;
   /** Remove an element. */
@@ -32,7 +47,9 @@ export interface CanvasSource {
 export class FixtureSource implements CanvasSource {
   private elements = new Map<string, DesignElement>();
   private timelines = new Map<string, VersionEntry[]>();
+  private infra: InfraSnapshot = { nodes: [], edges: [] };
   private listeners = new Set<(els: ElementSnapshot[]) => void>();
+  private infraListeners = new Set<(infra: InfraSnapshot) => void>();
   private loaded = false;
 
   constructor(
@@ -49,6 +66,13 @@ export class FixtureSource implements CanvasSource {
       onChange(this.snapshot());
     }
     return () => this.listeners.delete(onChange);
+  }
+
+  subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void {
+    this.infraListeners.add(onChange);
+    if (this.loaded) onChange(this.infra);
+    // If not yet loaded, load()'s emit() will fan out to infra listeners too.
+    return () => this.infraListeners.delete(onChange);
   }
 
   async saveElement(element: DesignElement): Promise<void> {
@@ -80,6 +104,19 @@ export class FixtureSource implements CanvasSource {
     for (const [id, list] of Object.entries(tls)) {
       this.timelines.set(id, list.map((v) => VersionEntry.parse(v)));
     }
+
+    const infraNodes =
+      (tree.infra_nodes as Record<string, Record<string, unknown>>)?.[
+        this.projectId
+      ] ?? {};
+    const infraEdges =
+      (tree.infra_edges as Record<string, Record<string, unknown>>)?.[
+        this.projectId
+      ] ?? {};
+    this.infra = {
+      nodes: Object.values(infraNodes).map((n) => InfraNode.parse(n)),
+      edges: Object.values(infraEdges).map((e) => InfraEdge.parse(e)),
+    };
   }
 
   private snapshot(): ElementSnapshot[] {
@@ -92,6 +129,7 @@ export class FixtureSource implements CanvasSource {
   private emit(): void {
     const snap = this.snapshot();
     for (const fn of this.listeners) fn(snap);
+    for (const fn of this.infraListeners) fn(this.infra);
   }
 }
 
@@ -165,6 +203,35 @@ export class LiveSource implements CanvasSource {
       });
     })();
     return () => unsub();
+  }
+
+  subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void {
+    let unsubNodes = () => {};
+    let unsubEdges = () => {};
+    let nodes: InfraNode[] = [];
+    let edges: InfraEdge[] = [];
+    const emit = () => onChange({ nodes, edges });
+    void (async () => {
+      const { db, ref, onValue } = await this.fb();
+      unsubNodes = onValue(ref(db, paths.infraNodes(this.projectId)), (snap) => {
+        nodes = normalizeList(snap.val()).flatMap((v) => {
+          const p = InfraNode.safeParse(v);
+          return p.success ? [p.data] : [];
+        });
+        emit();
+      });
+      unsubEdges = onValue(ref(db, paths.infraEdges(this.projectId)), (snap) => {
+        edges = normalizeList(snap.val()).flatMap((v) => {
+          const p = InfraEdge.safeParse(v);
+          return p.success ? [p.data] : [];
+        });
+        emit();
+      });
+    })();
+    return () => {
+      unsubNodes();
+      unsubEdges();
+    };
   }
 
   async saveElement(element: DesignElement): Promise<void> {

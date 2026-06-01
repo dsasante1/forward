@@ -7,14 +7,19 @@ import { z } from "zod";
  * favours shallow trees) and treat it as the single source of truth: if a shape
  * changes, change it here once and both apps follow.
  *
- * Two layers, intentionally separate:
+ * Three layers, intentionally separate:
  *   1. DESIGN  — what a designer draws on the canvas (frames, shapes, text,
  *      components). This is the primary artefact and exists on its own.
  *   2. API BINDING — an OPTIONAL documentation note the backend attaches to a
  *      design element from VS Code. Most elements never get one.
+ *   3. INFRASTRUCTURE — an OPTIONAL, PROJECT-SCOPED diagram of the tools,
+ *      frameworks, databases and DevOps resources behind the project. Unlike an
+ *      apiBinding it is not attached to any design element: it is its own graph
+ *      of nodes + edges, rendered as a separate overlay.
  *
  * So: a design element MAY own an apiBinding; an endpoint is never a first-class
- * canvas object by itself.
+ * canvas object by itself; and the infrastructure graph stands entirely apart
+ * from the design elements.
  */
 
 // --------------------------------------------------------------------------
@@ -96,6 +101,58 @@ export const DesignElement = z.object({
 export type DesignElement = z.infer<typeof DesignElement>;
 
 // --------------------------------------------------------------------------
+// Infrastructure layer (the architecture diagram — pillar 3)
+// --------------------------------------------------------------------------
+
+/** What a node represents — drives its colour/icon in the overlay. */
+export const InfraKind = z.enum([
+  "frontend", // web/mobile client
+  "backend", // API server / app service
+  "database", // SQL/NoSQL store
+  "cache", // Redis, Memcached…
+  "queue", // Kafka, SQS, RabbitMQ…
+  "service", // internal microservice
+  "devops", // CI/CD, container, IaC, monitoring
+  "external", // third-party / SaaS dependency
+  "group", // a container box that visually groups other nodes
+]);
+export type InfraKind = z.infer<typeof InfraKind>;
+
+/**
+ * One box in the infrastructure diagram. Project-scoped and standalone — it does
+ * NOT reference a design element. Geometry mirrors DesignElement (absolute canvas
+ * space) so the existing pan/zoom/geometry helpers apply unchanged; `parentId`
+ * nests a node inside a "group" container.
+ */
+export const InfraNode = z.object({
+  id: z.string().min(1),
+  kind: InfraKind,
+  /** Display name, e.g. "PostgreSQL", "GitHub Actions". */
+  label: z.string().min(1),
+  /** Optional version/runtime tag, e.g. "v15", "Node 20". */
+  tech: z.string().optional(),
+  /** Free-form Markdown notes (rendered with the same subset as apiBinding). */
+  description: z.string().default(""),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative().default(160),
+  height: z.number().nonnegative().default(72),
+  parentId: z.string().nullable().default(null),
+  updatedAt: z.string().datetime(),
+});
+export type InfraNode = z.infer<typeof InfraNode>;
+
+/** A directed connection between two infra nodes (e.g. "reads/writes"). */
+export const InfraEdge = z.object({
+  id: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  label: z.string().optional(),
+  updatedAt: z.string().datetime(),
+});
+export type InfraEdge = z.infer<typeof InfraEdge>;
+
+// --------------------------------------------------------------------------
 // Versioning + config
 // --------------------------------------------------------------------------
 
@@ -123,6 +180,8 @@ export const DatabaseTree = z.object({
   user_configs: z.record(UserConfig).default({}),
   design_elements: z.record(z.record(DesignElement)).default({}),
   version_timeline: z.record(z.record(z.array(VersionEntry))).default({}),
+  infra_nodes: z.record(z.record(InfraNode)).default({}),
+  infra_edges: z.record(z.record(InfraEdge)).default({}),
 });
 export type DatabaseTree = z.infer<typeof DatabaseTree>;
 
@@ -137,4 +196,11 @@ export const paths = {
   timeline: (projectId: string, elementId: string) =>
     `version_timeline/${projectId}/${elementId}`,
   userConfig: (userId: string) => `user_configs/${userId}`,
+  // Infrastructure graph — project-scoped, separate from design_elements.
+  infraNodes: (projectId: string) => `infra_nodes/${projectId}`,
+  infraNode: (projectId: string, nodeId: string) =>
+    `infra_nodes/${projectId}/${nodeId}`,
+  infraEdges: (projectId: string) => `infra_edges/${projectId}`,
+  infraEdge: (projectId: string, edgeId: string) =>
+    `infra_edges/${projectId}/${edgeId}`,
 } as const;

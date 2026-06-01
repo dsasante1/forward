@@ -1,5 +1,16 @@
-import { DesignElement, VersionEntry, normalizeList, paths } from "@adc/shared";
-import type { CanvasSource, ElementSnapshot } from "./firebase.js";
+import {
+  DesignElement,
+  InfraEdge,
+  InfraNode,
+  VersionEntry,
+  normalizeList,
+  paths,
+} from "@adc/shared";
+import type {
+  CanvasSource,
+  ElementSnapshot,
+  InfraSnapshot,
+} from "./firebase.js";
 
 /**
  * A CanvasSource that talks to the Firebase RTDB *REST* API directly, polling
@@ -12,7 +23,9 @@ import type { CanvasSource, ElementSnapshot } from "./firebase.js";
  */
 export class RestSource implements CanvasSource {
   private timer: ReturnType<typeof setInterval> | undefined;
+  private infraTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
+  private lastInfraJson = "";
 
   constructor(
     private readonly databaseUrl: string,
@@ -44,6 +57,42 @@ export class RestSource implements CanvasSource {
     return () => {
       if (this.timer) clearInterval(this.timer);
     };
+  }
+
+  subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void {
+    const tick = async () => {
+      try {
+        const infra = await this.fetchInfra();
+        const json = JSON.stringify(infra);
+        if (json !== this.lastInfraJson) {
+          this.lastInfraJson = json;
+          onChange(infra);
+        }
+      } catch (err) {
+        console.warn("[rest-source] infra poll failed:", err);
+      }
+    };
+    void tick();
+    this.infraTimer = setInterval(tick, this.pollMs);
+    return () => {
+      if (this.infraTimer) clearInterval(this.infraTimer);
+    };
+  }
+
+  private async fetchInfra(): Promise<InfraSnapshot> {
+    const [nodesRes, edgesRes] = await Promise.all([
+      fetch(this.url(paths.infraNodes(this.projectId))),
+      fetch(this.url(paths.infraEdges(this.projectId))),
+    ]);
+    const nodes = normalizeList(await nodesRes.json()).flatMap((v) => {
+      const p = InfraNode.safeParse(v);
+      return p.success ? [p.data] : [];
+    });
+    const edges = normalizeList(await edgesRes.json()).flatMap((v) => {
+      const p = InfraEdge.safeParse(v);
+      return p.success ? [p.data] : [];
+    });
+    return { nodes, edges };
   }
 
   private async fetchAll(): Promise<ElementSnapshot[]> {
