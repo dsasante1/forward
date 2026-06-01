@@ -25,11 +25,36 @@ describe("DesignElement contract", () => {
       y: 0,
       width: 320,
       height: 200,
-      apiBinding: { endpoint: "/api/v1/users/login", method: "POST" },
+      apiBinding: {
+        title: "Log in",
+        endpoint: "/api/v1/users/login",
+        method: "POST",
+      },
       updatedAt: "2026-05-28T11:45:00Z",
     });
+    expect(el.apiBinding?.title).toBe("Log in");
     expect(el.apiBinding?.method).toBe("POST");
     expect(el.apiBinding?.parameters).toEqual([]);
+  });
+
+  it("accepts a framework-agnostic binding with no HTTP fields", () => {
+    const el = DesignElement.parse({
+      id: "el_resolver",
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 40,
+      apiBinding: {
+        title: "createOrder mutation",
+        language: "GraphQL",
+        description: "Places an order for the current cart.",
+      },
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(el.apiBinding?.language).toBe("GraphQL");
+    expect(el.apiBinding?.method).toBeUndefined();
+    expect(el.apiBinding?.endpoint).toBeUndefined();
   });
 
   it("records hierarchy via parentId and component links", () => {
@@ -83,9 +108,10 @@ describe("DatabaseTree", () => {
             width: 320,
             height: 200,
             apiBinding: {
+              title: "Log in",
               endpoint: "/api/v1/users/login",
               method: "POST",
-              requestBody: { email: "string", password: "string" },
+              description: "Body: email, password.",
             },
             updatedAt: "2026-05-28T11:45:00Z",
           },

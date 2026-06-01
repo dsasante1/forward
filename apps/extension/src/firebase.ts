@@ -1,4 +1,4 @@
-import { ApiPayload, VersionEntry, paths } from "@adc/shared";
+import { ApiBinding, DesignElement, VersionEntry, paths } from "@adc/shared";
 
 /**
  * Thin RTDB writer over the REST API so the extension stays dependency-light
@@ -6,7 +6,7 @@ import { ApiPayload, VersionEntry, paths } from "@adc/shared";
  * the user's own settings.
  *
  * The extension never creates design elements — designers do that on the canvas.
- * It only *annotates* an existing element by writing into that element's
+ * It only *documents* an existing element by writing into that element's
  * `apiBinding` sub-tree, then appends a version-history entry.
  *
  * For private databases, pass an auth token (Firebase ID token / DB secret) and
@@ -27,16 +27,16 @@ function url(cfg: FirebaseConfig, path: string): string {
 }
 
 /**
- * Attach (or update) the API binding on an existing design element, and append
- * an immutable version entry to its history.
+ * Attach (or update) the API documentation on an existing design element, and
+ * append an immutable version entry to its history.
  */
 export async function bindApiToElement(
   cfg: FirebaseConfig,
   elementId: string,
-  payload: ApiPayload,
+  payload: ApiBinding,
   version: Omit<VersionEntry, "timestamp">,
 ): Promise<void> {
-  const binding: ApiPayload = ApiPayload.parse(payload);
+  const binding: ApiBinding = ApiBinding.parse(payload);
 
   // 1. Write the binding onto the element (leaves the element's geometry intact).
   await put(url(cfg, paths.apiBinding(cfg.projectId, elementId)), binding);
@@ -74,6 +74,27 @@ export async function listElements(
     name: el.name ?? "",
     type: el.type ?? "element",
   }));
+}
+
+/**
+ * Read the full design elements (geometry + style + apiBinding) for a project,
+ * so the in-editor canvas webview can render the design and overlay the docs.
+ * Elements that don't satisfy the schema are skipped rather than failing the
+ * whole read.
+ */
+export async function fetchElements(
+  cfg: FirebaseConfig,
+): Promise<DesignElement[]> {
+  const res = await fetch(url(cfg, paths.projectElements(cfg.projectId)));
+  if (!res.ok) throw new Error(`Firebase read failed: ${res.status}`);
+  const body = (await res.json()) as Record<string, unknown> | null;
+  if (!body) return [];
+  const out: DesignElement[] = [];
+  for (const value of Object.values(body)) {
+    const parsed = DesignElement.safeParse(value);
+    if (parsed.success) out.push(parsed.data);
+  }
+  return out;
 }
 
 async function put(u: string, body: unknown): Promise<void> {

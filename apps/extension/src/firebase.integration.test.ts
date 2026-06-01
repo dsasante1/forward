@@ -63,13 +63,14 @@ describe("extension firebase REST integration", () => {
     await bindApiToElement(
       cfg,
       ELEMENT,
-      { endpoint: "/api/v1/users/login", method: "POST", parameters: [] },
+      { title: "Log in", endpoint: "/api/v1/users/login", method: "POST", description: "", parameters: [] },
       { version: "v1.0.0", author: "tester", changeLog: "first bind" },
     );
 
     const stored = mock.db.design_elements[PROJECT][ELEMENT];
     // Binding landed in the right sub-path…
     expect(stored.apiBinding).toMatchObject({
+      title: "Log in",
       endpoint: "/api/v1/users/login",
       method: "POST",
     });
@@ -85,7 +86,7 @@ describe("extension firebase REST integration", () => {
     await bindApiToElement(
       cfg,
       ELEMENT,
-      { endpoint: "/x", method: "GET", parameters: [] },
+      { title: "Probe", endpoint: "/x", method: "GET", description: "", parameters: [] },
       { version: "v2.0.0", author: "tester", changeLog: "second bind" },
     );
 
@@ -93,12 +94,13 @@ describe("extension firebase REST integration", () => {
     const timeline = mock.db.version_timeline[PROJECT][ELEMENT];
     const entries = Object.values(timeline) as Array<Record<string, unknown>>;
     expect(entries).toHaveLength(1);
-    expect(entries[0]).toMatchObject({
+    const [entry] = entries;
+    expect(entry).toMatchObject({
       version: "v2.0.0",
       author: "tester",
       changeLog: "second bind",
     });
-    expect(entries[0]!.timestamp).toBeGreaterThanOrEqual(before);
+    expect(entry?.timestamp).toBeGreaterThanOrEqual(before);
   });
 
   it("appends (not overwrites) on repeated binds to the same element", async () => {
@@ -106,7 +108,7 @@ describe("extension firebase REST integration", () => {
       bindApiToElement(
         cfg,
         ELEMENT,
-        { endpoint: "/x", method: "GET", parameters: [] },
+        { title: "Probe", endpoint: "/x", method: "GET", description: "", parameters: [] },
         { version: v, author: "tester", changeLog: v },
       );
     await bind("v1");
@@ -125,7 +127,7 @@ describe("extension firebase REST integration", () => {
       bindApiToElement(
         bad,
         ELEMENT,
-        { endpoint: "/x", method: "GET", parameters: [] },
+        { title: "Probe", endpoint: "/x", method: "GET", description: "", parameters: [] },
         { version: "v", author: "t", changeLog: "c" },
       ),
     ).rejects.toThrow();

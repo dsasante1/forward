@@ -38,12 +38,12 @@
         "text": "Log in",
         "style": { "fill": "#5b8cff", "radius": 8, "color": "#ffffff" },
         "apiBinding": {
+          "title": "Log in",
+          "language": "Node/Express",
           "endpoint": "/api/v1/users/login",
           "method": "POST",
-          "description": "Authenticates user accounts and issues transient JWT session keys.",
           "parameters": [],
-          "requestBody": { "email": "string", "password": "string" },
-          "responseSample": { "status": "success", "token": "eyJhbG..." }
+          "description": "Authenticates user accounts and issues transient JWT session keys.\n\n**Body:** `email`, `password`\n\n**200:** `{ status, token }`"
         },
         "updatedAt": "2026-05-28T11:45:00Z"
       },
@@ -58,11 +58,12 @@
         "parentId": null,
         "style": { "fill": "#1b2030", "stroke": "#3a4250", "radius": 8 },
         "apiBinding": {
+          "title": "Fetch user profile",
+          "language": "Python/FastAPI",
           "endpoint": "/api/v1/users/:id",
           "method": "GET",
-          "description": "Fetches a user profile by id.",
           "parameters": ["id"],
-          "responseSample": { "id": "u_1", "name": "Ada" }
+          "description": "Fetches a user profile by id.\n\n**200:** `{ id, name }`"
         },
         "updatedAt": "2026-05-27T09:00:00Z"
       }

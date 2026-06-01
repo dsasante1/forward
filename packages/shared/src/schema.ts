@@ -10,30 +10,40 @@ import { z } from "zod";
  * Two layers, intentionally separate:
  *   1. DESIGN  — what a designer draws on the canvas (frames, shapes, text,
  *      components). This is the primary artefact and exists on its own.
- *   2. API BINDING — an OPTIONAL annotation the backend attaches to a design
- *      element from VS Code. Most elements never get one.
+ *   2. API BINDING — an OPTIONAL documentation note the backend attaches to a
+ *      design element from VS Code. Most elements never get one.
  *
  * So: a design element MAY own an apiBinding; an endpoint is never a first-class
  * canvas object by itself.
  */
 
 // --------------------------------------------------------------------------
-// API binding (the backend annotation — pillar 2)
+// API binding (the backend documentation — pillar 2)
 // --------------------------------------------------------------------------
 
 export const HttpMethod = z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 export type HttpMethod = z.infer<typeof HttpMethod>;
 
-/** What the VS Code extension parses out of a highlighted route. */
-export const ApiPayload = z.object({
-  endpoint: z.string().min(1),
-  method: HttpMethod,
+/**
+ * Documentation a backend dev attaches to a design element from VS Code.
+ *
+ * Docs-first and framework-agnostic. `title` + Markdown `description` are the
+ * core and carry the meaning; `language`, `method`, `endpoint` and `parameters`
+ * are OPTIONAL structured hints for REST-style HTTP endpoints. A GraphQL, gRPC,
+ * CLI or background-job binding just fills in `title` + `language` + the docs
+ * and leaves the HTTP fields blank — nothing here assumes Express or JavaScript.
+ */
+export const ApiBinding = z.object({
+  title: z.string().min(1),
   description: z.string().default(""),
+  /** Free-form language/framework tag, e.g. "Python/FastAPI", "Go", "GraphQL". */
+  language: z.string().optional(),
+  /** Optional HTTP hints — present for REST endpoints, omitted otherwise. */
+  method: HttpMethod.optional(),
+  endpoint: z.string().optional(),
   parameters: z.array(z.string()).default([]),
-  requestBody: z.record(z.string()).optional(),
-  responseSample: z.record(z.unknown()).optional(),
 });
-export type ApiPayload = z.infer<typeof ApiPayload>;
+export type ApiBinding = z.infer<typeof ApiBinding>;
 
 // --------------------------------------------------------------------------
 // Design layer (what the designer draws — pillar 1)
@@ -78,8 +88,8 @@ export const DesignElement = z.object({
   style: Style.optional(),
   /** For type === "instance": the id of the source component element. */
   componentId: z.string().optional(),
-  /** Optional API annotation attached by the backend from VS Code. */
-  apiBinding: ApiPayload.optional(),
+  /** Optional API documentation attached by the backend from VS Code. */
+  apiBinding: ApiBinding.optional(),
   /** ISO-8601 timestamp of the last write. */
   updatedAt: z.string().datetime(),
 });
