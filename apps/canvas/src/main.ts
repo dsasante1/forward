@@ -49,6 +49,7 @@ const infraNodes = new Map<string, InfraNode>();
 let infraEdges: InfraEdge[] = [];
 let tool: Tool = "select";
 let selectedId: string | null = null;
+let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
 let showDocs = true; // show/hide the minimized API indicators on documented elements
 let showInfra = false; // show/hide the infrastructure diagram overlay
 
@@ -172,6 +173,15 @@ function render(): void {
   vp.append(design);
 
   if (showInfra) vp.append(drawInfraLayer());
+
+  // Focus-mode doc leader: the selected (or hovered) element draws one leader
+  // line out to its documentation. Appended to the viewport AFTER the design
+  // group so it stays full-opacity even when the infra overlay dims the design.
+  if (showDocs) {
+    const focusId = selectedId ?? hoverId;
+    const focus = focusId ? elements.get(focusId) : undefined;
+    if (focus?.apiBinding) vp.append(drawDocLeader(focus));
+  }
 
   svg.append(vp);
   updateZoomLabel();
@@ -365,6 +375,67 @@ function handles(el: DesignElement): SVGElement[] {
   return [h];
 }
 
+/**
+ * Draw a single leader line from a documented element out to a label box, in
+ * the anime.js callout style: anchor on the element's right edge → short stub →
+ * rise → label. World-space, so it pans/zooms with the design. The label is
+ * clickable (carries data-id) so it selects the element and opens its docs.
+ */
+function drawDocLeader(raw: DesignElement): SVGGElement {
+  const el = resolved(raw);
+  const b = raw.apiBinding;
+  if (!b) return svgEl("g", {}) as SVGGElement;
+  const primary =
+    b.method || b.endpoint
+      ? [b.method, b.endpoint].filter(Boolean).join(" ")
+      : b.title;
+  const secondary = b.method || b.endpoint ? b.title : (b.language ?? "");
+
+  // Anchor at the right-edge midpoint, elbow out and up to lift the label clear.
+  const ax = el.x + el.width;
+  const ay = el.y + el.height / 2;
+  const stub = ax + 28;
+  const labelY = ay - 24;
+  const labelX = stub + 34;
+
+  const g = svgEl("g", { class: "doc-leader" }) as SVGGElement;
+  g.dataset.id = raw.id;
+
+  const path = svgEl("polyline", {
+    points: `${ax},${ay} ${stub},${ay} ${stub},${labelY} ${labelX - 6},${labelY}`,
+    class: "doc-leader-line",
+  });
+  g.append(path);
+
+  const dot = svgEl("circle", {
+    cx: String(ax),
+    cy: String(ay),
+    r: "3",
+    class: "doc-leader-dot",
+  });
+  g.append(dot);
+
+  // Approximate width from the longer line (bold ~7px/char, sub ~6px/char).
+  const w = Math.max(primary.length * 7, secondary.length * 6) + 16;
+  const hasSub = secondary.length > 0;
+  const boxH = hasSub ? 34 : 22;
+  const bg = svgEl("rect", {
+    x: String(labelX - 6),
+    y: String(labelY - boxH / 2),
+    width: String(w),
+    height: String(boxH),
+    rx: "5",
+    class: "doc-leader-bg",
+  });
+  g.append(bg);
+
+  const title = text(primary, labelX, hasSub ? labelY - 2 : labelY + 4, "doc-leader-label");
+  g.append(title);
+  if (hasSub) g.append(text(secondary, labelX, labelY + 12, "doc-leader-sub"));
+
+  return g;
+}
+
 // ========================================================================
 // Pointer interaction
 // ========================================================================
@@ -498,6 +569,18 @@ svg.addEventListener("pointerup", () => {
   if (gesture.kind === "create") setTool("select");
   gesture = null;
   render();
+});
+
+// Track the element under the pointer so a documented one shows its doc leader
+// on hover. Skip while a gesture is in flight to avoid churn during drags.
+svg.addEventListener("pointerover", (e) => {
+  if (gesture) return;
+  const elEl = (e.target as Element).closest?.("[data-id]");
+  const id = elEl instanceof SVGElement ? (elEl.dataset.id ?? null) : null;
+  if (id !== hoverId) {
+    hoverId = id;
+    if (showDocs) render();
+  }
 });
 
 window.addEventListener("keydown", (e) => {

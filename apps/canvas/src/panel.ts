@@ -1,4 +1,9 @@
-import type { DesignElement, VersionEntry } from "@adc/shared";
+import {
+  type ApiBinding,
+  type DesignElement,
+  HttpMethod,
+  type VersionEntry,
+} from "@adc/shared";
 
 type Patch = Partial<DesignElement>;
 
@@ -63,28 +68,82 @@ export function renderPanel(
     );
   }
 
-  // --- API documentation (authored from VS Code) ---
+  // --- API documentation (authored here in the canvas OR from VS Code; both
+  //     write to the same apiBinding sub-tree, so either side can edit) ---
   root.append(h("h3", "API documentation"));
-  if (!el.apiBinding) {
-    root.append(
-      h(
-        "p",
-        "No documentation yet. Document this element from VS Code via “Document API on Design Element”.",
-        "empty",
-      ),
-    );
-  } else {
-    const b = el.apiBinding;
-    root.append(h("p", b.title));
-    if (b.language) root.append(h("p", b.language, "empty"));
-    if (b.method || b.endpoint)
-      root.append(h("p", [b.method, b.endpoint].filter(Boolean).join(" ")));
-    if (b.description) root.append(h("p", b.description));
-  }
+  renderApiDocs(root, el, onChange);
 
   // --- version history ---
   root.append(h("h3", "Version history"));
   root.append(timelineList(timeline));
+}
+
+/**
+ * The editable API-documentation section. When the element has no binding yet
+ * we show a single "Add documentation" button; clicking it seeds a minimal,
+ * schema-valid binding. Once present, every field edits the SAME apiBinding
+ * sub-tree VS Code writes to, so the two authoring surfaces stay in sync.
+ */
+function renderApiDocs(
+  root: HTMLElement,
+  el: DesignElement,
+  onChange: (patch: Patch) => void,
+): void {
+  const b = el.apiBinding;
+
+  if (!b) {
+    const p = h(
+      "p",
+      "No documentation yet — add it here, or from VS Code via “Document API on Design Element”.",
+      "empty",
+    );
+    const add = document.createElement("button");
+    add.className = "doc-add";
+    add.textContent = "+ Add documentation";
+    add.addEventListener("click", () =>
+      onChange({
+        apiBinding: { title: el.name || el.id, description: "", parameters: [] },
+      }),
+    );
+    root.append(p, add);
+    return;
+  }
+
+  // Merge a single field into the existing binding and push it back up.
+  const set = (patch: Partial<ApiBinding>) =>
+    onChange({ apiBinding: { ...b, ...patch } });
+
+  root.append(textRow("Title", b.title, (v) => set({ title: v })));
+  root.append(
+    selectRow("Method", b.method ?? "", ["", ...HttpMethod.options], (v) =>
+      set({ method: (v || undefined) as ApiBinding["method"] }),
+    ),
+  );
+  root.append(textRow("Endpoint", b.endpoint ?? "", (v) =>
+    set({ endpoint: v || undefined }),
+  ));
+  root.append(textRow("Language", b.language ?? "", (v) =>
+    set({ language: v || undefined }),
+  ));
+  root.append(
+    textRow("Params", b.parameters.join(", "), (v) =>
+      set({
+        parameters: v
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      }),
+    ),
+  );
+  root.append(
+    textareaRow("Description", b.description, (v) => set({ description: v })),
+  );
+
+  const remove = document.createElement("button");
+  remove.className = "doc-remove";
+  remove.textContent = "Remove documentation";
+  remove.addEventListener("click", () => onChange({ apiBinding: undefined }));
+  root.append(remove);
 }
 
 // ---- builders -----------------------------------------------------------
@@ -129,6 +188,46 @@ function textRow(
   input.value = value;
   input.addEventListener("change", () => onChange(input.value));
   return row(label, input);
+}
+
+function selectRow(
+  label: string,
+  value: string,
+  options: readonly string[],
+  onChange: (v: string) => void,
+): HTMLElement {
+  const select = document.createElement("select");
+  for (const opt of options) {
+    const o = document.createElement("option");
+    o.value = opt;
+    o.textContent = opt || "—";
+    if (opt === value) o.selected = true;
+    select.append(o);
+  }
+  select.addEventListener("change", () => onChange(select.value));
+  const div = document.createElement("div");
+  div.className = "row";
+  const l = document.createElement("label");
+  l.textContent = label;
+  div.append(l, select);
+  return div;
+}
+
+function textareaRow(
+  label: string,
+  value: string,
+  onChange: (v: string) => void,
+): HTMLElement {
+  const ta = document.createElement("textarea");
+  ta.rows = 4;
+  ta.value = value;
+  ta.addEventListener("change", () => onChange(ta.value));
+  const div = document.createElement("div");
+  div.className = "row row-stack";
+  const l = document.createElement("label");
+  l.textContent = label;
+  div.append(l, ta);
+  return div;
 }
 
 function timelineList(timeline: VersionEntry[]): HTMLElement {

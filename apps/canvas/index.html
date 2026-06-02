@@ -75,14 +75,32 @@
       .infra-edge { stroke: #5b8cff; stroke-width: 1.5; }
       .infra-edge-label { fill: #8a93a3; font-size: 10px; text-anchor: middle; pointer-events: none; }
 
+      /* --- API doc leader line (anime.js-style callout) --- */
+      .doc-leader { cursor: pointer; }
+      .doc-leader-line { fill: none; stroke: #5b8cff; stroke-width: 1.5; }
+      .doc-leader-dot { fill: #5b8cff; }
+      .doc-leader-bg { fill: #14171f; stroke: #5b8cff; stroke-width: 1; }
+      .doc-leader-label { fill: #e6e6e6; font-size: 12px; font-weight: 700; pointer-events: none; }
+      .doc-leader-sub { fill: #8a93a3; font-size: 10px; pointer-events: none; }
+
       /* --- right panel: properties + API drawer --- */
       #panel { background: #14171f; border-left: 1px solid #262b36; overflow: auto; padding: 12px; }
       #panel h2 { margin: 0 0 4px; font-size: 15px; }
       #panel h3 { margin: 16px 0 4px; font-size: 12px; text-transform: uppercase; opacity: .6; }
       .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
       .row label { width: 64px; opacity: .7; }
-      .row input { flex: 1; background: #0c0e13; color: #e6e6e6;
-        border: 1px solid #262b36; border-radius: 6px; padding: 4px 6px; }
+      .row input, .row select, .row textarea { flex: 1; background: #0c0e13; color: #e6e6e6;
+        border: 1px solid #262b36; border-radius: 6px; padding: 4px 6px; font: inherit; }
+      .row textarea { resize: vertical; min-height: 56px; }
+      .row-stack { flex-direction: column; align-items: stretch; }
+      .row-stack label { width: auto; }
+      .doc-add, .doc-remove {
+        margin-top: 8px; width: 100%; padding: 6px 8px; border-radius: 6px;
+        background: #1b2030; color: #cfd6e4; border: 1px solid #262b36; cursor: pointer;
+      }
+      .doc-add:hover { border-color: #5b8cff; color: #fff; }
+      .doc-remove { background: transparent; color: #d1603d; border-color: #3a2a2a; }
+      .doc-remove:hover { border-color: #d1603d; }
       table { width: 100%; border-collapse: collapse; margin: 8px 0; }
       td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #262b36; }
       .timeline { list-style: none; padding: 0; }
