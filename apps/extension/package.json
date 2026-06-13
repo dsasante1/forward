@@ -2,10 +2,27 @@
   "name": "api-design-connector-extension",
   "displayName": "API Design Connector",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "publisher": "adc",
   "description": "Document any API (any language/framework) on your design canvas via your own Firebase RTDB.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dsasante1/figma_design_api_documentation_project.git",
+    "directory": "apps/extension"
+  },
+  "bugs": {
+    "url": "https://github.com/dsasante1/figma_design_api_documentation_project/issues"
+  },
+  "homepage": "https://github.com/dsasante1/figma_design_api_documentation_project#readme",
+  "keywords": [
+    "api",
+    "documentation",
+    "design",
+    "figma",
+    "firebase",
+    "code-connect"
+  ],
   "engines": {
     "vscode": "^1.85.0",
     "node": ">=20"
@@ -90,13 +107,16 @@
     "watch": "node esbuild.mjs --watch",
     "vscode:prepublish": "node esbuild.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.webview.json --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@adc/shared": "*"
+    "test": "vitest run",
+    "package": "vsce package --no-dependencies",
+    "publish:vsce": "vsce publish --no-dependencies",
+    "publish:ovsx": "ovsx publish --no-dependencies"
   },
   "devDependencies": {
+    "@adc/shared": "*",
     "@types/vscode": "^1.85.0",
-    "esbuild": "^0.21.5"
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.21.5",
+    "ovsx": "^0.10.0"
   }
 }

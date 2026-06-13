@@ -29,27 +29,88 @@ change it there once and both apps stay in sync.
 |---|---|
 | [packages/shared](packages/shared) | Zod schemas + TS types for the design/binding tree (the data contract) |
 | [apps/extension](apps/extension) | VS Code extension: pick a design element → write API docs (any language/framework) onto it |
-| [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + version history |
+| [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + endpoint timeline |
+| [apps/mcp](apps/mcp) | MCP server: let **any AI agent** find a design element and document it for you (the AI-native surface) |
 
 ## Using the canvas editor
 
 Runs offline against [apps/canvas/public/fixture.json](apps/canvas/public/fixture.json) — no Firebase needed to try it.
 
 - **Toolbar:** Move, Frame, Rect, Text; Comp (make selection a component), Inst (place an
-  instance), Del.
+  instance), Del. Against a live database, a **👤 +Member** control enrols collaborators by
+  uid (see [Access control](#access-control-per-project-membership)).
 - **Draw:** pick a tool and drag on the canvas. **Select** to move; drag the corner handle
   to resize. Dropping an element inside a frame nests it; edges snap to neighbours.
 - **Right panel:** edit position/size/style, view the API binding the backend attached, and
   the endpoint's version history.
+- **Endpoint timeline:** the 🕘 **History** toggle opens the project timeline — a git-graph
+  of every endpoint's *created / modified / deleted* events (one lane per endpoint, like git
+  branch columns) plus a **catch-up digest** that collapses the stream since a chosen
+  baseline ("last 24 h / 7 d / 30 d / all time") into the net *to integrate / to modify /
+  to remove* lists a frontend dev acts on. Clicking any event selects its design element.
+  The same view lives in the VS Code canvas behind its **Timeline** toolbar button.
 
-## Getting started
+## Install
+
+The project ships as two parts that install differently:
+
+### 1. The VS Code extension — from the Marketplace
+
+Search **"API Design Connector"** in the VS Code Extensions view (or on
+[Open VSX](https://open-vsx.org) for Cursor / VSCodium) and click **Install**.
+Then open **Settings → API Design Connector** and set your Firebase Realtime
+Database URL and `projectId` (see [apps/extension/README.md](apps/extension/README.md)).
+
+### 2. The canvas + tooling — clone and bootstrap
+
+Designers run the web canvas locally against their own database:
+
+```bash
+git clone https://github.com/dsasante1/figma_design_api_documentation_project
+cd figma_design_api_documentation_project
+npm run bootstrap        # install + build + interactive Firebase setup
+npm run dev:canvas       # run the web canvas locally
+```
+
+`npm run bootstrap` chains `npm install` → `npm run build` → `npm run setup`. The
+[setup script](scripts/setup.mjs) interactively writes your `apps/canvas/.env.local`
+and `.vscode/settings.json`, scaffolds `firebase.json` / `.firebaserc`, and deploys
+the locked security rules. Set the **same** `projectId` here as in the extension so
+both sides share design elements.
+
+> Two manual steps the setup script can't do for you: enable **Anonymous sign-in**
+> in the Firebase console (so the locked rules admit your canvas), and — only if the
+> extension needs to *write* under locked rules — put its `authToken` in your VS Code
+> **User** settings, never in committed workspace settings.
+
+## Getting started (development)
 
 ```bash
 npm install              # installs all workspaces
 npm run build            # build shared + apps
 npm test                 # run all unit tests (Vitest)
-npm run dev:canvas       # run the web canvas locally
+npm run dev:canvas       # run the web canvas locally (offline off the fixture)
+npm run setup            # (re)configure your Firebase connection
 ```
+
+## Publishing the extension (maintainers)
+
+Publishing is automated by [.github/workflows/release.yml](.github/workflows/release.yml):
+pushing a `v*` tag builds, tests, packages a `.vsix`, publishes to the VS Code
+Marketplace **and** Open VSX, and attaches the `.vsix` to a GitHub Release.
+
+One-time setup: register a publisher on the
+[Marketplace](https://marketplace.visualstudio.com/manage) and [Open VSX](https://open-vsx.org),
+set the `publisher` field in [apps/extension/package.json](apps/extension/package.json),
+and add the repo secrets `VSCE_PAT` and `OVSX_PAT` (a store is skipped if its secret
+is absent). Then:
+
+```bash
+npm version patch -w apps/extension
+git push --follow-tags
+```
+
+To build a `.vsix` locally without publishing: `npm run package -w apps/extension`.
 
 ## BYOD / privacy
 
@@ -58,8 +119,32 @@ Realtime Database. Config is read from local settings / env and is **never commi
 (see [.gitignore](.gitignore)). Lock the database down with the security rules in
 [apps/canvas/firebase.rules.json](apps/canvas/firebase.rules.json).
 
+### Access control (per-project membership)
+
+The locked rules enforce a **per-project membership ACL** — every project subtree
+(`design_elements`, `version_timeline`, `infra_nodes`, `infra_edges`) is readable and
+writable only by uids listed in that project's `project_members` roster:
+
+- **Claim on first use** — the first authenticated user to open a fresh project claims it
+  as `owner` (the canvas seeds the roster automatically after anonymous sign-in).
+- **Enrolling collaborators** — anyone else opening that project is locked out and sees a
+  banner with their **uid**. An existing member pastes that uid into the canvas toolbar's
+  **👤 +Member** control to grant access. (Onboarding is deliberately explicit — there's no
+  open self-join.)
+- **The VS Code extension is a trusted admin client.** It authenticates over REST with a
+  privileged token; a Firebase **DB secret bypasses the rules as admin**, so it needs no
+  roster entry. If you instead give it a uid-scoped ID token, add that uid to each project's
+  roster like any other member.
+
+The trust boundary is the **database** (one team per DB under BYOD); the membership roster
+adds isolation *between projects* within that database. Test-mode (open) rules and the
+offline fixture / mock sources have no auth and skip membership entirely.
+
 ## Status
 
-Figma-lite design editor + VS Code documentation bridge working offline end-to-end
-(26 unit tests across schema, canvas geometry and the extension's RTDB writer). Next: wire
-`LiveSource` to a real Firebase RTDB for live two-way sync.
+Working end-to-end: the Figma-lite editor (offline fixture, local mock-rtdb, or a live
+Firebase RTDB), the VS Code documentation bridge (ETag-conditional polling over the RTDB
+REST API), the infrastructure overlay, the MCP server, and the project **endpoint
+timeline** (git-graph history + catch-up digest, rendered in both the web canvas and the
+VS Code viewer). 49 unit tests across the schema, timeline logic, canvas geometry, the
+RTDB writer and the MCP matcher/anchor resolver.

@@ -1,5 +1,6 @@
 {
-  "//": "BYOD privacy: scope every write to the authenticated owner. Deploy with `firebase deploy --only database`.",
+  "//": "BYOD privacy: per-project membership ACL. A project's data is readable/writable only by uids in its project_members roster. The first authed user to a fresh project claims it (owner); existing members enrol others. Deploy with `firebase deploy --only database`.",
+  "//extension": "The VS Code extension authenticates over REST with a privileged token (a Firebase DB secret bypasses these rules as admin). If you instead give it a uid-scoped ID token, add that uid to each project's project_members roster.",
   "rules": {
     "user_configs": {
       "$uid": {
@@ -7,16 +8,37 @@
         ".write": "auth != null && auth.uid === $uid"
       }
     },
-    "design_elements": {
+    "project_members": {
       "$projectId": {
         ".read": "auth != null",
-        ".write": "auth != null"
+        "$uid": {
+          ".write": "auth != null && ((!data.parent().exists() && $uid === auth.uid) || data.parent().child(auth.uid).exists())",
+          ".validate": "newData.hasChildren(['role', 'addedAt'])"
+        }
+      }
+    },
+    "design_elements": {
+      "$projectId": {
+        ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
       }
     },
     "version_timeline": {
       "$projectId": {
-        ".read": "auth != null",
-        ".write": "auth != null"
+        ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
+      }
+    },
+    "infra_nodes": {
+      "$projectId": {
+        ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
+      }
+    },
+    "infra_edges": {
+      "$projectId": {
+        ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
       }
     }
   }

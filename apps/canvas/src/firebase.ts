@@ -8,6 +8,23 @@ import {
 } from "@adc/shared";
 
 /**
+ * Thrown when the signed-in user isn't a member of the project and the project
+ * has already been claimed by someone else. Carries the user's uid so the UI can
+ * show it — an existing member adds it to the roster to grant access.
+ */
+export class ProjectAccessError extends Error {
+  constructor(
+    readonly projectId: string,
+    readonly uid: string,
+  ) {
+    super(
+      `Not a member of project "${projectId}". Ask a current member to add your user id: ${uid}`,
+    );
+    this.name = "ProjectAccessError";
+  }
+}
+
+/**
  * Data source for the canvas editor. Implementations:
  *  - FixtureSource: reads/writes a static JSON tree in memory (offline dev/demo).
  *  - LiveSource:    subscribes to / writes the user's Firebase RTDB (BYOD).
@@ -37,6 +54,12 @@ export interface CanvasSource {
   saveElement(element: DesignElement): Promise<void>;
   /** Remove an element. */
   deleteElement(elementId: string): Promise<void>;
+  /**
+   * Enrol another uid into the project's member roster. Only meaningful for the
+   * membership-gated live source — offline/mock sources omit it, so the editor
+   * only shows the "add member" control when this is present.
+   */
+  addMember?(uid: string): Promise<void>;
 }
 
 /**
@@ -143,17 +166,25 @@ export class FixtureSource implements CanvasSource {
  */
 export interface LiveSourceOptions {
   useAnonAuth?: boolean;
+  /**
+   * Called when the user can't access the project (not a member of a project
+   * someone else already claimed). The UI uses this to surface the user's uid so
+   * a member can enrol them. Without it, the access error is logged.
+   */
+  onError?: (err: Error) => void;
 }
 
+type Fb = {
+  db: import("firebase/database").Database;
+  ref: typeof import("firebase/database").ref;
+  onValue: typeof import("firebase/database").onValue;
+  set: typeof import("firebase/database").set;
+  remove: typeof import("firebase/database").remove;
+  get: typeof import("firebase/database").get;
+};
+
 export class LiveSource implements CanvasSource {
-  private dbPromise?: Promise<{
-    db: import("firebase/database").Database;
-    ref: typeof import("firebase/database").ref;
-    onValue: typeof import("firebase/database").onValue;
-    set: typeof import("firebase/database").set;
-    remove: typeof import("firebase/database").remove;
-    get: typeof import("firebase/database").get;
-  }>;
+  private dbPromise?: Promise<Fb>;
 
   constructor(
     private readonly config: Record<string, string>,
@@ -169,20 +200,57 @@ export class LiveSource implements CanvasSource {
           "firebase/database"
         );
         const app = initializeApp(this.config);
+        let uid: string | undefined;
         if (this.options.useAnonAuth) {
           const { getAuth, signInAnonymously } = await import("firebase/auth");
-          await signInAnonymously(getAuth(app));
+          const cred = await signInAnonymously(getAuth(app));
+          uid = cred.user.uid;
         }
-        return { db: getDatabase(app), ref, onValue, set, remove, get };
+        const fb: Fb = { db: getDatabase(app), ref, onValue, set, remove, get };
+        // With auth on, claim or verify project membership before any data read
+        // or write — the rules gate every project subtree on the roster. Without
+        // auth (test-mode/open rules) there's no uid to scope, so skip it.
+        if (uid) {
+          try {
+            await this.ensureMembership(fb, uid);
+          } catch (err) {
+            this.options.onError?.(err as Error);
+            throw err;
+          }
+        }
+        return fb;
       })();
     }
     return this.dbPromise;
   }
 
+  /**
+   * Claim the project if it's unclaimed, or confirm the current uid is already
+   * on the roster. Throws ProjectAccessError when the project belongs to others.
+   */
+  private async ensureMembership(fb: Fb, uid: string): Promise<void> {
+    const { db, ref, get, set } = fb;
+    const roster = (
+      await get(ref(db, paths.projectMembers(this.projectId)))
+    ).val() as Record<string, unknown> | null;
+    if (!roster) {
+      // Unclaimed: claim ownership (rules allow seeding only your own uid).
+      await set(ref(db, paths.projectMember(this.projectId, uid)), {
+        role: "owner",
+        addedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    if (roster[uid]) return; // already a member
+    throw new ProjectAccessError(this.projectId, uid);
+  }
+
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void {
     let unsub = () => {};
     void (async () => {
-      const { db, ref, onValue, get } = await this.fb();
+      const fb = await this.fb().catch(() => null);
+      if (!fb) return; // access error already reported via options.onError
+      const { db, ref, onValue, get } = fb;
       const elsRef = ref(db, paths.projectElements(this.projectId));
       unsub = onValue(elsRef, async (snap) => {
         const raw = (snap.val() ?? {}) as Record<string, unknown>;
@@ -212,7 +280,9 @@ export class LiveSource implements CanvasSource {
     let edges: InfraEdge[] = [];
     const emit = () => onChange({ nodes, edges });
     void (async () => {
-      const { db, ref, onValue } = await this.fb();
+      const fb = await this.fb().catch(() => null);
+      if (!fb) return; // access error already reported via options.onError
+      const { db, ref, onValue } = fb;
       unsubNodes = onValue(ref(db, paths.infraNodes(this.projectId)), (snap) => {
         nodes = normalizeList(snap.val()).flatMap((v) => {
           const p = InfraNode.safeParse(v);
@@ -235,7 +305,9 @@ export class LiveSource implements CanvasSource {
   }
 
   async saveElement(element: DesignElement): Promise<void> {
-    const { db, ref, set } = await this.fb();
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, set } = fb;
     await set(
       ref(db, paths.element(this.projectId, element.id)),
       DesignElement.parse(element),
@@ -243,7 +315,22 @@ export class LiveSource implements CanvasSource {
   }
 
   async deleteElement(elementId: string): Promise<void> {
-    const { db, ref, remove } = await this.fb();
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, remove } = fb;
     await remove(ref(db, paths.element(this.projectId, elementId)));
+  }
+
+  /**
+   * Add another uid to the roster. The caller must already be a member (the
+   * rules enforce this); the new uid joins as a plain `member`. Rejects so the
+   * UI can report a bad uid or a permission failure.
+   */
+  async addMember(uid: string): Promise<void> {
+    const { db, ref, set } = await this.fb();
+    await set(ref(db, paths.projectMember(this.projectId, uid)), {
+      role: "member",
+      addedAt: new Date().toISOString(),
+    });
   }
 }

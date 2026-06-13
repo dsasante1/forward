@@ -1,0 +1,59 @@
+name: Release extension
+
+# Push a version tag to publish the VS Code extension:
+#   npm version patch -w apps/extension   # bump + commit
+#   git tag v0.1.1 && git push --tags
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # needed to attach the .vsix to the GitHub Release
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build (shared + extension)
+        run: npm run build
+
+      - name: Typecheck + test extension
+        working-directory: apps/extension
+        run: |
+          npm run typecheck
+          npm test
+
+      - name: Package .vsix
+        working-directory: apps/extension
+        run: npm run package
+
+      # Marketplace — requires a VSCE_PAT secret for the publisher.
+      - name: Publish to VS Code Marketplace
+        if: ${{ env.VSCE_PAT != '' }}
+        working-directory: apps/extension
+        run: npm run publish:vsce
+
+      # Open VSX (Cursor / VSCodium) — requires an OVSX_PAT secret.
+      - name: Publish to Open VSX
+        if: ${{ env.OVSX_PAT != '' }}
+        working-directory: apps/extension
+        run: npm run publish:ovsx -- --pat "$OVSX_PAT"
+
+      - name: Attach .vsix to the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apps/extension/*.vsix
