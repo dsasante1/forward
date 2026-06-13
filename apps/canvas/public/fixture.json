@@ -10,7 +10,11 @@
         "width": 320,
         "height": 260,
         "parentId": null,
-        "style": { "fill": "#1b2030", "stroke": "#3a4250", "radius": 12 },
+        "style": {
+          "fill": "#1b2030",
+          "stroke": "#3a4250",
+          "radius": 12
+        },
         "updatedAt": "2026-05-27T09:00:00Z"
       },
       "el_login_title": {
@@ -23,7 +27,11 @@
         "height": 28,
         "parentId": "el_login_screen",
         "text": "Sign in",
-        "style": { "fontSize": 20, "fontWeight": 700, "color": "#e6e6e6" },
+        "style": {
+          "fontSize": 20,
+          "fontWeight": 700,
+          "color": "#e6e6e6"
+        },
         "updatedAt": "2026-05-27T09:00:00Z"
       },
       "el_login_submit": {
@@ -36,7 +44,11 @@
         "height": 44,
         "parentId": "el_login_screen",
         "text": "Log in",
-        "style": { "fill": "#5b8cff", "radius": 8, "color": "#ffffff" },
+        "style": {
+          "fill": "#5b8cff",
+          "radius": 8,
+          "color": "#ffffff"
+        },
         "apiBinding": {
           "title": "Log in",
           "language": "Node/Express",
@@ -56,13 +68,19 @@
         "width": 240,
         "height": 120,
         "parentId": null,
-        "style": { "fill": "#1b2030", "stroke": "#3a4250", "radius": 8 },
+        "style": {
+          "fill": "#1b2030",
+          "stroke": "#3a4250",
+          "radius": 8
+        },
         "apiBinding": {
           "title": "Fetch user profile",
           "language": "Python/FastAPI",
           "endpoint": "/api/v1/users/:id",
           "method": "GET",
-          "parameters": ["id"],
+          "parameters": [
+            "id"
+          ],
           "description": "Fetches a user profile by id.\n\n**200:** `{ id, name }`"
         },
         "updatedAt": "2026-05-27T09:00:00Z"
@@ -175,17 +193,72 @@
       "el_login_submit": [
         {
           "version": "v1.0.0",
-          "timestamp": 1774000000,
+          "timestamp": 1779876000000,
           "author": "BackendDevGuy",
+          "action": "created",
           "commitHash": "9f0a1b2",
-          "changeLog": "Initial login endpoint."
+          "changeLog": "Initial login endpoint.",
+          "endpoint": {
+            "title": "Log in",
+            "method": "POST",
+            "path": "/api/v1/users/login"
+          }
         },
         {
           "version": "v1.2.0",
-          "timestamp": 1774864000,
+          "timestamp": 1779968700000,
           "author": "BackendDevGuy",
+          "action": "modified",
           "commitHash": "ab12cd3",
-          "changeLog": "Strict regex restriction enforced on the email field."
+          "changeLog": "Strict regex restriction enforced on the email field.",
+          "endpoint": {
+            "title": "Log in",
+            "method": "POST",
+            "path": "/api/v1/users/login"
+          }
+        }
+      ],
+      "el_login_screen": [
+        {
+          "version": "v0.9.0",
+          "timestamp": 1779883200000,
+          "author": "BackendDevGuy",
+          "action": "created",
+          "commitHash": "3c4d5e6",
+          "changeLog": "Legacy session-check endpoint.",
+          "endpoint": {
+            "title": "Session check",
+            "method": "GET",
+            "path": "/api/v1/session"
+          }
+        },
+        {
+          "version": "v1.1.0",
+          "timestamp": 1779964200000,
+          "author": "BackendDevGuy",
+          "action": "deleted",
+          "commitHash": "7f8a9b0",
+          "changeLog": "Removed \u2014 replaced by token refresh.",
+          "endpoint": {
+            "title": "Session check",
+            "method": "GET",
+            "path": "/api/v1/session"
+          }
+        }
+      ],
+      "el_profile_card": [
+        {
+          "version": "v1.0.0",
+          "timestamp": 1779958800000,
+          "author": "BackendDevGuy",
+          "action": "created",
+          "commitHash": "d1e2f30",
+          "changeLog": "Fetch user profile for the profile card.",
+          "endpoint": {
+            "title": "Fetch profile",
+            "method": "GET",
+            "path": "/api/v1/users/:id"
+          }
         }
       ]
     }

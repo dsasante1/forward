@@ -1,9 +1,11 @@
 import {
+  type CurrentLabel,
   DesignElement,
   type ElementType,
   type InfraEdge,
   type InfraKind,
   type InfraNode,
+  type VersionEntry,
 } from "@adc/shared";
 import { loadConfig } from "./config.js";
 import {
@@ -15,6 +17,7 @@ import {
 import { RestSource } from "./rest-source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
 import { renderPanel } from "./panel.js";
+import { renderTimelineView } from "./timeline-view.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -30,7 +33,18 @@ const source: CanvasSource = !config
   ? new FixtureSource(PROJECT_ID)
   : config.mode === "mock"
     ? new RestSource(config.databaseUrl, config.projectId)
-    : new LiveSource(config.firebase, config.projectId, config.options);
+    : new LiveSource(config.firebase, config.projectId, {
+        ...config.options,
+        onError: showAccessError,
+      });
+
+/** Surface a project-access failure (not a member) as a blocking banner. */
+function showAccessError(err: Error): void {
+  const banner = document.createElement("div");
+  banner.className = "access-error";
+  banner.textContent = err.message;
+  document.body.prepend(banner);
+}
 console.info(
   `[canvas] source: ${config?.mode ?? "fixture"}, project "${PROJECT_ID}"`,
 );
@@ -39,6 +53,7 @@ const svg = document.getElementById("canvas") as unknown as SVGSVGElement;
 const panel = document.getElementById("panel") as HTMLElement;
 const toolbar = document.getElementById("toolbar") as HTMLElement;
 const zoomLabel = document.getElementById("zoomLabel") as HTMLElement | null;
+const historyEl = document.getElementById("history") as HTMLElement;
 
 // ---- editor state -------------------------------------------------------
 type Tool = "select" | "frame" | "rectangle" | "text";
@@ -52,6 +67,7 @@ let selectedId: string | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
 let showDocs = true; // show/hide the minimized API indicators on documented elements
 let showInfra = false; // show/hide the infrastructure diagram overlay
+let showTimeline = false; // show/hide the project endpoint-timeline panel
 
 // Viewport: `translate(panX, panY) scale(zoom)` applied to everything drawn.
 let zoom = 1;
@@ -117,7 +133,36 @@ function buildToolbar(): void {
   infraBtn.dataset.toggle = "infra";
   infraBtn.classList.toggle("active", showInfra);
   toolbar.append(infraBtn);
+  const tlBtn = button("🕘\nHistory", toggleTimeline);
+  tlBtn.dataset.toggle = "timeline";
+  tlBtn.classList.toggle("active", showTimeline);
+  toolbar.append(tlBtn);
+  // Membership management only applies to the live (auth-gated) source.
+  if (source.addMember) {
+    toolbar.append(divider());
+    toolbar.append(button("👤\n+Member", addMember));
+  }
   refreshToolbar();
+}
+
+/**
+ * Enrol another collaborator by uid. They get their uid from the access banner
+ * shown when they're locked out of the project; pasting it here grants access.
+ */
+async function addMember(): Promise<void> {
+  if (!source.addMember) return;
+  const uid = window
+    .prompt(
+      "Add a collaborator by their user id (uid).\nThey see it in the banner when they're locked out of this project:",
+    )
+    ?.trim();
+  if (!uid) return;
+  try {
+    await source.addMember(uid);
+    notify(`Added ${uid} to this project.`);
+  } catch (err) {
+    notify(`Couldn't add member: ${(err as Error).message}`);
+  }
 }
 
 /** Show or hide the project's infrastructure diagram overlay. */
@@ -127,6 +172,15 @@ function toggleInfra(): void {
     .querySelector('[data-toggle="infra"]')
     ?.classList.toggle("active", showInfra);
   render();
+}
+
+/** Show or hide the project endpoint-timeline panel (git-graph + digest). */
+function toggleTimeline(): void {
+  showTimeline = !showTimeline;
+  toolbar
+    .querySelector('[data-toggle="timeline"]')
+    ?.classList.toggle("active", showTimeline);
+  renderTimelinePanel();
 }
 
 /** Show or hide the minimized API indicators on every documented element. */
@@ -186,6 +240,7 @@ function render(): void {
   svg.append(vp);
   updateZoomLabel();
   renderSelectionPanel();
+  renderTimelinePanel();
 }
 
 // ========================================================================
@@ -699,6 +754,35 @@ function renderSelectionPanel(): void {
     elements.set(selectedId, updated);
     void source.saveElement(updated);
     render();
+  });
+}
+
+// ========================================================================
+// Project endpoint timeline (git-graph + catch-up digest)
+// ========================================================================
+function renderTimelinePanel(): void {
+  historyEl.hidden = !showTimeline;
+  if (!showTimeline) return;
+
+  const byElement: Record<string, VersionEntry[]> = {};
+  for (const [id, tl] of timelines) if (tl.length) byElement[id] = tl;
+  // Current binding labels, for live endpoints whose old entries predate the
+  // per-entry endpoint snapshots.
+  const current: Record<string, CurrentLabel> = {};
+  for (const el of elements.values()) {
+    const b = el.apiBinding;
+    if (!b) continue;
+    current[el.id] = {
+      title: b.title,
+      ...(b.method ? { method: b.method } : {}),
+      ...(b.endpoint ? { path: b.endpoint } : {}),
+    };
+  }
+  renderTimelineView(historyEl, byElement, current, {
+    onSelect: (id) => {
+      if (elements.has(id)) select(id);
+    },
+    onClose: toggleTimeline,
   });
 }
 

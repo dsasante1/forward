@@ -108,6 +108,63 @@
       code { background: #0c0e13; padding: 1px 5px; border-radius: 4px; }
       .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; background: #243; }
       .empty { opacity: .5; }
+
+      /* --- endpoint timeline panel (overlay, right of stage) --- */
+      #history {
+        position: absolute; top: 12px; right: 12px; bottom: 12px; width: 380px; z-index: 20;
+        background: #14171f; border: 1px solid #262b36; border-radius: 10px;
+        overflow: auto; padding: 12px 14px;
+      }
+      #history[hidden] { display: none; }
+      #history h3 { margin: 16px 0 6px; font-size: 11px; text-transform: uppercase; opacity: .6; }
+      .tl-head { display: flex; align-items: center; justify-content: space-between; }
+      .tl-head h2 { margin: 0; font-size: 15px; }
+      .tl-close {
+        border: none; background: transparent; color: #8a93a3;
+        font-size: 14px; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+      }
+      .tl-close:hover { color: #fff; background: #1b2030; }
+      .tl-since { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+      .tl-since label { opacity: .7; }
+      .tl-since select {
+        flex: 1; background: #0c0e13; color: #e6e6e6;
+        border: 1px solid #262b36; border-radius: 6px; padding: 4px 6px; font: inherit;
+      }
+      .tl-group-title {
+        display: flex; gap: 8px; align-items: center;
+        font-size: 12px; font-weight: 600; margin: 10px 0 2px;
+      }
+      .tl-count { font-size: 10px; padding: 1px 7px; border-radius: 99px; background: #243; color: #cfd6e4; }
+      .tl-item {
+        display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap;
+        padding: 4px 6px; border-radius: 6px; cursor: pointer;
+      }
+      .tl-item:hover { background: #1b2030; }
+      .tl-method { font-size: 10px; font-weight: 700; color: #5b8cff; }
+      .tl-title { font-size: 12px; font-weight: 600; }
+      .tl-path { font-family: ui-monospace, monospace; font-size: 11px; opacity: .75; }
+      .tl-graph { display: flex; flex-direction: column; }
+      .tl-row { display: flex; gap: 10px; cursor: pointer; border-radius: 6px; padding: 0 4px; }
+      .tl-row:hover { background: #1b2030; }
+      .tl-rail { flex: none; display: block; }
+      .tl-rail line { stroke: #3a4250; stroke-width: 2; }
+      .tl-node-created { fill: #36c275; }
+      .tl-node-modified { fill: #5b8cff; }
+      .tl-node-deleted { fill: #e0507a; }
+      .tl-info { min-width: 0; padding: 5px 0; }
+      .tl-info > div > * + * { margin-left: 6px; }
+      .tl-action { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+      .tl-action-created { color: #36c275; }
+      .tl-action-modified { color: #5b8cff; }
+      .tl-action-deleted { color: #e0507a; }
+      .tl-log { font-size: 11px; opacity: .8; }
+      .tl-meta { font-size: 10px; opacity: .55; }
+
+      .access-error {
+        position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+        padding: 10px 16px; font-size: 13px; text-align: center;
+        background: #3a1d1d; color: #ffb4b4; border-bottom: 1px solid #7a2e2e;
+      }
     </style>
   </head>
   <body>
@@ -120,6 +177,7 @@
         <button id="zoomIn" title="Zoom in">+</button>
         <button id="zoomFit" title="Fit to content">Fit</button>
       </div>
+      <div id="history" hidden></div>
     </div>
     <aside id="panel"><p class="empty">Select or draw an element.</p></aside>
     <script type="module" src="/src/main.ts"></script>

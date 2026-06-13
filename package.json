@@ -14,9 +14,13 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "dev:canvas": "npm run dev --workspace apps/canvas",
     "mock": "npm run start --workspace apps/mock-rtdb",
-    "seed:mock": "node apps/canvas/scripts/seed.mjs"
+    "seed:mock": "node apps/canvas/scripts/seed.mjs",
+    "setup": "node scripts/setup.mjs",
+    "deploy:rules": "firebase deploy --only database",
+    "bootstrap": "npm install && npm run build && npm run setup"
   },
   "devDependencies": {
+    "firebase-tools": "^15.19.0",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
   },

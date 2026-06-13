@@ -4,6 +4,7 @@ import { startMockRtdb } from "../../mock-rtdb/server.mjs";
 import { paths } from "@adc/shared";
 import {
   bindApiToElement,
+  fetchTimelinesConditional,
   listElements,
   type FirebaseConfig,
 } from "./firebase.js";
@@ -116,6 +117,28 @@ describe("extension firebase REST integration", () => {
 
     const timeline = mock.db.version_timeline[PROJECT][ELEMENT];
     expect(Object.values(timeline)).toHaveLength(2);
+  });
+
+  it("fetchTimelinesConditional reads whole-project histories with ETag reuse", async () => {
+    await bindApiToElement(
+      cfg,
+      ELEMENT,
+      { title: "Log in", endpoint: "/api/v1/users/login", method: "POST", description: "", parameters: [] },
+      { version: "v1.0.0", author: "tester", action: "created", changeLog: "first bind" },
+    );
+
+    const first = await fetchTimelinesConditional(cfg, undefined);
+    expect(first).not.toBeNull();
+    expect(first?.timelines[ELEMENT]).toHaveLength(1);
+    expect(first?.timelines[ELEMENT]?.[0]).toMatchObject({
+      version: "v1.0.0",
+      action: "created",
+      // bindApiToElement snapshots the endpoint so deletions stay labelled.
+      endpoint: { title: "Log in", method: "POST", path: "/api/v1/users/login" },
+    });
+
+    // An unchanged subtree comes back as a bodyless 304 -> null.
+    expect(await fetchTimelinesConditional(cfg, first?.etag)).toBeNull();
   });
 
   it("propagates an error when the database is unreachable", async () => {

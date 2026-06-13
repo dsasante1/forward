@@ -156,13 +156,37 @@ export type InfraEdge = z.infer<typeof InfraEdge>;
 // Versioning + config
 // --------------------------------------------------------------------------
 
+/**
+ * What an entry did to the endpoint's documentation. Drives the create/modify/
+ * delete colouring in the project timeline (the git-graph view). Defaulted so
+ * old entries written before this field existed still parse — `actionOf()` in
+ * timeline.ts infers the real action for them from the change log.
+ */
+export const VersionAction = z.enum(["created", "modified", "deleted"]);
+export type VersionAction = z.infer<typeof VersionAction>;
+
+/**
+ * A denormalised snapshot of the endpoint at the moment of the entry, so the
+ * timeline can still label a *deleted* endpoint (whose apiBinding is gone, and
+ * so can't be read back) with its method + path + title.
+ */
+export const EndpointSnapshot = z.object({
+  title: z.string(),
+  method: HttpMethod.optional(),
+  path: z.string().optional(),
+});
+export type EndpointSnapshot = z.infer<typeof EndpointSnapshot>;
+
 /** One immutable entry in an element's append-only history. */
 export const VersionEntry = z.object({
   version: z.string(),
   timestamp: z.number().int(),
   author: z.string(),
+  action: VersionAction.default("modified"),
   commitHash: z.string().optional(),
   changeLog: z.string().default(""),
+  /** Endpoint method/path/title at write time — needed to render deletions. */
+  endpoint: EndpointSnapshot.optional(),
 });
 export type VersionEntry = z.infer<typeof VersionEntry>;
 
@@ -172,12 +196,36 @@ export const UserConfig = z.object({
 });
 export type UserConfig = z.infer<typeof UserConfig>;
 
+// --------------------------------------------------------------------------
+// Access control (per-project membership)
+// --------------------------------------------------------------------------
+
+/**
+ * Role of a uid within a project. The first authenticated user to touch a fresh
+ * project claims it as `owner`; anyone an existing member enrolls is a `member`.
+ * The security rules only check that a membership record *exists*, so both roles
+ * grant the same read/write today — the distinction is kept for future use
+ * (e.g. owner-only member management).
+ */
+export const ProjectRole = z.enum(["owner", "member"]);
+export type ProjectRole = z.infer<typeof ProjectRole>;
+
+/** One entry in a project's member roster: `project_members/$projectId/$uid`. */
+export const ProjectMember = z.object({
+  role: ProjectRole.default("member"),
+  /** ISO-8601 timestamp the membership was granted. */
+  addedAt: z.string(),
+});
+export type ProjectMember = z.infer<typeof ProjectMember>;
+
 /**
  * Full Firebase tree (handy for fixtures / offline mode).
  * Keyed maps mirror Firebase's object-as-collection convention.
  */
 export const DatabaseTree = z.object({
   user_configs: z.record(UserConfig).default({}),
+  /** Per-project access roster — gates every project-scoped subtree below. */
+  project_members: z.record(z.record(ProjectMember)).default({}),
   design_elements: z.record(z.record(DesignElement)).default({}),
   version_timeline: z.record(z.record(z.array(VersionEntry))).default({}),
   infra_nodes: z.record(z.record(InfraNode)).default({}),
@@ -195,7 +243,13 @@ export const paths = {
     `design_elements/${projectId}/${elementId}/apiBinding`,
   timeline: (projectId: string, elementId: string) =>
     `version_timeline/${projectId}/${elementId}`,
+  /** All element histories of a project — what the timeline views read. */
+  projectTimelines: (projectId: string) => `version_timeline/${projectId}`,
   userConfig: (userId: string) => `user_configs/${userId}`,
+  // Per-project access roster (membership ACL).
+  projectMembers: (projectId: string) => `project_members/${projectId}`,
+  projectMember: (projectId: string, uid: string) =>
+    `project_members/${projectId}/${uid}`,
   // Infrastructure graph — project-scoped, separate from design_elements.
   infraNodes: (projectId: string) => `infra_nodes/${projectId}`,
   infraNode: (projectId: string, nodeId: string) =>

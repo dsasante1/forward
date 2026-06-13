@@ -1,0 +1,11 @@
+# Everything the runtime needs is bundled into dist/ by esbuild, so the .vsix
+# ships only that + metadata. Keep the package small and source-free.
+src/**
+node_modules/**
+**/*.map
+**/*.test.ts
+esbuild.mjs
+tsconfig*.json
+vitest.config.ts
+.vscode-test/**
+.gitignore

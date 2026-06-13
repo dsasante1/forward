@@ -8,6 +8,7 @@
  *   PATCH  /path.json            -> shallow-merge into the subtree (update)
  *   DELETE /path.json            -> remove the subtree
  *   ?shallow=true on GET         -> return { key: true } instead of values
+ *   X-Firebase-ETag on GET       -> ETag header; matching If-None-Match -> 304
  *
  * The whole DB is one JSON object held in memory (optionally persisted to disk).
  * It is NOT secure and ignores `?auth=` — it's a test double, never production.
@@ -23,6 +24,7 @@
  *   mock.db;         // direct access to the in-memory tree for assertions
  *   await mock.close();
  */
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
@@ -94,12 +96,13 @@ export function createMockRtdb({ dbFile = "" } = {}) {
       });
     });
 
-  const send = (res, status, body) => {
+  const send = (res, status, body, extraHeaders = {}) => {
     res.writeHead(status, {
       "content-type": "application/json",
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET,PUT,POST,PATCH,DELETE,OPTIONS",
-      "access-control-allow-headers": "content-type",
+      "access-control-allow-headers": "content-type, x-firebase-etag, if-none-match",
+      ...extraHeaders,
     });
     res.end(body === undefined ? "null" : JSON.stringify(body));
   };
@@ -121,6 +124,19 @@ export function createMockRtdb({ dbFile = "" } = {}) {
             const shallow = {};
             for (const k of Object.keys(node)) shallow[k] = true;
             return send(res, 200, shallow);
+          }
+          // Firebase-style conditional GET: an ETag is only computed when the
+          // client asks for one (X-Firebase-ETag), and a matching If-None-Match
+          // short-circuits to a bodyless 304 — what the pollers rely on.
+          if (req.headers["x-firebase-etag"] === "true") {
+            const etag = createHash("sha1")
+              .update(JSON.stringify(node))
+              .digest("base64");
+            if (req.headers["if-none-match"] === etag) {
+              res.writeHead(304, { etag, "access-control-allow-origin": "*" });
+              return res.end();
+            }
+            return send(res, 200, node, { etag });
           }
           return send(res, 200, node);
         }
