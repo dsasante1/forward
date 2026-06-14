@@ -30,7 +30,7 @@ change it there once and both apps stay in sync.
 | [packages/shared](packages/shared) | Zod schemas + TS types for the design/binding tree (the data contract) |
 | [apps/extension](apps/extension) | VS Code extension: pick a design element → write API docs (any language/framework) onto it |
 | [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + endpoint timeline |
-| [apps/mcp](apps/mcp) | MCP server: let **any AI agent** find a design element and document it for you (the AI-native surface) |
+| [apps/mcp](apps/mcp) | MCP server: gives **any AI agent** full parity with the canvas — author/document design elements, map the infrastructure graph, read the timeline, and manage project access (the AI-native surface) |
 
 ## Using the canvas editor
 
@@ -49,6 +49,43 @@ Runs offline against [apps/canvas/public/fixture.json](apps/canvas/public/fixtur
   baseline ("last 24 h / 7 d / 30 d / all time") into the net *to integrate / to modify /
   to remove* lists a frontend dev acts on. Clicking any event selects its design element.
   The same view lives in the VS Code canvas behind its **Timeline** toolbar button.
+
+## Using with AI tools (MCP)
+
+[apps/mcp](apps/mcp) is the **AI-native surface**: a [Model Context
+Protocol](https://modelcontextprotocol.io) server that gives any MCP-capable
+agent (Claude Code, Cursor, …) **full parity with the canvas and extension** —
+every data pillar is reachable, so a backend dev can just say *"document the
+login endpoint I built"* or *"add a Redis cache to the architecture diagram"*
+and the agent does it. The server holds the Firebase credentials; the agent only
+sees the scoped tools, never the token.
+
+| Capability | Tools |
+|---|---|
+| **Find the right element** | `list_design_elements`, `find_element` (fuzzy match a feature → element), `resolve_anchors` (deterministic `@adc <id>` markers in source) |
+| **API documentation** | `get_documentation`, `write_documentation`, `remove_documentation` |
+| **Design layer (author)** | `create_element` (frame / rectangle / text / component / instance), `update_element` (move / resize / rename / restyle / re-parent), `delete_element` (cascades to nested children) |
+| **Infrastructure graph** | `list_infra`, `write_infra_node`, `connect_infra`, `remove_infra_node` |
+| **Endpoint timeline** | `get_history` (one element), `get_catchup_digest` (net to-integrate / modify / remove since 24h / 7d / 30d / all) |
+| **Access control** | `list_members`, `add_member`, `remove_member` |
+
+Designers normally own the design layer on the canvas, so an agent prefers
+documenting existing elements over drawing new ones — `create_element` is there
+for when the design is genuinely missing what you built. Writes go through the
+same `@adc/shared` contract the extension uses, so every change shows up live on
+the read-only canvases and is recorded in the version history.
+
+Register the built server with your agent (full config, env vars and the
+fuzzy-vs-deterministic linking flow are in [apps/mcp/README.md](apps/mcp/README.md)):
+
+```bash
+npm run build -w apps/mcp
+claude mcp add api-design-connector \
+  --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
+  --env ADC_PROJECT_ID=your-project \
+  --env ADC_AUTH_TOKEN=your-token \
+  -- node /absolute/path/to/apps/mcp/dist/server.js
+```
 
 ## Install
 
@@ -146,5 +183,8 @@ Working end-to-end: the Figma-lite editor (offline fixture, local mock-rtdb, or 
 Firebase RTDB), the VS Code documentation bridge (ETag-conditional polling over the RTDB
 REST API), the infrastructure overlay, the MCP server, and the project **endpoint
 timeline** (git-graph history + catch-up digest, rendered in both the web canvas and the
-VS Code viewer). 49 unit tests across the schema, timeline logic, canvas geometry, the
-RTDB writer and the MCP matcher/anchor resolver.
+VS Code viewer). The MCP server now reaches **every feature** an AI agent could want —
+authoring/documenting design elements, editing the infrastructure graph, reading the
+timeline, and managing project access — at parity with the canvas and extension. 63 unit
+tests across the schema, timeline logic, canvas geometry, the RTDB reader/writer and the
+MCP matcher/anchor resolver.

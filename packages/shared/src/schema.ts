@@ -177,6 +177,48 @@ export const EndpointSnapshot = z.object({
 });
 export type EndpointSnapshot = z.infer<typeof EndpointSnapshot>;
 
+/**
+ * What a single diff row did to a documentation field. `added` / `removed`
+ * colour the row green / red in the timeline's expanded diff; `unchanged` rows
+ * give the change context (the surrounding field that stayed the same).
+ */
+export const DiffOp = z.enum(["added", "removed", "unchanged"]);
+export type DiffOp = z.infer<typeof DiffOp>;
+
+/**
+ * One line of a documentation diff. `cols` are the cells of a small fixed table
+ * (e.g. name / type / note), kept as free-form strings so any binding shape —
+ * REST params, response codes, GraphQL fields — renders through the same view.
+ */
+export const DiffRow = z.object({
+  op: DiffOp.default("unchanged"),
+  cols: z.array(z.string()).default([]),
+});
+export type DiffRow = z.infer<typeof DiffRow>;
+
+/** A labelled group of diff rows, e.g. "request · body.email" or "responses". */
+export const DiffSection = z.object({
+  label: z.string(),
+  rows: z.array(DiffRow).default([]),
+});
+export type DiffSection = z.infer<typeof DiffSection>;
+
+/**
+ * The structured documentation diff for a history entry — what the timeline
+ * expands to show. Entirely OPTIONAL: entries written before diffs existed (or
+ * by tools that don't produce one) simply omit it and the timeline falls back
+ * to the change-log line.
+ */
+export const VersionDiff = z.object({
+  /** Counts surfaced as the `+a −r` badge on the collapsed card. */
+  added: z.number().int().nonnegative().default(0),
+  removed: z.number().int().nonnegative().default(0),
+  /** If set, the change breaks clients — rendered as a warning callout. */
+  breaking: z.string().optional(),
+  sections: z.array(DiffSection).default([]),
+});
+export type VersionDiff = z.infer<typeof VersionDiff>;
+
 /** One immutable entry in an element's append-only history. */
 export const VersionEntry = z.object({
   version: z.string(),
@@ -185,8 +227,12 @@ export const VersionEntry = z.object({
   action: VersionAction.default("modified"),
   commitHash: z.string().optional(),
   changeLog: z.string().default(""),
+  /** The version this entry superseded, for a "v1.1.0 → v1.2.0" transition. */
+  previousVersion: z.string().optional(),
   /** Endpoint method/path/title at write time — needed to render deletions. */
   endpoint: EndpointSnapshot.optional(),
+  /** Optional structured diff the timeline expands to show (see VersionDiff). */
+  diff: VersionDiff.optional(),
 });
 export type VersionEntry = z.infer<typeof VersionEntry>;
 

@@ -109,38 +109,38 @@ source.subscribeInfra((infra) => {
 // Toolbar
 // ========================================================================
 function buildToolbar(): void {
-  const tools: Array<[Tool, string]> = [
-    ["select", "▱\nMove"],
-    ["frame", "▢\nFrame"],
-    ["rectangle", "▭\nRect"],
-    ["text", "T\nText"],
+  const tools: Array<[Tool, string, () => SVGElement]> = [
+    ["select", "Move", moveIcon],
+    ["frame", "Frame", frameIcon],
+    ["rectangle", "Rect", rectIcon],
+    ["text", "Text", textIcon],
   ];
-  for (const [t, label] of tools) {
-    const btn = button(label, () => setTool(t));
+  for (const [t, label, mk] of tools) {
+    const btn = iconButton(mk(), label, () => setTool(t));
     btn.dataset.tool = t;
     toolbar.append(btn);
   }
   toolbar.append(divider());
-  toolbar.append(button("◆\nComp", makeComponent));
-  toolbar.append(button("⧉\nInst", placeInstance));
-  toolbar.append(button("🗑\nDel", deleteSelected));
+  toolbar.append(iconButton(compIcon(), "Comp", makeComponent));
+  toolbar.append(iconButton(instIcon(), "Inst", placeInstance));
+  toolbar.append(iconButton(delIcon(), "Del", deleteSelected));
   toolbar.append(divider());
-  const docsBtn = button("🛈\nDocs", toggleDocs);
+  const docsBtn = iconButton(docsIcon(), "Docs", toggleDocs);
   docsBtn.dataset.toggle = "docs";
   docsBtn.classList.toggle("active", showDocs);
   toolbar.append(docsBtn);
-  const infraBtn = button("🗄\nInfra", toggleInfra);
+  const infraBtn = iconButton(infraIcon(), "Infra", toggleInfra);
   infraBtn.dataset.toggle = "infra";
   infraBtn.classList.toggle("active", showInfra);
   toolbar.append(infraBtn);
-  const tlBtn = button("🕘\nHistory", toggleTimeline);
+  const tlBtn = iconButton(historyIcon(), "History", toggleTimeline);
   tlBtn.dataset.toggle = "timeline";
   tlBtn.classList.toggle("active", showTimeline);
   toolbar.append(tlBtn);
   // Membership management only applies to the live (auth-gated) source.
   if (source.addMember) {
     toolbar.append(divider());
-    toolbar.append(button("👤\n+Member", addMember));
+    toolbar.append(iconButton(memberIcon(), "+Member", addMember));
   }
   refreshToolbar();
 }
@@ -894,12 +894,130 @@ function notify(msg: string): void {
   panel.prepend(p);
 }
 
-function button(label: string, onClick: () => void): HTMLButtonElement {
+/** A toolbar button whose glyph is an inline line-SVG icon over a text label. */
+function iconButton(
+  icon: SVGElement,
+  label: string,
+  onClick: () => void,
+): HTMLButtonElement {
   const b = document.createElement("button");
-  b.textContent = label;
-  b.style.whiteSpace = "pre";
+  b.className = "icon-btn";
+  b.title = label;
+  b.append(icon);
+  const span = document.createElement("span");
+  span.textContent = label;
+  b.append(span);
   b.addEventListener("click", onClick);
   return b;
+}
+
+/** Build a 24×24 stroked line icon from a list of <path>/<rect>/… children. */
+function lineIcon(children: SVGElement[]): SVGElement {
+  const svg = svgEl("svg", {
+    class: "tb-icon",
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    "stroke-width": "1.8",
+    "stroke-linecap": "round",
+    "stroke-linejoin": "round",
+  });
+  for (const c of children) svg.append(c);
+  return svg;
+}
+// Icon primitives + factories are function declarations (not const) so they are
+// hoisted and safe to call from buildToolbar(), which runs during module init.
+function path(d: string): SVGElement {
+  return svgEl("path", { d });
+}
+function poly(points: string): SVGElement {
+  return svgEl("polyline", { points });
+}
+function circle(cx: number, cy: number, r: number): SVGElement {
+  return svgEl("circle", { cx: `${cx}`, cy: `${cy}`, r: `${r}` });
+}
+function rect(x: number, y: number, w: number, h: number, r = 2): SVGElement {
+  return svgEl("rect", { x: `${x}`, y: `${y}`, width: `${w}`, height: `${h}`, rx: `${r}` });
+}
+
+// Move/select: four-way arrows.
+function moveIcon(): SVGElement {
+  return lineIcon([
+    poly("5 9 2 12 5 15"),
+    poly("9 5 12 2 15 5"),
+    poly("15 19 12 22 9 19"),
+    poly("19 9 22 12 19 15"),
+    line(2, 12, 22, 12),
+    line(12, 2, 12, 22),
+  ]);
+}
+// Frame: a crop/frame grid.
+function frameIcon(): SVGElement {
+  return lineIcon([line(2, 6, 22, 6), line(2, 18, 22, 18), line(6, 2, 6, 22), line(18, 2, 18, 22)]);
+}
+// Rectangle.
+function rectIcon(): SVGElement {
+  return lineIcon([rect(4, 6, 16, 12, 2)]);
+}
+// Text: a capital-T type glyph.
+function textIcon(): SVGElement {
+  return lineIcon([poly("4 7 4 4 20 4 20 7"), line(12, 4, 12, 20), line(9, 20, 15, 20)]);
+}
+// Component: the Figma-style diamond.
+function compIcon(): SVGElement {
+  return lineIcon([path("M12 2 22 12 12 22 2 12Z")]);
+}
+// Instance: an overlapping-copies glyph.
+function instIcon(): SVGElement {
+  return lineIcon([
+    rect(9, 9, 11, 11, 2),
+    path("M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"),
+  ]);
+}
+// Delete: a trash can.
+function delIcon(): SVGElement {
+  return lineIcon([
+    poly("3 6 5 6 21 6"),
+    path("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"),
+    line(10, 11, 10, 17),
+    line(14, 11, 14, 17),
+  ]);
+}
+// Add member: a user with a plus.
+function memberIcon(): SVGElement {
+  return lineIcon([
+    path("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"),
+    circle(9, 7, 4),
+    line(19, 8, 19, 14),
+    line(16, 11, 22, 11),
+  ]);
+}
+// Document with text lines.
+function docsIcon(): SVGElement {
+  return lineIcon([
+    path("M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"),
+    path("M14 3v5h5"),
+    path("M9 13h6"),
+    path("M9 17h6"),
+  ]);
+}
+// Sitemap: one node branching to two below.
+function infraIcon(): SVGElement {
+  return lineIcon([
+    svgEl("rect", { x: "9", y: "2", width: "6", height: "6", rx: "1.2" }),
+    svgEl("rect", { x: "3", y: "16", width: "6", height: "6", rx: "1.2" }),
+    svgEl("rect", { x: "15", y: "16", width: "6", height: "6", rx: "1.2" }),
+    path("M12 8v4"),
+    path("M6 16v-2.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 18 13.5V16"),
+  ]);
+}
+// Clock with a counter-clockwise "history" arrow.
+function historyIcon(): SVGElement {
+  return lineIcon([
+    path("M3 3v5h5"),
+    path("M3.05 13A9 9 0 1 0 6 5.3L3 8"),
+    path("M12 7v5l4 2"),
+  ]);
 }
 function divider(): HTMLElement {
   const d = document.createElement("div");

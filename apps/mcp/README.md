@@ -23,6 +23,27 @@ live.
 | `get_documentation` | Read one element's current binding before editing |
 | `write_documentation` | Attach/replace docs on an element (appended to version history) |
 | `remove_documentation` | Strip docs off an element |
+| `get_history` | Read one element's full documentation version history (created/modified/deleted) |
+| `get_catchup_digest` | Net to-integrate / to-modify / to-remove since a baseline (24h/7d/30d/all) |
+| `list_infra` | Read the infrastructure graph (nodes + edges — the architecture overlay) |
+| `write_infra_node` | Create or update an infra node (database, cache, service, …) |
+| `connect_infra` | Draw a directed edge between two infra nodes |
+| `remove_infra_node` | Delete an infra node and any edges touching it |
+| `create_element` | Draw a new design element (frame / rectangle / text / component / instance) |
+| `update_element` | Move / resize / rename / restyle / re-parent an element (partial update) |
+| `delete_element` | Remove an element (cascades to nested descendants by default) |
+| `list_members` | Read the project's access roster (uid + role) |
+| `add_member` | Enrol a uid into the roster (REST-side of the canvas' 👤 +Member) |
+| `remove_member` | Revoke a uid's access |
+
+These tools give an agent **parity with the canvas and extension** — every data
+pillar is reachable: the **design** layer (read + author), the **API
+documentation** layer (read/write + history), the **infrastructure** graph
+(read/write), the project **timeline** (read via `get_history` /
+`get_catchup_digest`; writes flow through the documentation tools), and **access
+control** (the member roster). Designers still normally own the design layer on
+the canvas, so prefer documenting existing elements over drawing new ones —
+`create_element` is there for when the design is genuinely missing what you built.
 
 The `write_documentation` input schema is derived from the shared `ApiBinding`
 contract, so the structured fields (`method`, `endpoint`, `parameters`, …) stay

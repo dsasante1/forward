@@ -206,15 +206,38 @@
         },
         {
           "version": "v1.2.0",
+          "previousVersion": "v1.1.0",
           "timestamp": 1779968700000,
           "author": "BackendDevGuy",
           "action": "modified",
           "commitHash": "ab12cd3",
-          "changeLog": "Strict regex restriction enforced on the email field.",
+          "changeLog": "Strict regex validation now enforced on the email field.",
           "endpoint": {
             "title": "Log in",
             "method": "POST",
             "path": "/api/v1/users/login"
+          },
+          "diff": {
+            "added": 2,
+            "removed": 1,
+            "breaking": "Breaking for malformed input. Clients sending non-conforming emails now receive 422 instead of 200.",
+            "sections": [
+              {
+                "label": "request · body.email",
+                "rows": [
+                  { "op": "unchanged", "cols": ["email", "string", "required"] },
+                  { "op": "removed", "cols": ["format", "—", "any non-empty string accepted"] },
+                  { "op": "added", "cols": ["format", "regex", "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"] }
+                ]
+              },
+              {
+                "label": "responses",
+                "rows": [
+                  { "op": "unchanged", "cols": ["200", "OK", "{ token, expiresIn }"] },
+                  { "op": "added", "cols": ["422", "error", "INVALID_EMAIL — email failed validation"] }
+                ]
+              }
+            ]
           }
         }
       ],
@@ -234,15 +257,35 @@
         },
         {
           "version": "v1.1.0",
+          "previousVersion": "v1.0.0",
           "timestamp": 1779964200000,
           "author": "BackendDevGuy",
           "action": "deleted",
           "commitHash": "7f8a9b0",
-          "changeLog": "Removed \u2014 replaced by token refresh.",
+          "changeLog": "Removed \u2014 replaced by silent token refresh.",
           "endpoint": {
             "title": "Session check",
             "method": "GET",
             "path": "/api/v1/session"
+          },
+          "diff": {
+            "added": 0,
+            "removed": 2,
+            "breaking": "Breaking. Clients still polling GET /api/v1/session now receive 404; rely on the silent token refresh instead.",
+            "sections": [
+              {
+                "label": "endpoint",
+                "rows": [
+                  { "op": "removed", "cols": ["GET", "/api/v1/session", "validate session cookie"] }
+                ]
+              },
+              {
+                "label": "responses",
+                "rows": [
+                  { "op": "removed", "cols": ["200", "OK", "{ valid, expiresIn }"] }
+                ]
+              }
+            ]
           }
         }
       ],

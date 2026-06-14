@@ -32,50 +32,65 @@ export function renderPanel(
   root.append(h("h2", el.name || el.id));
   root.append(h("p", el.type, "empty"));
 
-  // --- properties ---
-  root.append(h("h3", "Position & size"));
-  root.append(numRow("X", el.x, (v) => onChange({ x: v })));
-  root.append(numRow("Y", el.y, (v) => onChange({ y: v })));
-  root.append(numRow("W", el.width, (v) => onChange({ width: v })));
-  root.append(numRow("H", el.height, (v) => onChange({ height: v })));
+  // --- properties (each section collapses independently) ---
+  const pos = section("Position & size");
+  pos.append(numRow("X", el.x, (v) => onChange({ x: v })));
+  pos.append(numRow("Y", el.y, (v) => onChange({ y: v })));
+  pos.append(numRow("W", el.width, (v) => onChange({ width: v })));
+  pos.append(numRow("H", el.height, (v) => onChange({ height: v })));
+  root.append(pos);
 
-  root.append(h("h3", "Style"));
-  root.append(textRow("Name", el.name, (v) => onChange({ name: v })));
+  const styleSec = section("Style");
+  styleSec.append(textRow("Name", el.name, (v) => onChange({ name: v })));
   if (el.type === "text" || el.text !== undefined) {
-    root.append(textRow("Text", el.text ?? "", (v) => onChange({ text: v })));
+    styleSec.append(textRow("Text", el.text ?? "", (v) => onChange({ text: v })));
   }
   const style = el.style ?? {};
-  root.append(
+  styleSec.append(
     textRow("Fill", style.fill ?? "", (v) =>
       onChange({ style: { ...style, fill: v } }),
     ),
   );
-  root.append(
+  styleSec.append(
     textRow("Stroke", style.stroke ?? "", (v) =>
       onChange({ style: { ...style, stroke: v } }),
     ),
   );
-  root.append(
+  styleSec.append(
     numRow("Radius", style.radius ?? 0, (v) =>
       onChange({ style: { ...style, radius: v } }),
     ),
   );
   if (el.type === "text") {
-    root.append(
+    styleSec.append(
       numRow("Font", style.fontSize ?? 16, (v) =>
         onChange({ style: { ...style, fontSize: v } }),
       ),
     );
   }
+  root.append(styleSec);
 
   // --- API documentation (authored here in the canvas OR from VS Code; both
   //     write to the same apiBinding sub-tree, so either side can edit) ---
-  root.append(h("h3", "API documentation"));
-  renderApiDocs(root, el, onChange);
+  const docs = section("API documentation");
+  renderApiDocs(docs, el, onChange);
+  root.append(docs);
 
   // --- version history ---
-  root.append(h("h3", "Version history"));
-  root.append(timelineList(timeline));
+  const history = section("Version history");
+  history.append(timelineList(timeline));
+  root.append(history);
+}
+
+/** A collapsible panel section: a <details> with the title as its <summary>. */
+function section(title: string, open = true): HTMLDetailsElement {
+  const d = document.createElement("details");
+  d.className = "panel-section";
+  d.open = open;
+  const summary = document.createElement("summary");
+  summary.textContent = title;
+  d.append(summary);
+  return d;
 }
 
 /**
@@ -113,19 +128,42 @@ function renderApiDocs(
   const set = (patch: Partial<ApiBinding>) =>
     onChange({ apiBinding: { ...b, ...patch } });
 
+  // Docs-first: the title + free-form Markdown body carry the meaning, and work
+  // for any kind of binding (REST, GraphQL, gRPC, CLI, a background job…).
   root.append(textRow("Title", b.title, (v) => set({ title: v })));
   root.append(
+    textareaRow(
+      "Docs",
+      b.description,
+      (v) => set({ description: v }),
+      8,
+      "Free-form Markdown — describe the endpoint, behaviour, examples…",
+    ),
+  );
+
+  // The structured HTTP fields are OPTIONAL hints for REST-style endpoints; keep
+  // them out of the way and only spring open when they already hold something.
+  const hasHints = Boolean(
+    b.method || b.endpoint || b.language || b.parameters.length,
+  );
+  const details = document.createElement("details");
+  details.className = "doc-optional";
+  if (hasHints) details.open = true;
+  const summary = document.createElement("summary");
+  summary.textContent = "Optional API details";
+  details.append(summary);
+  details.append(
     selectRow("Method", b.method ?? "", ["", ...HttpMethod.options], (v) =>
       set({ method: (v || undefined) as ApiBinding["method"] }),
     ),
   );
-  root.append(textRow("Endpoint", b.endpoint ?? "", (v) =>
-    set({ endpoint: v || undefined }),
-  ));
-  root.append(textRow("Language", b.language ?? "", (v) =>
-    set({ language: v || undefined }),
-  ));
-  root.append(
+  details.append(
+    textRow("Endpoint", b.endpoint ?? "", (v) => set({ endpoint: v || undefined })),
+  );
+  details.append(
+    textRow("Language", b.language ?? "", (v) => set({ language: v || undefined })),
+  );
+  details.append(
     textRow("Params", b.parameters.join(", "), (v) =>
       set({
         parameters: v
@@ -135,9 +173,7 @@ function renderApiDocs(
       }),
     ),
   );
-  root.append(
-    textareaRow("Description", b.description, (v) => set({ description: v })),
-  );
+  root.append(details);
 
   const remove = document.createElement("button");
   remove.className = "doc-remove";
@@ -217,10 +253,13 @@ function textareaRow(
   label: string,
   value: string,
   onChange: (v: string) => void,
+  rows = 4,
+  placeholder = "",
 ): HTMLElement {
   const ta = document.createElement("textarea");
-  ta.rows = 4;
+  ta.rows = rows;
   ta.value = value;
+  if (placeholder) ta.placeholder = placeholder;
   ta.addEventListener("change", () => onChange(ta.value));
   const div = document.createElement("div");
   div.className = "row row-stack";
