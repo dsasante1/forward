@@ -63,6 +63,46 @@ describe("flattenTimelines", () => {
     expect(byId.b).toMatchObject({ title: "Profile", path: "/me" });
     expect(byId.c?.title).toBe("c"); // no snapshot, no current label -> id
   });
+
+  it("derives previousVersion from the prior entry, even when given out of order", () => {
+    const events = flattenTimelines({
+      a: [
+        entry({ timestamp: 50, version: "v1.2.0", action: "modified" }),
+        entry({ timestamp: 10, version: "v1.0.0", action: "created" }), // earlier, listed later
+        entry({ timestamp: 30, version: "v1.1.0", action: "modified" }),
+      ],
+    });
+    const byTs = Object.fromEntries(events.map((e) => [e.timestamp, e.previousVersion]));
+    expect(byTs[10]).toBeUndefined(); // first entry has no predecessor
+    expect(byTs[30]).toBe("v1.0.0");
+    expect(byTs[50]).toBe("v1.1.0");
+  });
+
+  it("keeps an explicit previousVersion over the derived one", () => {
+    const [event] = flattenTimelines({
+      a: [
+        entry({ timestamp: 10, version: "v1.0.0", action: "created" }),
+        entry({ timestamp: 20, version: "v2.0.0", previousVersion: "v1.9.9", action: "modified" }),
+      ],
+    }).filter((e) => e.timestamp === 20);
+    expect(event?.previousVersion).toBe("v1.9.9");
+  });
+
+  it("passes a structured diff through, and omits it when absent", () => {
+    const diff = {
+      added: 2,
+      removed: 1,
+      breaking: "now 422",
+      sections: [{ label: "responses", rows: [{ op: "added" as const, cols: ["422"] }] }],
+    };
+    const events = flattenTimelines({
+      a: [entry({ timestamp: 1, action: "modified", diff })],
+      b: [entry({ timestamp: 2, action: "modified" })],
+    });
+    const byId = Object.fromEntries(events.map((e) => [e.elementId, e]));
+    expect(byId.a?.diff).toEqual(diff);
+    expect(byId.b).not.toHaveProperty("diff");
+  });
 });
 
 describe("computeLanes", () => {

@@ -1,4 +1,9 @@
-import type { HttpMethod, VersionAction, VersionEntry } from "./schema.js";
+import type {
+  HttpMethod,
+  VersionAction,
+  VersionDiff,
+  VersionEntry,
+} from "./schema.js";
 
 /**
  * Project-timeline helpers: turn the per-element `version_timeline` histories
@@ -23,6 +28,10 @@ export interface TimelineEvent {
   title: string;
   method?: HttpMethod;
   path?: string;
+  /** Version this entry superseded, for a "prev → version" transition badge. */
+  previousVersion?: string;
+  /** Structured documentation diff, if the entry carries one (see VersionDiff). */
+  diff?: VersionDiff;
 }
 
 /**
@@ -56,8 +65,12 @@ export function flattenTimelines(
 ): TimelineEvent[] {
   const out: TimelineEvent[] = [];
   for (const [elementId, entries] of Object.entries(byElement)) {
-    for (const entry of entries) {
+    // Sort this element's own history first so each entry can name the version
+    // it superseded (the previous chronological entry) when it doesn't already.
+    const ordered = [...entries].sort((a, b) => a.timestamp - b.timestamp);
+    ordered.forEach((entry, i) => {
       const label = entry.endpoint ?? current[elementId] ?? {};
+      const previousVersion = entry.previousVersion ?? ordered[i - 1]?.version;
       out.push({
         elementId,
         action: actionOf(entry),
@@ -69,8 +82,10 @@ export function flattenTimelines(
         title: label.title || elementId,
         ...(label.method ? { method: label.method } : {}),
         ...(label.path ? { path: label.path } : {}),
+        ...(previousVersion ? { previousVersion } : {}),
+        ...(entry.diff ? { diff: entry.diff } : {}),
       });
-    }
+    });
   }
   return out.sort((a, b) => a.timestamp - b.timestamp);
 }
