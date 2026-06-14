@@ -3,9 +3,28 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import {
   ApiBinding,
+  DesignElement,
+  InfraEdge,
+  InfraNode,
+  ProjectRole,
+  Style,
+  addMember,
   bindApiToElement,
+  deleteElement,
+  deleteInfraNode,
+  digest,
   fetchElements,
+  fetchInfra,
+  fetchTimelinesConditional,
+  flattenTimelines,
+  listMembers,
+  patchElement,
+  removeMember,
+  saveElement,
+  saveInfraEdge,
+  saveInfraNode,
   unbindApiFromElement,
+  type CurrentLabel,
   type FirebaseConfig,
 } from "@adc/shared";
 import { findAnchorsInSource, scanPath } from "./anchor.js";
@@ -52,6 +71,42 @@ function ok(data: unknown) {
 /** Error tool result the agent can read and relay to the user. */
 function fail(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true };
+}
+
+/** A client-side id for a new infra node/edge, mirroring the canvas' scheme. */
+function genId(prefix: string): string {
+  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Catch-up baselines, matching the canvas timeline's window selector. */
+const WINDOWS: Record<string, number> = {
+  "24h": 24 * 3600_000,
+  "7d": 7 * 24 * 3600_000,
+  "30d": 30 * 24 * 3600_000,
+  all: Number.POSITIVE_INFINITY,
+};
+
+/**
+ * Load every endpoint event as one chronological stream (oldest → newest), the
+ * same shape the canvas timeline renders. Labels come from each entry's own
+ * snapshot first, then the element's current binding for live endpoints.
+ */
+async function loadTimelineEvents(cfg: FirebaseConfig) {
+  const [timelinesResult, elements] = await Promise.all([
+    fetchTimelinesConditional(cfg, undefined),
+    fetchElements(cfg),
+  ]);
+  const current: Record<string, CurrentLabel> = {};
+  for (const el of elements) {
+    if (el.apiBinding) {
+      current[el.id] = {
+        title: el.apiBinding.title,
+        ...(el.apiBinding.method ? { method: el.apiBinding.method } : {}),
+        ...(el.apiBinding.endpoint ? { path: el.apiBinding.endpoint } : {}),
+      };
+    }
+  }
+  return flattenTimelines(timelinesResult?.timelines ?? {}, current);
 }
 
 const server = new McpServer({
@@ -292,6 +347,372 @@ server.registerTool(
         changeLog: changeLog ?? "Removed API documentation",
       });
       return ok({ elementId, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: one element's version history -----------------------------------
+server.registerTool(
+  "get_history",
+  {
+    title: "Get an element's documentation history",
+    description:
+      "Read the append-only version history of one design element's API documentation " +
+      "(every created / modified / deleted event, oldest → newest), including author, change " +
+      "log, version and any structured diff. Use this to see how an endpoint's docs evolved; " +
+      "for the project-wide \"what changed since…\" view use get_catchup_digest instead.",
+    inputSchema: {
+      elementId: z.string().min(1).describe("The design element id."),
+    },
+  },
+  async ({ elementId }) => {
+    try {
+      const events = (await loadTimelineEvents(getConfig())).filter(
+        (e) => e.elementId === elementId,
+      );
+      return ok({ elementId, count: events.length, events });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: project catch-up digest since a baseline ------------------------
+server.registerTool(
+  "get_catchup_digest",
+  {
+    title: "Catch up on endpoint changes since a baseline",
+    description:
+      "Collapse every endpoint change since a baseline into the net to-integrate / to-modify / " +
+      "to-remove lists a frontend dev acts on — the same catch-up digest the canvas timeline " +
+      "shows. An endpoint created-then-deleted in the window is a no-op; created-then-modified " +
+      "is just \"new\". Use this to answer \"what API changes do I need to deal with?\"",
+    inputSchema: {
+      since: z
+        .enum(["24h", "7d", "30d", "all"])
+        .optional()
+        .describe("Baseline window to measure changes from (default 7d)."),
+    },
+  },
+  async ({ since }) => {
+    try {
+      const events = await loadTimelineEvents(getConfig());
+      const winMs = WINDOWS[since ?? "7d"] ?? Number.POSITIVE_INFINITY;
+      const sinceTs = Number.isFinite(winMs) ? Date.now() - winMs : 0;
+      const d = digest(events, sinceTs);
+      return ok({
+        since: since ?? "7d",
+        counts: {
+          toIntegrate: d.toIntegrate.length,
+          toModify: d.toModify.length,
+          toRemove: d.toRemove.length,
+        },
+        ...d,
+      });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: the infrastructure graph ----------------------------------------
+server.registerTool(
+  "list_infra",
+  {
+    title: "List the infrastructure diagram",
+    description:
+      "Read the project's infrastructure graph — the nodes (frontend / backend / database / " +
+      "cache / queue / service / devops / external / group) and the directed edges between " +
+      "them. This is the architecture overlay, separate from the design elements. Start here " +
+      "before writing to see what already exists and to reuse node ids when connecting them.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      return ok(await fetchInfra(getConfig()));
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: create or update an infra node ---------------------------------
+server.registerTool(
+  "write_infra_node",
+  {
+    title: "Create or update an infrastructure node",
+    description:
+      "Add a box to the architecture diagram (or update one by passing its id), e.g. a " +
+      "PostgreSQL database or a background worker. kind drives its colour/icon; label is the " +
+      "display name. Geometry is optional — designers reposition nodes on the canvas — so omit " +
+      "x/y to drop it at a default spot. Returns the node id (use it with connect_infra).",
+    inputSchema: {
+      id: InfraNode.shape.id
+        .optional()
+        .describe("Existing node id to update; omit to create a new node."),
+      kind: InfraNode.shape.kind.describe(
+        "Node category: frontend, backend, database, cache, queue, service, devops, external, group.",
+      ),
+      label: InfraNode.shape.label.describe('Display name, e.g. "PostgreSQL".'),
+      tech: InfraNode.shape.tech.describe('Optional version/runtime tag, e.g. "v15".'),
+      description: InfraNode.shape.description.describe("Free-form Markdown notes."),
+      x: z.number().optional().describe("Canvas x (default 80)."),
+      y: z.number().optional().describe("Canvas y (default 80)."),
+      width: InfraNode.shape.width.describe("Box width (default 160)."),
+      height: InfraNode.shape.height.describe("Box height (default 72)."),
+      parentId: InfraNode.shape.parentId.describe(
+        'Id of a "group" node to nest inside, or null.',
+      ),
+    },
+  },
+  async ({ id, x, y, ...fields }) => {
+    try {
+      const node = InfraNode.parse({
+        ...fields,
+        id: id ?? genId("infra"),
+        x: x ?? 80,
+        y: y ?? 80,
+        updatedAt: new Date().toISOString(),
+      });
+      await saveInfraNode(getConfig(), node);
+      return ok({ id: node.id, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: connect two infra nodes ----------------------------------------
+server.registerTool(
+  "connect_infra",
+  {
+    title: "Connect two infrastructure nodes",
+    description:
+      "Draw a directed edge between two infra nodes (e.g. backend → database \"reads/writes\"). " +
+      "Pass the from/to node ids (get them from list_infra or write_infra_node). Pass an " +
+      "existing edge id to update its label. The edge is removed automatically if either node " +
+      "is deleted.",
+    inputSchema: {
+      id: InfraEdge.shape.id
+        .optional()
+        .describe("Existing edge id to update; omit to create a new edge."),
+      from: InfraEdge.shape.from.describe("Source node id."),
+      to: InfraEdge.shape.to.describe("Target node id."),
+      label: InfraEdge.shape.label.describe('Optional edge label, e.g. "reads/writes".'),
+    },
+  },
+  async ({ id, ...fields }) => {
+    try {
+      const edge = InfraEdge.parse({
+        ...fields,
+        id: id ?? genId("edge"),
+        updatedAt: new Date().toISOString(),
+      });
+      await saveInfraEdge(getConfig(), edge);
+      return ok({ id: edge.id, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: remove an infra node (and its edges) ---------------------------
+server.registerTool(
+  "remove_infra_node",
+  {
+    title: "Remove an infrastructure node",
+    description:
+      "Delete a node from the architecture diagram and any edges touching it, so no dangling " +
+      "connection is left behind. To remove only a connection, update the diagram via the canvas.",
+    inputSchema: {
+      nodeId: z.string().min(1).describe("The infra node id to delete."),
+    },
+  },
+  async ({ nodeId }) => {
+    try {
+      await deleteInfraNode(getConfig(), nodeId);
+      return ok({ nodeId, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: author the design layer ---------------------------------------
+server.registerTool(
+  "create_element",
+  {
+    title: "Create a design element",
+    description:
+      "Draw a new element on the canvas — a frame (container/screen), rectangle (button/card/" +
+      "input), text label, a reusable component, or an instance of one. Designers usually own " +
+      "this, so prefer documenting existing elements; create when the design is genuinely " +
+      "missing the thing you built. Set parentId to nest inside a frame; for an instance set " +
+      "type:\"instance\" and componentId to the master component's id.",
+    inputSchema: {
+      type: DesignElement.shape.type.describe(
+        "frame, rectangle, text, component, or instance.",
+      ),
+      name: DesignElement.shape.name.describe("Display name for the element."),
+      x: z.number().describe("Canvas x (top-left)."),
+      y: z.number().describe("Canvas y (top-left)."),
+      width: z.number().nonnegative().optional().describe("Width (default 120)."),
+      height: z.number().nonnegative().optional().describe("Height (default 40)."),
+      text: DesignElement.shape.text.describe('Text content, for type:"text".'),
+      parentId: DesignElement.shape.parentId.describe(
+        "Id of the frame to nest inside, or null for top level.",
+      ),
+      style: Style.optional().describe("Optional fill/stroke/radius/font styling."),
+      componentId: DesignElement.shape.componentId.describe(
+        'For type:"instance": the master component element id.',
+      ),
+    },
+  },
+  async ({ x, y, width, height, ...fields }) => {
+    try {
+      const element = DesignElement.parse({
+        ...fields,
+        id: genId("el"),
+        x,
+        y,
+        width: width ?? 120,
+        height: height ?? 40,
+        updatedAt: new Date().toISOString(),
+      });
+      await saveElement(getConfig(), element);
+      return ok({ id: element.id, type: element.type, action: "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "update_element",
+  {
+    title: "Update a design element",
+    description:
+      "Change fields of an existing element without touching the rest (or its API docs): move " +
+      "(x/y), resize (width/height), rename, restyle, re-parent (parentId), edit text, or " +
+      "promote it to a component (type:\"component\"). Only the fields you pass are changed.",
+    inputSchema: {
+      elementId: z.string().min(1).describe("The design element id to update."),
+      type: DesignElement.shape.type.optional().describe("New element type."),
+      name: z.string().optional().describe("New display name."),
+      x: z.number().optional().describe("New canvas x."),
+      y: z.number().optional().describe("New canvas y."),
+      width: z.number().nonnegative().optional().describe("New width."),
+      height: z.number().nonnegative().optional().describe("New height."),
+      text: z.string().optional().describe("New text content."),
+      parentId: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("New parent frame id, or null to un-nest."),
+      style: Style.optional().describe("Style fields to set."),
+      componentId: z.string().optional().describe("New master component id (instances)."),
+    },
+  },
+  async ({ elementId, ...patch }) => {
+    try {
+      // Drop keys the caller omitted so they don't clobber existing values.
+      const clean = Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined),
+      );
+      const next = await patchElement(getConfig(), elementId, clean);
+      return ok({ id: next.id, type: next.type, action: "updated" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "delete_element",
+  {
+    title: "Delete a design element",
+    description:
+      "Remove an element from the canvas. By default this cascades to everything nested inside " +
+      "it (deleting a frame removes its children), matching the canvas; pass cascade:false to " +
+      "delete only the one element. Its version history is kept as a record.",
+    inputSchema: {
+      elementId: z.string().min(1).describe("The design element id to delete."),
+      cascade: z
+        .boolean()
+        .optional()
+        .describe("Also delete nested descendants (default true)."),
+    },
+  },
+  async ({ elementId, cascade }) => {
+    try {
+      const removed = await deleteElement(getConfig(), elementId, { cascade });
+      return ok({ removed, count: removed.length });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- access control: the project member roster -----------------------------
+server.registerTool(
+  "list_members",
+  {
+    title: "List project members",
+    description:
+      "Read the project's access roster — the uids allowed to read/write this project, with " +
+      "each one's role (owner/member) and when it was granted.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      return ok(await listMembers(getConfig()));
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "add_member",
+  {
+    title: "Add a project member",
+    description:
+      "Enrol a uid into the project's roster so it can access the project (the REST-side of the " +
+      "canvas' 👤 +Member control). The server's own credentials must be privileged enough for " +
+      "the security rules to admit this write. Defaults the new uid to member; pass role:\"owner\" " +
+      "to grant ownership.",
+    inputSchema: {
+      uid: z.string().min(1).describe("The user id to grant access to."),
+      role: ProjectRole.optional().describe("owner or member (default member)."),
+    },
+  },
+  async ({ uid, role }) => {
+    try {
+      await addMember(getConfig(), uid, role);
+      return ok({ uid, role: role ?? "member", action: "added" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "remove_member",
+  {
+    title: "Remove a project member",
+    description:
+      "Revoke a uid's access by removing it from the project's roster. The design data is " +
+      "untouched; the uid simply can no longer read or write the project.",
+    inputSchema: {
+      uid: z.string().min(1).describe("The user id to revoke."),
+    },
+  },
+  async ({ uid }) => {
+    try {
+      await removeMember(getConfig(), uid);
+      return ok({ uid, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }

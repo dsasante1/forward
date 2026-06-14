@@ -3,6 +3,8 @@ import {
   DesignElement,
   InfraEdge,
   InfraNode,
+  ProjectMember,
+  ProjectRole,
   VersionEntry,
   paths,
 } from "./schema.js";
@@ -15,10 +17,12 @@ import { normalizeList } from "./rtdb.js";
  * one writer stays the single source of truth: change a path or payload shape
  * here once and both surfaces follow.
  *
- * BYOD: the database URL comes from the caller's own settings/env. Design
- * elements are created by designers on the canvas; this client never creates an
- * element — it only *documents* an existing one by writing into that element's
- * `apiBinding` sub-tree, then appends a version-history entry.
+ * BYOD: the database URL comes from the caller's own settings/env. Designers
+ * normally author the design layer on the canvas, but this client speaks the
+ * full data contract too — it can create/update/delete design elements, document
+ * them (write into an element's `apiBinding` sub-tree + append version history),
+ * edit the infrastructure graph, and manage the project's member roster. That
+ * parity is what lets the MCP server expose every feature to an AI agent.
  *
  * For private databases, pass an auth token (Firebase ID token / DB secret) and
  * it is appended as `?auth=` — keep it out of source control.
@@ -145,6 +149,136 @@ export async function fetchElements(
     if (parsed.success) out.push(parsed.data);
   }
   return out;
+}
+
+/**
+ * Ids of every descendant of `id` (children, grandchildren, …) by `parentId`,
+ * so a delete or move can cascade through a frame's whole subtree — the same
+ * containment rule the canvas applies. The starting id itself is not included.
+ */
+export function descendantIds(
+  id: string,
+  elements: Array<Pick<DesignElement, "id" | "parentId">>,
+): string[] {
+  const out: string[] = [];
+  const stack = [id];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const el of elements) {
+      if (el.parentId === current && !out.includes(el.id)) {
+        out.push(el.id);
+        stack.push(el.id);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Create or replace a whole design element (geometry + style + text + relations).
+ * The canvas persists edits with the same PUT; exposing it here lets a non-browser
+ * client author the design layer too. Stamps `updatedAt` so the canvas flags the
+ * change live. Use `patchElement` to change a few fields without resending all.
+ */
+export async function saveElement(
+  cfg: FirebaseConfig,
+  element: DesignElement,
+): Promise<void> {
+  const body = DesignElement.parse({
+    ...element,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(url(cfg, paths.element(cfg.projectId, body.id)), body);
+}
+
+/**
+ * Update some fields of an existing element, preserving the rest (and its
+ * apiBinding). Reads the element first so a partial change — move, resize,
+ * rename, restyle, re-parent, or promote to a component — doesn't clobber the
+ * other fields. Throws if the element doesn't exist.
+ */
+export async function patchElement(
+  cfg: FirebaseConfig,
+  elementId: string,
+  patch: Partial<Omit<DesignElement, "id">>,
+): Promise<DesignElement> {
+  const current = (await fetchElements(cfg)).find((e) => e.id === elementId);
+  if (!current) throw new Error(`No design element with id "${elementId}".`);
+  const next = DesignElement.parse({
+    ...current,
+    ...patch,
+    id: elementId,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(url(cfg, paths.element(cfg.projectId, elementId)), next);
+  return next;
+}
+
+/**
+ * Delete a design element. By default this cascades to the element's whole
+ * subtree (descendants by `parentId`), matching the canvas — deleting a frame
+ * removes what's nested inside it — so no child is left orphaned. Pass
+ * `cascade: false` to remove only the one element. The element's append-only
+ * version history is left intact as a record.
+ */
+export async function deleteElement(
+  cfg: FirebaseConfig,
+  elementId: string,
+  opts: { cascade?: boolean } = {},
+): Promise<string[]> {
+  const cascade = opts.cascade ?? true;
+  let ids = [elementId];
+  if (cascade) {
+    const all = await fetchElements(cfg);
+    ids = [elementId, ...descendantIds(elementId, all)];
+  }
+  await Promise.all(
+    ids.map((id) => del(url(cfg, paths.element(cfg.projectId, id)))),
+  );
+  return ids;
+}
+
+// --------------------------------------------------------------------------
+// Membership roster (per-project access control)
+// --------------------------------------------------------------------------
+
+/** Read a project's member roster (uid + role + when granted). */
+export async function listMembers(
+  cfg: FirebaseConfig,
+): Promise<Array<{ uid: string } & ProjectMember>> {
+  const res = await fetch(url(cfg, paths.projectMembers(cfg.projectId)));
+  if (!res.ok) throw new Error(`Firebase read failed: ${res.status}`);
+  const body = (await res.json()) as Record<string, unknown> | null;
+  if (!body) return [];
+  const out: Array<{ uid: string } & ProjectMember> = [];
+  for (const [uid, value] of Object.entries(body)) {
+    const parsed = ProjectMember.safeParse(value);
+    if (parsed.success) out.push({ uid, ...parsed.data });
+  }
+  return out;
+}
+
+/**
+ * Enrol a uid into the project's roster (the REST-side of the canvas' 👤 +Member
+ * control). The caller must already be a privileged/member client for the rules
+ * to admit the write. Defaults the new uid to `member`; pass `owner` to grant
+ * ownership. Re-adding an existing uid just updates its role.
+ */
+export async function addMember(
+  cfg: FirebaseConfig,
+  uid: string,
+  role: ProjectRole = "member",
+): Promise<void> {
+  const member = ProjectMember.parse({ role, addedAt: new Date().toISOString() });
+  await put(url(cfg, paths.projectMember(cfg.projectId, uid)), member);
+}
+
+/** Remove a uid from the project's roster, revoking its access. */
+export async function removeMember(
+  cfg: FirebaseConfig,
+  uid: string,
+): Promise<void> {
+  await del(url(cfg, paths.projectMember(cfg.projectId, uid)));
 }
 
 /**

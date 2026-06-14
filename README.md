@@ -30,7 +30,7 @@ change it there once and both apps stay in sync.
 | [packages/shared](packages/shared) | Zod schemas + TS types for the design/binding tree (the data contract) |
 | [apps/extension](apps/extension) | VS Code extension: pick a design element → write API docs (any language/framework) onto it |
 | [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + endpoint timeline |
-| [apps/mcp](apps/mcp) | MCP server: let **any AI agent** find a design element and document it for you (the AI-native surface) |
+| [apps/mcp](apps/mcp) | MCP server: gives **any AI agent** full parity with the canvas — author/document design elements, map the infrastructure graph, read the timeline, and manage project access (the AI-native surface) |
 
 ## Using the canvas editor
 
@@ -146,5 +146,8 @@ Working end-to-end: the Figma-lite editor (offline fixture, local mock-rtdb, or 
 Firebase RTDB), the VS Code documentation bridge (ETag-conditional polling over the RTDB
 REST API), the infrastructure overlay, the MCP server, and the project **endpoint
 timeline** (git-graph history + catch-up digest, rendered in both the web canvas and the
-VS Code viewer). 49 unit tests across the schema, timeline logic, canvas geometry, the
-RTDB writer and the MCP matcher/anchor resolver.
+VS Code viewer). The MCP server now reaches **every feature** an AI agent could want —
+authoring/documenting design elements, editing the infrastructure graph, reading the
+timeline, and managing project access — at parity with the canvas and extension. 63 unit
+tests across the schema, timeline logic, canvas geometry, the RTDB reader/writer and the
+MCP matcher/anchor resolver.
