@@ -50,6 +50,43 @@ Runs offline against [apps/canvas/public/fixture.json](apps/canvas/public/fixtur
   to remove* lists a frontend dev acts on. Clicking any event selects its design element.
   The same view lives in the VS Code canvas behind its **Timeline** toolbar button.
 
+## Using with AI tools (MCP)
+
+[apps/mcp](apps/mcp) is the **AI-native surface**: a [Model Context
+Protocol](https://modelcontextprotocol.io) server that gives any MCP-capable
+agent (Claude Code, Cursor, …) **full parity with the canvas and extension** —
+every data pillar is reachable, so a backend dev can just say *"document the
+login endpoint I built"* or *"add a Redis cache to the architecture diagram"*
+and the agent does it. The server holds the Firebase credentials; the agent only
+sees the scoped tools, never the token.
+
+| Capability | Tools |
+|---|---|
+| **Find the right element** | `list_design_elements`, `find_element` (fuzzy match a feature → element), `resolve_anchors` (deterministic `@adc <id>` markers in source) |
+| **API documentation** | `get_documentation`, `write_documentation`, `remove_documentation` |
+| **Design layer (author)** | `create_element` (frame / rectangle / text / component / instance), `update_element` (move / resize / rename / restyle / re-parent), `delete_element` (cascades to nested children) |
+| **Infrastructure graph** | `list_infra`, `write_infra_node`, `connect_infra`, `remove_infra_node` |
+| **Endpoint timeline** | `get_history` (one element), `get_catchup_digest` (net to-integrate / modify / remove since 24h / 7d / 30d / all) |
+| **Access control** | `list_members`, `add_member`, `remove_member` |
+
+Designers normally own the design layer on the canvas, so an agent prefers
+documenting existing elements over drawing new ones — `create_element` is there
+for when the design is genuinely missing what you built. Writes go through the
+same `@adc/shared` contract the extension uses, so every change shows up live on
+the read-only canvases and is recorded in the version history.
+
+Register the built server with your agent (full config, env vars and the
+fuzzy-vs-deterministic linking flow are in [apps/mcp/README.md](apps/mcp/README.md)):
+
+```bash
+npm run build -w apps/mcp
+claude mcp add api-design-connector \
+  --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
+  --env ADC_PROJECT_ID=your-project \
+  --env ADC_AUTH_TOKEN=your-token \
+  -- node /absolute/path/to/apps/mcp/dist/server.js
+```
+
 ## Install
 
 The project ships as two parts that install differently:
