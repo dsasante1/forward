@@ -5,7 +5,7 @@ import {
   type ApiBinding,
   type InfraEdge,
   type InfraNode,
-} from "@adc/shared";
+} from "schema-nexus-core";
 import {
   bindApiToElement,
   deleteInfraNode,
@@ -29,33 +29,33 @@ const POLL_MAX_MS = 30000; // backoff ceiling after repeated failures
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "api-design-connector.connectEndpoint",
+      "schema-nexus.connectEndpoint",
       connectEndpoint,
     ),
-    vscode.commands.registerCommand("api-design-connector.openCanvas", () =>
+    vscode.commands.registerCommand("schema-nexus.openCanvas", () =>
       openCanvas(context),
     ),
     vscode.commands.registerCommand(
-      "api-design-connector.removeDocumentation",
+      "schema-nexus.removeDocumentation",
       removeDocumentationCommand,
     ),
     vscode.commands.registerCommand(
-      "api-design-connector.addInfraNode",
+      "schema-nexus.addInfraNode",
       addInfraNode,
     ),
     vscode.commands.registerCommand(
-      "api-design-connector.linkInfraNodes",
+      "schema-nexus.linkInfraNodes",
       linkInfraNodes,
     ),
     vscode.commands.registerCommand(
-      "api-design-connector.removeInfraNode",
+      "schema-nexus.removeInfraNode",
       removeInfraNode,
     ),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
   // so we never throw a "set your config" toast on every launch.
-  const c = vscode.workspace.getConfiguration("apiDesignConnector");
+  const c = vscode.workspace.getConfiguration("schemaNexus");
   if (
     c.get<boolean>("openCanvasOnStartup") &&
     c.get<string>("firebaseDatabaseUrl") &&
@@ -68,13 +68,13 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {}
 
 function readConfig(): FirebaseConfig | undefined {
-  const c = vscode.workspace.getConfiguration("apiDesignConnector");
+  const c = vscode.workspace.getConfiguration("schemaNexus");
   const databaseUrl = c.get<string>("firebaseDatabaseUrl") ?? "";
   const projectId = c.get<string>("projectId") ?? "";
   const authToken = c.get<string>("authToken") ?? "";
   if (!databaseUrl || !projectId) {
     vscode.window.showErrorMessage(
-      "Set apiDesignConnector.firebaseDatabaseUrl and projectId in Settings (BYOD).",
+      "Set schemaNexus.firebaseDatabaseUrl and projectId in Settings (BYOD).",
     );
     return undefined;
   }
@@ -466,7 +466,7 @@ function openCanvas(context: vscode.ExtensionContext): void {
   if (!cfg) return;
 
   const panel = vscode.window.createWebviewPanel(
-    "apiDesignConnector.canvas",
+    "schemaNexus.canvas",
     "Design Canvas",
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },
@@ -483,7 +483,7 @@ function openCanvas(context: vscode.ExtensionContext): void {
   // delegated to the server via ETags (conditional GETs): an unchanged subtree
   // returns a bodyless 304, so we skip the transfer, the parse, and the post.
   let elementsEtag: string | undefined;
-  let infra: InfraPollState = { nodes: [], edges: [] };
+  let infra: InfraPollState = { nodes: [], edges: [], flows: [] };
   let timelinesEtag: string | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
@@ -513,6 +513,7 @@ function openCanvas(context: vscode.ExtensionContext): void {
           type: "infra",
           nodes: next.nodes,
           edges: next.edges,
+          flows: next.flows,
         });
       }
     } catch (err) {
@@ -549,7 +550,7 @@ function openCanvas(context: vscode.ExtensionContext): void {
   const refresh = () => {
     elementsEtag = undefined; // drop ETags so the next poll re-emits every layer
     timelinesEtag = undefined;
-    infra = { nodes: [], edges: [] };
+    infra = { nodes: [], edges: [], flows: [] };
     if (timer) clearTimeout(timer);
     void loop();
   };
@@ -782,6 +783,65 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
   .infranode.k-group {
     border-style: dashed; border-left-style: dashed; background: rgba(127,127,127,0.05);
   }
+  /* a selected flow dims the nodes/edges it doesn't touch and lights the rest */
+  .infranode.flow-dim { opacity: .25; }
+  .infranode.flow-active { box-shadow: 0 0 0 2px #ffb020, 0 2px 6px rgba(0,0,0,0.3); }
+  #infraEdges line.flow-edge-dim { opacity: .12; }
+  #infraEdges line.flow-arrow { stroke: #ffb020; stroke-width: 2; }
+  #infraEdges line.flow-arrow-async { stroke-dasharray: 6 4; }
+  #infraEdges line.flow-arrow-reply { stroke: #36c275; }
+  #infraEdges polygon.flow-arrowhead { fill: #ffb020; }
+  #infraEdges polygon.flow-arrowhead-reply { fill: #36c275; }
+  #infraEdges circle.flow-step-num-bg { fill: var(--vscode-editor-background, #0f1115); stroke: #ffb020; stroke-width: 1.5; }
+  #infraEdges text.flow-step-num { fill: #ffb020; font-size: 11px; font-weight: 700; text-anchor: middle; }
+  #infraEdges text.flow-step-label { fill: var(--vscode-foreground); font-size: 11px; }
+  /* --- infrastructure flow panel (overlay, top-left) --- */
+  #flowbar {
+    position: fixed; top: 42px; left: 12px; width: 300px; z-index: 55;
+    max-height: calc(100% - 60px); overflow: auto; padding: 12px 14px; border-radius: 8px;
+    background: var(--vscode-editorWidget-background, #252526);
+    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+  #flowbar[hidden] { display: none; }
+  #flowbar h3 {
+    margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+    color: var(--vscode-descriptionForeground);
+  }
+  #flowbar select {
+    width: 100%; padding: 4px 6px; border-radius: 4px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+  }
+  .flow-desc { font-size: 12px; opacity: .85; margin: 10px 0 6px; }
+  .flow-steps { list-style: none; padding: 0; margin: 8px 0; }
+  .flow-steps li {
+    display: flex; gap: 9px; padding: 7px 0; font-size: 12px;
+    border-top: 1px solid var(--vscode-panel-border);
+  }
+  .flow-steps li:first-child { border-top: none; }
+  .flow-step-n {
+    flex: none; width: 18px; height: 18px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #0f1115; background: #ffb020;
+  }
+  .flow-step-route { font-weight: 600; }
+  .flow-step-route .flow-arrow-tok { opacity: .6; margin: 0 4px; }
+  .flow-step-text { opacity: .85; }
+  .flow-step-endpoint {
+    display: inline-block; margin-top: 3px; font-size: 11px;
+    color: var(--vscode-textLink-foreground, #5b8cff); cursor: pointer;
+  }
+  .flow-step-endpoint:hover { text-decoration: underline; }
+  .flow-actions { display: flex; gap: 8px; margin-top: 6px; }
+  .flow-btn {
+    font: inherit; font-size: 11px; cursor: pointer; padding: 5px 10px; border-radius: 4px;
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  }
+  .flow-btn:hover { filter: brightness(1.15); }
   /* --- endpoint timeline panel (git-graph + catch-up digest) --- */
   #timeline {
     position: fixed; top: 42px; right: 12px; bottom: 12px; width: 380px; z-index: 60;
@@ -857,6 +917,7 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
   <span class="hint">Ctrl/⌘ + scroll to zoom</span>
 </div>
 <div id="app"></div>
+<div id="flowbar" hidden></div>
 <div id="timeline" hidden></div>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>

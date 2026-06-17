@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>API Design Connector — Canvas</title>
+    <title>Schema Nexus — Canvas</title>
     <style>
       :root { color-scheme: dark; }
       * { box-sizing: border-box; }
@@ -80,6 +80,79 @@
       .infra-tech { fill: #8a93a3; font-size: 11px; pointer-events: none; }
       .infra-edge { stroke: #5b8cff; stroke-width: 1.5; }
       .infra-edge-label { fill: #8a93a3; font-size: 10px; text-anchor: middle; pointer-events: none; }
+      /* a flow dims the nodes it doesn't touch, and lights the ones it does */
+      .infra-node-dim { opacity: .25; }
+      .infra-node-active .infra-box { stroke-width: 2.5; }
+      .infra-edge-dim { opacity: .12; }
+      .flow-arrow { stroke: #ffb020; stroke-width: 2; fill: none; }
+      .flow-arrow-async { stroke-dasharray: 6 4; }
+      .flow-arrow-reply { stroke: #36c275; }
+      .flow-arrowhead { fill: #ffb020; }
+      .flow-arrowhead-reply { fill: #36c275; }
+      .flow-step-label { fill: #e6e6e6; font-size: 11px; pointer-events: none; }
+      .flow-step-num {
+        fill: #ffb020; font-size: 11px; font-weight: 700;
+        text-anchor: middle; pointer-events: none;
+      }
+      .flow-step-num-bg { fill: #0f1115; stroke: #ffb020; stroke-width: 1.5; }
+
+      /* --- rendered UML view: a full-stage backdrop hiding the infra graph,
+             with the Mermaid diagram on a centered card (its own surface, not
+             overlaid on the infrastructure) --- */
+      #umlpanel {
+        position: absolute; inset: 0; z-index: 30;
+        display: flex; align-items: center; justify-content: center;
+        padding: 24px; background: rgba(8, 10, 14, 0.92);
+      }
+      #umlpanel[hidden] { display: none; }
+      .uml-card {
+        display: flex; flex-direction: column;
+        width: min(960px, 100%); max-height: 100%; overflow: hidden;
+        background: #11141b; border: 1px solid #232938; border-radius: 12px;
+        box-shadow: 0 22px 60px rgba(0,0,0,.6);
+      }
+      .uml-head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 14px; border-bottom: 1px solid #1e2433;
+      }
+      .uml-head h3 {
+        margin: 0; font-size: 13px; font-weight: 650;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      }
+      .uml-kind {
+        flex: none;
+        font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
+        padding: 2px 8px; border-radius: 99px; background: #1c2434; color: #9fb2d8;
+      }
+      .uml-select {
+        flex: 1; min-width: 0; max-width: 320px;
+        background: #161b26; color: #e6e6e6;
+        border: 1px solid #283044; border-radius: 8px; padding: 6px 9px; font: inherit;
+      }
+      .uml-desc {
+        margin: 0; padding: 10px 14px; font-size: 12px; opacity: .8; line-height: 1.45;
+        border-bottom: 1px solid #1e2433;
+      }
+      .uml-head-actions { margin-left: auto; flex: none; display: flex; gap: 4px; }
+      .uml-tab {
+        border: none; background: transparent; color: #8a93a3; font: inherit;
+        font-size: 11px; cursor: pointer; padding: 4px 10px; border-radius: 99px;
+      }
+      .uml-tab:hover { color: #cfd6e4; }
+      .uml-tab.active { background: #232c40; color: #fff; }
+      .uml-tab:disabled { opacity: .35; cursor: default; }
+      .uml-copy, .uml-close {
+        border: none; background: transparent; color: #8a93a3;
+        font-size: 14px; line-height: 1; cursor: pointer; padding: 4px 8px; border-radius: 7px;
+      }
+      .uml-copy:hover, .uml-close:hover { color: #fff; background: #1b2233; }
+      .uml-body { padding: 20px; overflow: auto; background: #0d1017; }
+      .uml-body svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+      .uml-empty { padding: 24px; text-align: center; opacity: .55; }
+      .uml-error {
+        margin: 0; padding: 18px; color: #e0507a; white-space: pre-wrap;
+        font-family: ui-monospace, monospace; font-size: 12px;
+      }
 
       /* --- API doc leader line (anime.js-style callout) --- */
       .doc-leader { cursor: pointer; }
@@ -344,6 +417,7 @@
         <button id="zoomIn" title="Zoom in">+</button>
         <button id="zoomFit" title="Fit to content">Fit</button>
       </div>
+      <div id="umlpanel" hidden></div>
       <div id="history" hidden></div>
     </div>
     <aside id="panel"><p class="empty">Select or draw an element.</p></aside>

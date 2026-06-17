@@ -152,6 +152,57 @@ export const InfraEdge = z.object({
 });
 export type InfraEdge = z.infer<typeof InfraEdge>;
 
+/**
+ * How a step calls across the wire — drives the arrowhead style on the overlay
+ * and the arrow token in the exported Mermaid sequence diagram:
+ *   sync  → a request that waits         (Mermaid `->>`)
+ *   async → fire-and-forget / a publish  (Mermaid `-)`)
+ *   reply → a response back to caller    (Mermaid `-->>`)
+ */
+export const InfraStepKind = z.enum(["sync", "async", "reply"]);
+export type InfraStepKind = z.infer<typeof InfraStepKind>;
+
+/**
+ * One hop in an InfraFlow: node `from` does something to node `to`. `from`/`to`
+ * are InfraNode ids (looked up in the same infraNodes map the overlay draws), so
+ * a step duplicates no geometry — both renderers resolve it against the nodes.
+ * The optional `endpointId` ties the hop to a design element's apiBinding, which
+ * is what turns a generic arrow into "called by POST /auth/verify".
+ */
+export const InfraFlowStep = z.object({
+  /** Source infra node id. */
+  from: z.string().min(1),
+  /** Target infra node id. */
+  to: z.string().min(1),
+  /** What happens here, e.g. "writes verification token". */
+  label: z.string().default(""),
+  /** Call style — arrowhead on the overlay, arrow token in Mermaid. */
+  kind: InfraStepKind.default("sync"),
+  /** Optional design element id whose apiBinding drives this hop. */
+  endpointId: z.string().optional(),
+});
+export type InfraFlowStep = z.infer<typeof InfraFlowStep>;
+
+/**
+ * A narrated path through the infrastructure graph — the fourth pillar, layered
+ * on top of the standalone infra nodes/edges. A flow is project-scoped and is a
+ * pure function of its `steps` + the existing infraNodes map: the SVG overlay
+ * highlights the steps' nodes and draws numbered arrows through them, and the
+ * same steps serialise to a Mermaid `sequenceDiagram` for export/print. No
+ * duplicated geometry — both renderers walk these steps.
+ */
+export const InfraFlow = z.object({
+  id: z.string().min(1),
+  /** Display name, e.g. "User signup". */
+  name: z.string().min(1),
+  /** Free-form Markdown overview (same subset as apiBinding/description). */
+  description: z.string().default(""),
+  /** Ordered hops; rendered as numbered arrows + a numbered narrative. */
+  steps: z.array(InfraFlowStep).default([]),
+  updatedAt: z.string().datetime(),
+});
+export type InfraFlow = z.infer<typeof InfraFlow>;
+
 // --------------------------------------------------------------------------
 // Versioning + config
 // --------------------------------------------------------------------------
@@ -276,6 +327,7 @@ export const DatabaseTree = z.object({
   version_timeline: z.record(z.record(z.array(VersionEntry))).default({}),
   infra_nodes: z.record(z.record(InfraNode)).default({}),
   infra_edges: z.record(z.record(InfraEdge)).default({}),
+  infra_flows: z.record(z.record(InfraFlow)).default({}),
 });
 export type DatabaseTree = z.infer<typeof DatabaseTree>;
 
@@ -303,4 +355,8 @@ export const paths = {
   infraEdges: (projectId: string) => `infra_edges/${projectId}`,
   infraEdge: (projectId: string, edgeId: string) =>
     `infra_edges/${projectId}/${edgeId}`,
+  // Narrated flows over the infra graph — project-scoped, walk infra_nodes.
+  infraFlows: (projectId: string) => `infra_flows/${projectId}`,
+  infraFlow: (projectId: string, flowId: string) =>
+    `infra_flows/${projectId}/${flowId}`,
 } as const;

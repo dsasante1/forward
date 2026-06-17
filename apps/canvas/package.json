@@ -1,5 +1,5 @@
 {
-  "name": "api-design-connector-canvas",
+  "name": "schema-nexus-canvas",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,9 @@
     "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
-    "@adc/shared": "*",
-    "firebase": "^10.12.2"
+    "firebase": "^10.12.2",
+    "mermaid": "^11.15.0",
+    "schema-nexus-core": "*"
   },
   "devDependencies": {
     "vite": "^5.2.11"

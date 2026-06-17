@@ -5,36 +5,43 @@ import {
   ApiBinding,
   DesignElement,
   InfraEdge,
+  InfraFlow,
+  InfraFlowStep,
   InfraNode,
   ProjectRole,
   Style,
   addMember,
   bindApiToElement,
   deleteElement,
+  deleteInfraFlow,
   deleteInfraNode,
   digest,
   fetchElements,
+  fetchFlows,
   fetchInfra,
   fetchTimelinesConditional,
   flattenTimelines,
+  flowToMermaid,
+  infraToComponentMermaid,
   listMembers,
   patchElement,
   removeMember,
   saveElement,
   saveInfraEdge,
+  saveInfraFlow,
   saveInfraNode,
   unbindApiFromElement,
   type CurrentLabel,
   type FirebaseConfig,
-} from "@adc/shared";
+} from "schema-nexus-core";
 import { findAnchorsInSource, scanPath } from "./anchor.js";
 import { rankElements } from "./match.js";
 
 /**
- * API Design Connector — MCP server.
+ * Schema Nexus — MCP server.
  *
  * The AI-native surface of the project: it exposes the same RTDB writer the VS
- * Code extension uses (`@adc/shared`) as a handful of tools any MCP-capable
+ * Code extension uses (`schema-nexus-core`) as a handful of tools any MCP-capable
  * agent (Claude Code, Cursor, …) can call. So a backend dev who just finished a
  * feature can say "document the login endpoint on the canvas" and the agent
  * finds the right design element and writes the docs — no quick-pick, no form.
@@ -110,7 +117,7 @@ async function loadTimelineEvents(cfg: FirebaseConfig) {
 }
 
 const server = new McpServer({
-  name: "api-design-connector",
+  name: "schema-nexus",
   version: "0.1.0",
 });
 
@@ -426,12 +433,19 @@ server.registerTool(
       "Read the project's infrastructure graph — the nodes (frontend / backend / database / " +
       "cache / queue / service / devops / external / group) and the directed edges between " +
       "them. This is the architecture overlay, separate from the design elements. Start here " +
-      "before writing to see what already exists and to reuse node ids when connecting them.",
+      "before writing to see what already exists and to reuse node ids when connecting them. " +
+      "Also returns `componentDiagram`: the graph rendered as a UML component diagram (Mermaid) " +
+      "ready to paste into docs.",
     inputSchema: {},
   },
   async () => {
     try {
-      return ok(await fetchInfra(getConfig()));
+      const { nodes, edges } = await fetchInfra(getConfig());
+      return ok({
+        nodes,
+        edges,
+        componentDiagram: infraToComponentMermaid(nodes, edges),
+      });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -534,6 +548,155 @@ server.registerTool(
     try {
       await deleteInfraNode(getConfig(), nodeId);
       return ok({ nodeId, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: the narrated flows over the infra graph -------------------------
+server.registerTool(
+  "list_flows",
+  {
+    title: "List infrastructure flows",
+    description:
+      "Read the project's infrastructure flows — narrated paths through the architecture (e.g. " +
+      '"User signup": web → API → Redis → …). Each flow returns its ordered steps and a ready ' +
+      "UML **sequence diagram** as Mermaid (the `sequenceDiagram` field), the same one the canvas " +
+      "renders. Step from/to are infra node ids (see list_infra); a step may " +
+      "carry an endpointId linking it to a documented design element. Start here before writing " +
+      "to reuse a flow id and see what's already documented.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const cfg = getConfig();
+      const [flows, { nodes }] = await Promise.all([fetchFlows(cfg), fetchInfra(cfg)]);
+      const byId = new Map(nodes.map((n) => [n.id, n]));
+      return ok(
+        flows.map((flow) => ({
+          id: flow.id,
+          name: flow.name,
+          description: flow.description,
+          steps: flow.steps.map((s, i) => ({
+            n: i + 1,
+            from: s.from,
+            fromLabel: byId.get(s.from)?.label,
+            to: s.to,
+            toLabel: byId.get(s.to)?.label,
+            label: s.label,
+            kind: s.kind,
+            ...(s.endpointId ? { endpointId: s.endpointId } : {}),
+          })),
+          sequenceDiagram: flowToMermaid(flow, byId),
+        })),
+      );
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: create or replace a whole flow ---------------------------------
+server.registerTool(
+  "write_flow",
+  {
+    title: "Create or replace an infrastructure flow",
+    description:
+      "Author a narrated flow over the architecture diagram — the AI-native way to capture " +
+      '"how signup works" as one call. Pass an ordered list of steps; each step\'s from/to are ' +
+      "infra node ids (from list_infra — create the nodes first with write_infra_node). kind sets " +
+      "the UML message style: sync (default, a solid request arrow), async (an open fire-and-" +
+      "forget arrow), or reply (a dashed return arrow). Set endpointId to tie a step to a " +
+      "documented design element. Pass an existing flow id to replace it, or omit to create. " +
+      "Replaces all steps — use add_flow_step to append to an existing flow without resending them.",
+    inputSchema: {
+      id: InfraFlow.shape.id
+        .optional()
+        .describe("Existing flow id to replace; omit to create a new flow."),
+      name: InfraFlow.shape.name.describe('Display name, e.g. "User signup".'),
+      description: InfraFlow.shape.description.describe("Free-form Markdown overview."),
+      steps: z
+        .array(InfraFlowStep)
+        .describe(
+          "Ordered hops: { from, to, label, kind?: sync|async|reply, endpointId? }.",
+        ),
+    },
+  },
+  async ({ id, ...fields }) => {
+    try {
+      const flow = InfraFlow.parse({
+        ...fields,
+        id: id ?? genId("flow"),
+        updatedAt: new Date().toISOString(),
+      });
+      await saveInfraFlow(getConfig(), flow);
+      return ok({ id: flow.id, steps: flow.steps.length, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: append one step to an existing flow ----------------------------
+server.registerTool(
+  "add_flow_step",
+  {
+    title: "Append a step to a flow",
+    description:
+      "Add one hop to the end of an existing flow without resending the others — e.g. \"document " +
+      "Redis's role in signup\" becomes one call appending an API → Redis step. from/to are infra " +
+      "node ids (see list_infra). The new step is appended after the current last step.",
+    inputSchema: {
+      flowId: z.string().min(1).describe("The flow id to append to (from list_flows)."),
+      from: InfraFlowStep.shape.from.describe("Source infra node id."),
+      to: InfraFlowStep.shape.to.describe("Target infra node id."),
+      label: InfraFlowStep.shape.label.describe(
+        'What happens, e.g. "store verification token".',
+      ),
+      kind: InfraFlowStep.shape.kind.describe(
+        "UML message style: sync (default, solid request), async (open arrow), or reply (dashed return).",
+      ),
+      endpointId: InfraFlowStep.shape.endpointId.describe(
+        "Optional design element id whose apiBinding drives this hop.",
+      ),
+    },
+  },
+  async ({ flowId, ...stepFields }) => {
+    try {
+      const cfg = getConfig();
+      const flow = (await fetchFlows(cfg)).find((f) => f.id === flowId);
+      if (!flow) return fail(`No infrastructure flow with id "${flowId}".`);
+      const step = InfraFlowStep.parse(stepFields);
+      const next = InfraFlow.parse({
+        ...flow,
+        steps: [...flow.steps, step],
+        updatedAt: new Date().toISOString(),
+      });
+      await saveInfraFlow(cfg, next);
+      return ok({ flowId, steps: next.steps.length, action: "appended" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: remove a flow --------------------------------------------------
+server.registerTool(
+  "remove_flow",
+  {
+    title: "Remove an infrastructure flow",
+    description:
+      "Delete a narrated flow from the project. The infra nodes and edges it walked are left " +
+      "untouched — only the flow (its name + steps) is removed.",
+    inputSchema: {
+      flowId: z.string().min(1).describe("The flow id to delete."),
+    },
+  },
+  async ({ flowId }) => {
+    try {
+      await deleteInfraFlow(getConfig(), flowId);
+      return ok({ flowId, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -722,10 +885,10 @@ server.registerTool(
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[adc-mcp] ready on stdio");
+  console.error("[schema-nexus-mcp] ready on stdio");
 }
 
 main().catch((err) => {
-  console.error("[adc-mcp] fatal:", err);
+  console.error("[schema-nexus-mcp] fatal:", err);
   process.exit(1);
 });

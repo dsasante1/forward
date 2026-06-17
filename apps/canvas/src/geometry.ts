@@ -1,4 +1,4 @@
-import type { DesignElement } from "@adc/shared";
+import type { DesignElement } from "schema-nexus-core";
 
 /** Axis-aligned rectangle in absolute canvas space. */
 export interface Rect {

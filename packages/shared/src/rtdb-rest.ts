@@ -2,6 +2,7 @@ import {
   ApiBinding,
   DesignElement,
   InfraEdge,
+  InfraFlow,
   InfraNode,
   ProjectMember,
   ProjectRole,
@@ -391,23 +392,26 @@ export async function fetchTimelinesConditional(
 export interface InfraPollState {
   nodeEtag?: string;
   edgeEtag?: string;
+  flowEtag?: string;
   nodes: InfraNode[];
   edges: InfraEdge[];
+  flows: InfraFlow[];
 }
 
 /**
  * Poller-facing read of the infrastructure graph. Conditionally fetches the
- * nodes and edges subtrees in parallel, falling back to the previous value for
- * whichever side is unchanged (304). `changed` is true when either side moved,
- * so the caller only re-renders the combined graph when it actually differs.
+ * nodes, edges and flows subtrees in parallel, falling back to the previous
+ * value for whichever side is unchanged (304). `changed` is true when any side
+ * moved, so the caller only re-renders the combined graph when it actually differs.
  */
 export async function fetchInfraConditional(
   cfg: FirebaseConfig,
   prev: InfraPollState,
 ): Promise<InfraPollState & { changed: boolean }> {
-  const [nodesR, edgesR] = await Promise.all([
+  const [nodesR, edgesR, flowsR] = await Promise.all([
     getJsonConditional(url(cfg, paths.infraNodes(cfg.projectId)), prev.nodeEtag),
     getJsonConditional(url(cfg, paths.infraEdges(cfg.projectId)), prev.edgeEtag),
+    getJsonConditional(url(cfg, paths.infraFlows(cfg.projectId)), prev.flowEtag),
   ]);
 
   let nodes = prev.nodes;
@@ -432,12 +436,25 @@ export async function fetchInfraConditional(
     }
   }
 
+  let flows = prev.flows;
+  let flowEtag = prev.flowEtag;
+  if (flowsR) {
+    flowEtag = flowsR.etag;
+    flows = [];
+    for (const value of normalizeList(flowsR.body)) {
+      const parsed = InfraFlow.safeParse(value);
+      if (parsed.success) flows.push(parsed.data);
+    }
+  }
+
   return {
     nodeEtag,
     edgeEtag,
+    flowEtag,
     nodes,
     edges,
-    changed: Boolean(nodesR) || Boolean(edgesR),
+    flows,
+    changed: Boolean(nodesR) || Boolean(edgesR) || Boolean(flowsR),
   };
 }
 
@@ -474,6 +491,43 @@ export async function deleteInfraNode(
       .filter((e) => e.from === nodeId || e.to === nodeId)
       .map((e) => del(url(cfg, paths.infraEdge(cfg.projectId, e.id)))),
   );
+}
+
+// --------------------------------------------------------------------------
+// Infrastructure flows (narrated paths over the infra graph)
+// --------------------------------------------------------------------------
+
+/**
+ * Read the project's infrastructure flows. Like the nodes/edges subtrees, this
+ * may arrive as a literal array or a push-keyed object, so normalize on read;
+ * flows that don't satisfy the schema are skipped rather than failing the read.
+ */
+export async function fetchFlows(cfg: FirebaseConfig): Promise<InfraFlow[]> {
+  const res = await fetch(url(cfg, paths.infraFlows(cfg.projectId)));
+  if (!res.ok) throw new Error(`Firebase read failed: ${res.status}`);
+  const flows: InfraFlow[] = [];
+  for (const value of normalizeList(await res.json())) {
+    const parsed = InfraFlow.safeParse(value);
+    if (parsed.success) flows.push(parsed.data);
+  }
+  return flows;
+}
+
+/** Create or update one infrastructure flow (stamps `updatedAt`). */
+export async function saveInfraFlow(
+  cfg: FirebaseConfig,
+  flow: InfraFlow,
+): Promise<void> {
+  const body = InfraFlow.parse({ ...flow, updatedAt: new Date().toISOString() });
+  await put(url(cfg, paths.infraFlow(cfg.projectId, body.id)), body);
+}
+
+/** Remove one infrastructure flow. */
+export async function deleteInfraFlow(
+  cfg: FirebaseConfig,
+  flowId: string,
+): Promise<void> {
+  await del(url(cfg, paths.infraFlow(cfg.projectId, flowId)));
 }
 
 async function put(u: string, body: unknown): Promise<void> {

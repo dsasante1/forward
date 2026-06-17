@@ -3,10 +3,13 @@ import {
   DesignElement,
   type ElementType,
   type InfraEdge,
+  type InfraFlow,
   type InfraKind,
   type InfraNode,
   type VersionEntry,
-} from "@adc/shared";
+  flowToMermaid,
+  infraToComponentMermaid,
+} from "schema-nexus-core";
 import { loadConfig } from "./config.js";
 import {
   FixtureSource,
@@ -54,6 +57,22 @@ const panel = document.getElementById("panel") as HTMLElement;
 const toolbar = document.getElementById("toolbar") as HTMLElement;
 const zoomLabel = document.getElementById("zoomLabel") as HTMLElement | null;
 const historyEl = document.getElementById("history") as HTMLElement;
+const umlPanelEl = document.getElementById("umlpanel") as HTMLElement;
+
+// Mermaid is heavy (~700kB), so lazy-load it the first time a UML diagram is
+// opened — the offline/fixture path never pays for it. Dark theme to match the
+// canvas; "loose" security lets the «component» stereotype labels (<br/>) through.
+let umlSeq = 0; // unique id per render so Mermaid doesn't collide on re-renders
+let mermaidPromise: Promise<typeof import("mermaid").default> | undefined;
+function getMermaid(): Promise<typeof import("mermaid").default> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then(({ default: m }) => {
+      m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+      return m;
+    });
+  }
+  return mermaidPromise;
+}
 
 // ---- editor state -------------------------------------------------------
 type Tool = "select" | "frame" | "rectangle" | "text";
@@ -62,6 +81,9 @@ const timelines = new Map<string, ElementSnapshot["timeline"]>();
 const lastSeen = new Map<string, string>();
 const infraNodes = new Map<string, InfraNode>();
 let infraEdges: InfraEdge[] = [];
+const infraFlows = new Map<string, InfraFlow>();
+let selectedFlowId: string | null = null; // flow chosen in the UML view (null = component diagram)
+let umlOpen = false; // is the rendered-UML view showing?
 let tool: Tool = "select";
 let selectedId: string | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
@@ -102,7 +124,12 @@ source.subscribeInfra((infra) => {
   infraNodes.clear();
   for (const n of infra.nodes) infraNodes.set(n.id, n);
   infraEdges = infra.edges;
+  infraFlows.clear();
+  for (const f of infra.flows) infraFlows.set(f.id, f);
+  // Drop a stale selection if its flow was deleted upstream.
+  if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
   render();
+  if (umlOpen) void renderUmlPanel(); // keep an open diagram in sync with new data
 });
 
 // ========================================================================
@@ -133,6 +160,9 @@ function buildToolbar(): void {
   infraBtn.dataset.toggle = "infra";
   infraBtn.classList.toggle("active", showInfra);
   toolbar.append(infraBtn);
+  const umlBtn = iconButton(umlIcon(), "UML", openUml);
+  umlBtn.dataset.toggle = "uml";
+  toolbar.append(umlBtn);
   const tlBtn = iconButton(historyIcon(), "History", toggleTimeline);
   tlBtn.dataset.toggle = "timeline";
   tlBtn.classList.toggle("active", showTimeline);
@@ -171,6 +201,7 @@ function toggleInfra(): void {
   toolbar
     .querySelector('[data-toggle="infra"]')
     ?.classList.toggle("active", showInfra);
+  if (!showInfra) selectedFlowId = null; // hiding the overlay clears the highlight
   render();
 }
 
@@ -258,11 +289,24 @@ const INFRA_COLORS: Record<InfraKind, string> = {
   group: "#6b7280",
 };
 
+/** Ids of every node a flow's steps touch (skipping hops to missing nodes). */
+function flowNodeIds(flow: InfraFlow): Set<string> {
+  const ids = new Set<string>();
+  for (const s of flow.steps) {
+    if (infraNodes.has(s.from)) ids.add(s.from);
+    if (infraNodes.has(s.to)) ids.add(s.to);
+  }
+  return ids;
+}
+
 /** Draw the infra diagram: edges between node centres, then the node boxes. */
 function drawInfraLayer(): SVGGElement {
   const g = svgEl("g", { class: "infra-layer" }) as SVGGElement;
+  const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
+  const active = flow ? flowNodeIds(flow) : null;
 
-  // Edges first so the node boxes paint on top of the connectors.
+  // Edges first so the node boxes paint on top of the connectors. With a flow
+  // selected, edges not on the flow's nodes recede so the narration reads clearly.
   for (const edge of infraEdges) {
     const a = infraNodes.get(edge.from);
     const b = infraNodes.get(edge.to);
@@ -271,10 +315,13 @@ function drawInfraLayer(): SVGGElement {
     const ay = a.y + a.height / 2;
     const bx = b.x + b.width / 2;
     const by = b.y + b.height / 2;
+    const dim = active && !(active.has(edge.from) && active.has(edge.to));
     const l = line(ax, ay, bx, by);
-    l.setAttribute("class", "infra-edge");
+    l.setAttribute("class", dim ? "infra-edge infra-edge-dim" : "infra-edge");
     g.append(l);
-    if (edge.label) {
+    // While a flow is selected the numbered step arrows carry the labels, so
+    // suppress the base edge labels to avoid them colliding with the flow text.
+    if (edge.label && !active) {
       const t = text(edge.label, (ax + bx) / 2, (ay + by) / 2 - 2, "infra-edge-label");
       g.append(t);
     }
@@ -284,8 +331,96 @@ function drawInfraLayer(): SVGGElement {
   const ordered = [...infraNodes.values()].sort(
     (p, q) => q.width * q.height - p.width * p.height,
   );
-  for (const n of ordered) g.append(drawInfraNode(n));
+  for (const n of ordered) {
+    const node = drawInfraNode(n);
+    if (active) {
+      node.classList.add(active.has(n.id) ? "infra-node-active" : "infra-node-dim");
+    }
+    g.append(node);
+  }
+
+  // The flow's numbered, directed arrows paint on top of everything.
+  if (flow) g.append(drawFlowArrows(flow));
   return g;
+}
+
+/**
+ * The on-canvas renderer of a flow: walk its steps and draw a numbered directed
+ * arrow from each `from` node to each `to` node, clipped to the box borders so
+ * the arrowhead lands cleanly on the target. Mirrors flowToMermaid — same steps,
+ * same skip-dangling rule — just rendered as geometry instead of a sequence diagram.
+ */
+function drawFlowArrows(flow: InfraFlow): SVGGElement {
+  const g = svgEl("g", { class: "flow-arrows" }) as SVGGElement;
+  flow.steps.forEach((step, i) => {
+    const a = infraNodes.get(step.from);
+    const b = infraNodes.get(step.to);
+    if (!a || !b) return; // dangling hop — skip, mirroring the Mermaid export
+    const acx = a.x + a.width / 2;
+    const acy = a.y + a.height / 2;
+    const bcx = b.x + b.width / 2;
+    const bcy = b.y + b.height / 2;
+    const start = borderPoint(a, bcx, bcy);
+    const end = borderPoint(b, acx, acy);
+    const reply = step.kind === "reply";
+    const cls = ["flow-arrow", step.kind === "async" ? "flow-arrow-async" : "", reply ? "flow-arrow-reply" : ""]
+      .filter(Boolean)
+      .join(" ");
+    const l = line(start.x, start.y, end.x, end.y);
+    l.setAttribute("class", cls);
+    g.append(l);
+    g.append(arrowHead(start.x, start.y, end.x, end.y, reply));
+
+    // Numbered badge at the arrow midpoint so the step order reads at a glance.
+    const mx = (start.x + end.x) / 2;
+    const my = (start.y + end.y) / 2;
+    const bg = svgEl("circle", {
+      cx: String(mx),
+      cy: String(my),
+      r: "9",
+      class: "flow-step-num-bg",
+    });
+    g.append(bg, text(String(i + 1), mx, my + 4, "flow-step-num"));
+    if (step.label) g.append(text(step.label, mx + 14, my + 4, "flow-step-label"));
+  });
+  return g;
+}
+
+/** The point on a node's border along the ray from its centre toward (tx, ty). */
+function borderPoint(
+  n: InfraNode,
+  tx: number,
+  ty: number,
+): { x: number; y: number } {
+  const cx = n.x + n.width / 2;
+  const cy = n.y + n.height / 2;
+  const dx = tx - cx;
+  const dy = ty - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const sx = dx !== 0 ? n.width / 2 / Math.abs(dx) : Infinity;
+  const sy = dy !== 0 ? n.height / 2 / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy);
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
+/** A small filled triangle at (x2,y2) pointing along the (x1,y1)->(x2,y2) line. */
+function arrowHead(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  reply: boolean,
+): SVGElement {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  const size = 9;
+  const spread = 0.4;
+  const p1 = `${x2},${y2}`;
+  const p2 = `${x2 - size * Math.cos(ang - spread)},${y2 - size * Math.sin(ang - spread)}`;
+  const p3 = `${x2 - size * Math.cos(ang + spread)},${y2 - size * Math.sin(ang + spread)}`;
+  return svgEl("polygon", {
+    points: `${p1} ${p2} ${p3}`,
+    class: reply ? "flow-arrowhead flow-arrowhead-reply" : "flow-arrowhead",
+  });
 }
 
 function drawInfraNode(n: InfraNode): SVGGElement {
@@ -787,6 +922,124 @@ function renderTimelinePanel(): void {
 }
 
 // ========================================================================
+// Infrastructure UML (rendered Mermaid diagrams)
+// ========================================================================
+
+/** Open the rendered UML view (defaults to the architecture component diagram). */
+function openUml(): void {
+  umlOpen = true;
+  toolbar.querySelector('[data-toggle="uml"]')?.classList.add("active");
+  void renderUmlPanel();
+}
+
+/** Copy Mermaid text to the clipboard with a small confirmation. */
+function copyMermaid(text: string): void {
+  void navigator.clipboard
+    ?.writeText(text)
+    .then(() => notify("UML diagram copied to clipboard (Mermaid)."))
+    .catch(() => notify("Couldn't copy — clipboard unavailable."));
+}
+
+/**
+ * Render the real UML on its own surface. A dropdown chooses what to show:
+ * "Architecture" → a UML component diagram of the whole graph; a flow → that
+ * flow's UML sequence diagram. Same `infraToComponentMermaid` / `flowToMermaid`
+ * the Copy action emits, rendered to SVG via (lazily loaded) Mermaid. The
+ * backdrop hides the canvas so the diagram reads on its own — no overlay beneath.
+ */
+async function renderUmlPanel(): Promise<void> {
+  umlPanelEl.hidden = !umlOpen;
+  if (!umlOpen) {
+    umlPanelEl.replaceChildren();
+    return;
+  }
+
+  // Drop a stale selection so the dropdown + render stay consistent.
+  if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
+  const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
+  const source = flow
+    ? flowToMermaid(flow, infraNodes)
+    : infraToComponentMermaid([...infraNodes.values()], infraEdges);
+
+  // Backdrop: clicking outside the card closes the view.
+  umlPanelEl.replaceChildren();
+  umlPanelEl.onclick = (e) => {
+    if (e.target === umlPanelEl) closeUml();
+  };
+
+  const card = document.createElement("div");
+  card.className = "uml-card";
+
+  // Header: a "UML" tag, the what-to-render dropdown, copy + close.
+  const head = document.createElement("div");
+  head.className = "uml-head";
+  head.append(hEl("span", "UML", "uml-kind"));
+
+  const select = document.createElement("select");
+  select.className = "uml-select";
+  const arch = document.createElement("option");
+  arch.value = "";
+  arch.textContent = "Architecture — component diagram";
+  if (!flow) arch.selected = true;
+  select.append(arch);
+  for (const f of infraFlows.values()) {
+    const o = document.createElement("option");
+    o.value = f.id;
+    o.textContent = `${f.name} — sequence diagram`;
+    if (f.id === selectedFlowId) o.selected = true;
+    select.append(o);
+  }
+  select.addEventListener("change", () => {
+    selectedFlowId = select.value || null;
+    void renderUmlPanel();
+  });
+  head.append(select);
+
+  const headActions = document.createElement("div");
+  headActions.className = "uml-head-actions";
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "uml-copy";
+  copyBtn.title = "Copy as Mermaid text";
+  copyBtn.textContent = "⧉";
+  copyBtn.addEventListener("click", () => copyMermaid(source));
+  const close = document.createElement("button");
+  close.className = "uml-close";
+  close.title = "Close";
+  close.textContent = "✕";
+  close.addEventListener("click", closeUml);
+  headActions.append(copyBtn, close);
+  head.append(headActions);
+  card.append(head);
+
+  if (flow?.description) card.append(hEl("p", flow.description, "uml-desc"));
+
+  const body = document.createElement("div");
+  body.className = "uml-body";
+  card.append(body);
+  umlPanelEl.append(card);
+
+  body.append(hEl("p", "Rendering…", "uml-empty"));
+  const token = ++umlSeq; // also the Mermaid render id; guards against races
+  try {
+    const mermaid = await getMermaid();
+    const { svg } = await mermaid.render(`uml_${token}`, source);
+    if (!umlOpen || token !== umlSeq) return; // superseded by a newer render/close
+    body.innerHTML = svg;
+  } catch (err) {
+    body.innerHTML = "";
+    body.append(hEl("pre", `Couldn't render UML:\n${(err as Error).message}`, "uml-error"));
+  }
+}
+
+/** Close the rendered UML view. */
+function closeUml(): void {
+  umlOpen = false;
+  umlPanelEl.hidden = true;
+  umlPanelEl.replaceChildren();
+  toolbar.querySelector('[data-toggle="uml"]')?.classList.remove("active");
+}
+
+// ========================================================================
 // Small helpers
 // ========================================================================
 function toCanvas(e: PointerEvent): { x: number; y: number } {
@@ -885,6 +1138,13 @@ function otherRects(excludeId: string): Rect[] {
 }
 function now(): string {
   return new Date().toISOString();
+}
+/** A plain HTML element with text content and an optional class. */
+function hEl(tag: string, content: string, cls = ""): HTMLElement {
+  const node = document.createElement(tag);
+  node.textContent = content;
+  if (cls) node.className = cls;
+  return node;
 }
 function notify(msg: string): void {
   panel.querySelector(".empty")?.remove();
@@ -1009,6 +1269,14 @@ function infraIcon(): SVGElement {
     svgEl("rect", { x: "15", y: "16", width: "6", height: "6", rx: "1.2" }),
     path("M12 8v4"),
     path("M6 16v-2.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 18 13.5V16"),
+  ]);
+}
+// UML: two component boxes joined by a dependency arrow.
+function umlIcon(): SVGElement {
+  return lineIcon([
+    svgEl("rect", { x: "3", y: "4", width: "8", height: "6", rx: "1.2" }),
+    svgEl("rect", { x: "13", y: "14", width: "8", height: "6", rx: "1.2" }),
+    path("M7 10v3a2 2 0 0 0 2 2h4"),
   ]);
 }
 // Clock with a counter-clockwise "history" arrow.

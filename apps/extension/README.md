@@ -1,4 +1,4 @@
-# API Design Connector — VS Code Extension
+# Schema Nexus — VS Code Extension
 
 Document your API endpoints (any language/framework) directly onto design
 elements drawn on an open-source visual canvas — an open, developer-first
@@ -20,16 +20,16 @@ From inside VS Code you can:
 
 The companion web canvas (where designers draw the UI) is open source and runs
 on your machine — see the
-[project repository](https://github.com/dsasante1/figma_design_api_documentation_project).
+[project repository](https://github.com/dsasante1/schema-nexus).
 
 ## Setup
 
 1. Install this extension.
-2. Open **Settings → API Design Connector** and set:
-   - `apiDesignConnector.firebaseDatabaseUrl` — your Firebase RTDB URL (BYOD).
-   - `apiDesignConnector.projectId` — the canvas namespace to annotate under
+2. Open **Settings → Schema Nexus** and set:
+   - `schemaNexus.firebaseDatabaseUrl` — your Firebase RTDB URL (BYOD).
+   - `schemaNexus.projectId` — the canvas namespace to annotate under
      (must match the canvas's `VITE_CANVAS_PROJECT_ID`).
-   - `apiDesignConnector.authToken` — *(optional)* a Firebase auth token / DB
+   - `schemaNexus.authToken` — *(optional)* a Firebase auth token / DB
      secret, only if your database rules require auth. **Put this in your User
      settings, not committed workspace settings.**
 

@@ -10,7 +10,7 @@ import type { LiveSourceOptions } from "./firebase.js";
  *   3. neither                 -> null: fall back to the offline FixtureSource.
  *
  * The canvas "project id" is the namespace within the DB tree (not a GCP id);
- * it must match the extension's apiDesignConnector.projectId.
+ * it must match the extension's schemaNexus.projectId.
  */
 export type CanvasConfig =
   | { mode: "mock"; databaseUrl: string; projectId: string }
