@@ -4,6 +4,7 @@ import {
   DatabaseTree,
   InfraNode,
   InfraEdge,
+  InfraFlow,
   paths,
 } from "./schema.js";
 
@@ -215,6 +216,71 @@ describe("Infrastructure layer", () => {
   });
 });
 
+describe("Infrastructure flows", () => {
+  it("parses a flow and applies step defaults", () => {
+    const flow = InfraFlow.parse({
+      id: "flow_signup",
+      name: "User signup",
+      steps: [
+        { from: "infra_web", to: "infra_api", label: "POST /auth/register" },
+        {
+          from: "infra_api",
+          to: "infra_redis",
+          label: "store verification token",
+          kind: "async",
+          endpointId: "el_register_form",
+        },
+      ],
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(flow.description).toBe("");
+    // First step defaults kind to "sync"; nothing supplied for endpointId.
+    expect(flow.steps[0]?.kind).toBe("sync");
+    expect(flow.steps[0]?.endpointId).toBeUndefined();
+    expect(flow.steps[1]?.kind).toBe("async");
+    expect(flow.steps[1]?.endpointId).toBe("el_register_form");
+  });
+
+  it("defaults to an empty step list", () => {
+    const flow = InfraFlow.parse({
+      id: "flow_empty",
+      name: "Draft",
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(flow.steps).toEqual([]);
+  });
+
+  it("rejects an unknown step kind", () => {
+    expect(() =>
+      InfraFlow.parse({
+        id: "flow_bad",
+        name: "Bad",
+        steps: [{ from: "a", to: "b", kind: "telepathy" }],
+        updatedAt: "2026-05-28T11:45:00Z",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a tree carrying infra flows", () => {
+    const tree = DatabaseTree.parse({
+      infra_flows: {
+        project_xyz: {
+          flow_signup: {
+            id: "flow_signup",
+            name: "User signup",
+            steps: [{ from: "infra_web", to: "infra_api", label: "register" }],
+            updatedAt: "2026-05-28T11:45:00Z",
+          },
+        },
+      },
+    });
+    expect(tree.infra_flows.project_xyz?.flow_signup?.name).toBe("User signup");
+    expect(tree.infra_flows.project_xyz?.flow_signup?.steps[0]?.to).toBe(
+      "infra_api",
+    );
+  });
+});
+
 describe("paths", () => {
   it("builds RTDB paths consistently", () => {
     expect(paths.element("p", "e")).toBe("design_elements/p/e");
@@ -224,5 +290,7 @@ describe("paths", () => {
     expect(paths.infraNode("p", "n")).toBe("infra_nodes/p/n");
     expect(paths.infraEdges("p")).toBe("infra_edges/p");
     expect(paths.infraEdge("p", "x")).toBe("infra_edges/p/x");
+    expect(paths.infraFlows("p")).toBe("infra_flows/p");
+    expect(paths.infraFlow("p", "f")).toBe("infra_flows/p/f");
   });
 });

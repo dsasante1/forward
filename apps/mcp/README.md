@@ -1,7 +1,7 @@
-# API Design Connector — MCP server
+# Schema Nexus — MCP server
 
-The **AI-native** surface of API Design Connector. It exposes the same Firebase
-RTDB writer the VS Code extension uses (`@adc/shared`) as a small set of
+The **AI-native** surface of Schema Nexus. It exposes the same Firebase
+RTDB writer the VS Code extension uses (`schema-nexus-core`) as a small set of
 [Model Context Protocol](https://modelcontextprotocol.io) tools, so **any**
 MCP-capable agent (Claude Code, Cursor, …) can document a design element for you.
 
@@ -25,10 +25,14 @@ live.
 | `remove_documentation` | Strip docs off an element |
 | `get_history` | Read one element's full documentation version history (created/modified/deleted) |
 | `get_catchup_digest` | Net to-integrate / to-modify / to-remove since a baseline (24h/7d/30d/all) |
-| `list_infra` | Read the infrastructure graph (nodes + edges — the architecture overlay) |
+| `list_infra` | Read the infrastructure graph (nodes + edges) + a UML component diagram (Mermaid) of it |
 | `write_infra_node` | Create or update an infra node (database, cache, service, …) |
 | `connect_infra` | Draw a directed edge between two infra nodes |
 | `remove_infra_node` | Delete an infra node and any edges touching it |
+| `list_flows` | Read the narrated flows over the infra graph (steps + a UML sequence diagram in Mermaid) |
+| `write_flow` | Create or replace a flow — an ordered path of steps through the infra nodes |
+| `add_flow_step` | Append one hop to an existing flow (e.g. document Redis's role in signup) |
+| `remove_flow` | Delete a flow (its infra nodes/edges are left untouched) |
 | `create_element` | Draw a new design element (frame / rectangle / text / component / instance) |
 | `update_element` | Move / resize / rename / restyle / re-parent an element (partial update) |
 | `delete_element` | Remove an element (cascades to nested descendants by default) |
@@ -38,8 +42,10 @@ live.
 
 These tools give an agent **parity with the canvas and extension** — every data
 pillar is reachable: the **design** layer (read + author), the **API
-documentation** layer (read/write + history), the **infrastructure** graph
-(read/write), the project **timeline** (read via `get_history` /
+documentation** layer (read/write + history), the **infrastructure** graph and
+its narrated **flows** (read/write, plus a UML component diagram from `list_infra`
+and a UML sequence diagram per flow from `list_flows`, both as Mermaid — the same
+diagrams the canvas renders), the project **timeline** (read via `get_history` /
 `get_catchup_digest`; writes flow through the documentation tools), and **access
 control** (the member roster). Designers still normally own the design layer on
 the canvas, so prefer documenting existing elements over drawing new ones —
@@ -73,7 +79,7 @@ npm start -w apps/mcp         # run over stdio (normally launched by the agent)
 Point your MCP client at the built server. For example, Claude Code:
 
 ```bash
-claude mcp add api-design-connector \
+claude mcp add schema-nexus \
   --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
   --env ADC_PROJECT_ID=your-project \
   --env ADC_AUTH_TOKEN=your-token \
@@ -86,7 +92,7 @@ Or the equivalent JSON in any MCP client (Cursor `mcp.json`, Claude Desktop
 ```json
 {
   "mcpServers": {
-    "api-design-connector": {
+    "schema-nexus": {
       "command": "node",
       "args": ["/absolute/path/to/apps/mcp/dist/server.js"],
       "env": {

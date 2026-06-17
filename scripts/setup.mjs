@@ -1,5 +1,5 @@
 /**
- * One-shot BYOD setup for the API Design Connector.
+ * One-shot BYOD setup for the Schema Nexus.
  *
  * Interactively collects your own Firebase config, then wires up *both* halves
  * of the project from a single source of truth:
@@ -119,8 +119,8 @@ if (existsSync(settingsPath)) {
   }
 }
 if (settings) {
-  settings["apiDesignConnector.firebaseDatabaseUrl"] = databaseUrl;
-  settings["apiDesignConnector.projectId"] = canvasProjectId;
+  settings["schemaNexus.firebaseDatabaseUrl"] = databaseUrl;
+  settings["schemaNexus.projectId"] = canvasProjectId;
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   console.log(`✓ wrote ${settingsPath} (no token — keep that in User settings)`);
 }

@@ -3,7 +3,7 @@ import {
   type DesignElement,
   HttpMethod,
   type VersionEntry,
-} from "@adc/shared";
+} from "schema-nexus-core";
 
 type Patch = Partial<DesignElement>;
 

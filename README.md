@@ -1,4 +1,4 @@
-# API Design Connector
+# Schema Nexus
 
 An open-source, developer-first alternative to Figma Code Connect. **Designers draw UI on
 an independent, open-source visual canvas; backend developers then annotate those design
@@ -37,13 +37,13 @@ change it there once and both apps stay in sync.
 Runs offline against [apps/canvas/public/fixture.json](apps/canvas/public/fixture.json) — no Firebase needed to try it.
 
 - **Toolbar:** Move, Frame, Rect, Text; Comp (make selection a component), Inst (place an
-  instance), Del. Against a live database, a **👤 +Member** control enrols collaborators by
+  instance), Del. Against a live database, a **+Member** control enrols collaborators by
   uid (see [Access control](#access-control-per-project-membership)).
 - **Draw:** pick a tool and drag on the canvas. **Select** to move; drag the corner handle
   to resize. Dropping an element inside a frame nests it; edges snap to neighbours.
 - **Right panel:** edit position/size/style, view the API binding the backend attached, and
   the endpoint's version history.
-- **Endpoint timeline:** the 🕘 **History** toggle opens the project timeline — a git-graph
+- **Endpoint timeline:** the **History** toggle opens the project timeline — a git-graph
   of every endpoint's *created / modified / deleted* events (one lane per endpoint, like git
   branch columns) plus a **catch-up digest** that collapses the stream since a chosen
   baseline ("last 24 h / 7 d / 30 d / all time") into the net *to integrate / to modify /
@@ -65,14 +65,15 @@ sees the scoped tools, never the token.
 | **Find the right element** | `list_design_elements`, `find_element` (fuzzy match a feature → element), `resolve_anchors` (deterministic `@adc <id>` markers in source) |
 | **API documentation** | `get_documentation`, `write_documentation`, `remove_documentation` |
 | **Design layer (author)** | `create_element` (frame / rectangle / text / component / instance), `update_element` (move / resize / rename / restyle / re-parent), `delete_element` (cascades to nested children) |
-| **Infrastructure graph** | `list_infra`, `write_infra_node`, `connect_infra`, `remove_infra_node` |
+| **Infrastructure graph** | `list_infra` (+ a UML component diagram), `write_infra_node`, `connect_infra`, `remove_infra_node` |
+| **Infrastructure flows** | `list_flows` (steps + a UML sequence diagram), `write_flow`, `add_flow_step`, `remove_flow` |
 | **Endpoint timeline** | `get_history` (one element), `get_catchup_digest` (net to-integrate / modify / remove since 24h / 7d / 30d / all) |
 | **Access control** | `list_members`, `add_member`, `remove_member` |
 
 Designers normally own the design layer on the canvas, so an agent prefers
 documenting existing elements over drawing new ones — `create_element` is there
 for when the design is genuinely missing what you built. Writes go through the
-same `@adc/shared` contract the extension uses, so every change shows up live on
+same `schema-nexus-core` contract the extension uses, so every change shows up live on
 the read-only canvases and is recorded in the version history.
 
 Register the built server with your agent (full config, env vars and the
@@ -80,7 +81,7 @@ fuzzy-vs-deterministic linking flow are in [apps/mcp/README.md](apps/mcp/README.
 
 ```bash
 npm run build -w apps/mcp
-claude mcp add api-design-connector \
+claude mcp add schema-nexus \
   --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
   --env ADC_PROJECT_ID=your-project \
   --env ADC_AUTH_TOKEN=your-token \
@@ -93,9 +94,9 @@ The project ships as two parts that install differently:
 
 ### 1. The VS Code extension — from the Marketplace
 
-Search **"API Design Connector"** in the VS Code Extensions view (or on
+Search **"Schema Nexus"** in the VS Code Extensions view (or on
 [Open VSX](https://open-vsx.org) for Cursor / VSCodium) and click **Install**.
-Then open **Settings → API Design Connector** and set your Firebase Realtime
+Then open **Settings → Schema Nexus** and set your Firebase Realtime
 Database URL and `projectId` (see [apps/extension/README.md](apps/extension/README.md)).
 
 ### 2. The canvas + tooling — clone and bootstrap
@@ -103,8 +104,8 @@ Database URL and `projectId` (see [apps/extension/README.md](apps/extension/READ
 Designers run the web canvas locally against their own database:
 
 ```bash
-git clone https://github.com/dsasante1/figma_design_api_documentation_project
-cd figma_design_api_documentation_project
+git clone https://github.com/dsasante1/schema-nexus
+cd schema-nexus
 npm run bootstrap        # install + build + interactive Firebase setup
 npm run dev:canvas       # run the web canvas locally
 ```
@@ -159,14 +160,14 @@ Realtime Database. Config is read from local settings / env and is **never commi
 ### Access control (per-project membership)
 
 The locked rules enforce a **per-project membership ACL** — every project subtree
-(`design_elements`, `version_timeline`, `infra_nodes`, `infra_edges`) is readable and
-writable only by uids listed in that project's `project_members` roster:
+(`design_elements`, `version_timeline`, `infra_nodes`, `infra_edges`, `infra_flows`) is
+readable and writable only by uids listed in that project's `project_members` roster:
 
 - **Claim on first use** — the first authenticated user to open a fresh project claims it
   as `owner` (the canvas seeds the roster automatically after anonymous sign-in).
 - **Enrolling collaborators** — anyone else opening that project is locked out and sees a
   banner with their **uid**. An existing member pastes that uid into the canvas toolbar's
-  **👤 +Member** control to grant access. (Onboarding is deliberately explicit — there's no
+  **+Member** control to grant access. (Onboarding is deliberately explicit — there's no
   open self-join.)
 - **The VS Code extension is a trusted admin client.** It authenticates over REST with a
   privileged token; a Firebase **DB secret bypasses the rules as admin**, so it needs no

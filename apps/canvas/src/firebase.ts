@@ -1,11 +1,12 @@
 import {
   DesignElement,
   InfraEdge,
+  InfraFlow,
   InfraNode,
   VersionEntry,
   normalizeList,
   paths,
-} from "@adc/shared";
+} from "schema-nexus-core";
 
 /**
  * Thrown when the signed-in user isn't a member of the project and the project
@@ -39,10 +40,15 @@ export interface ElementSnapshot {
   timeline: VersionEntry[];
 }
 
-/** The project's infrastructure graph (pillar 3) — standalone nodes + edges. */
+/**
+ * The project's infrastructure graph (pillar 3) — standalone nodes + edges —
+ * plus the narrated `flows` layered over them (pillar 3b). A flow is a pure
+ * function of its steps + these nodes, so it carries no geometry of its own.
+ */
 export interface InfraSnapshot {
   nodes: InfraNode[];
   edges: InfraEdge[];
+  flows: InfraFlow[];
 }
 
 export interface CanvasSource {
@@ -70,7 +76,7 @@ export interface CanvasSource {
 export class FixtureSource implements CanvasSource {
   private elements = new Map<string, DesignElement>();
   private timelines = new Map<string, VersionEntry[]>();
-  private infra: InfraSnapshot = { nodes: [], edges: [] };
+  private infra: InfraSnapshot = { nodes: [], edges: [], flows: [] };
   private listeners = new Set<(els: ElementSnapshot[]) => void>();
   private infraListeners = new Set<(infra: InfraSnapshot) => void>();
   private loaded = false;
@@ -136,9 +142,14 @@ export class FixtureSource implements CanvasSource {
       (tree.infra_edges as Record<string, Record<string, unknown>>)?.[
         this.projectId
       ] ?? {};
+    const infraFlows =
+      (tree.infra_flows as Record<string, Record<string, unknown>>)?.[
+        this.projectId
+      ] ?? {};
     this.infra = {
       nodes: Object.values(infraNodes).map((n) => InfraNode.parse(n)),
       edges: Object.values(infraEdges).map((e) => InfraEdge.parse(e)),
+      flows: Object.values(infraFlows).map((f) => InfraFlow.parse(f)),
     };
   }
 
@@ -276,9 +287,11 @@ export class LiveSource implements CanvasSource {
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void {
     let unsubNodes = () => {};
     let unsubEdges = () => {};
+    let unsubFlows = () => {};
     let nodes: InfraNode[] = [];
     let edges: InfraEdge[] = [];
-    const emit = () => onChange({ nodes, edges });
+    let flows: InfraFlow[] = [];
+    const emit = () => onChange({ nodes, edges, flows });
     void (async () => {
       const fb = await this.fb().catch(() => null);
       if (!fb) return; // access error already reported via options.onError
@@ -297,10 +310,18 @@ export class LiveSource implements CanvasSource {
         });
         emit();
       });
+      unsubFlows = onValue(ref(db, paths.infraFlows(this.projectId)), (snap) => {
+        flows = normalizeList(snap.val()).flatMap((v) => {
+          const p = InfraFlow.safeParse(v);
+          return p.success ? [p.data] : [];
+        });
+        emit();
+      });
     })();
     return () => {
       unsubNodes();
       unsubEdges();
+      unsubFlows();
     };
   }
 

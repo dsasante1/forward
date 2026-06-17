@@ -1,20 +1,20 @@
 {
-  "name": "api-design-connector-extension",
-  "displayName": "API Design Connector",
+  "name": "schema-nexus-vscode",
+  "displayName": "Schema Nexus",
   "version": "0.1.0",
   "type": "module",
-  "publisher": "adc",
+  "publisher": "schema-nexus",
   "description": "Document any API (any language/framework) on your design canvas via your own Firebase RTDB.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsasante1/figma_design_api_documentation_project.git",
+    "url": "https://github.com/dsasante1/schema-nexus.git",
     "directory": "apps/extension"
   },
   "bugs": {
-    "url": "https://github.com/dsasante1/figma_design_api_documentation_project/issues"
+    "url": "https://github.com/dsasante1/schema-nexus/issues"
   },
-  "homepage": "https://github.com/dsasante1/figma_design_api_documentation_project#readme",
+  "homepage": "https://github.com/dsasante1/schema-nexus#readme",
   "keywords": [
     "api",
     "documentation",
@@ -37,64 +37,64 @@
   "contributes": {
     "commands": [
       {
-        "command": "api-design-connector.connectEndpoint",
+        "command": "schema-nexus.connectEndpoint",
         "title": "Document API on Design Element",
-        "category": "API Design Connector"
+        "category": "Schema Nexus"
       },
       {
-        "command": "api-design-connector.openCanvas",
+        "command": "schema-nexus.openCanvas",
         "title": "Open Design Canvas",
-        "category": "API Design Connector",
+        "category": "Schema Nexus",
         "icon": "$(open-preview)"
       },
       {
-        "command": "api-design-connector.removeDocumentation",
+        "command": "schema-nexus.removeDocumentation",
         "title": "Remove API Documentation from Element",
-        "category": "API Design Connector"
+        "category": "Schema Nexus"
       },
       {
-        "command": "api-design-connector.addInfraNode",
+        "command": "schema-nexus.addInfraNode",
         "title": "Add Infrastructure Node",
-        "category": "API Design Connector"
+        "category": "Schema Nexus"
       },
       {
-        "command": "api-design-connector.linkInfraNodes",
+        "command": "schema-nexus.linkInfraNodes",
         "title": "Link Infrastructure Nodes",
-        "category": "API Design Connector"
+        "category": "Schema Nexus"
       },
       {
-        "command": "api-design-connector.removeInfraNode",
+        "command": "schema-nexus.removeInfraNode",
         "title": "Remove Infrastructure Node",
-        "category": "API Design Connector"
+        "category": "Schema Nexus"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "api-design-connector.openCanvas",
+          "command": "schema-nexus.openCanvas",
           "group": "navigation"
         }
       ]
     },
     "configuration": {
-      "title": "API Design Connector",
+      "title": "Schema Nexus",
       "properties": {
-        "apiDesignConnector.firebaseDatabaseUrl": {
+        "schemaNexus.firebaseDatabaseUrl": {
           "type": "string",
           "default": "",
           "description": "Your Firebase Realtime Database URL (BYOD)."
         },
-        "apiDesignConnector.projectId": {
+        "schemaNexus.projectId": {
           "type": "string",
           "default": "",
           "description": "Canvas project id to annotate elements under (must match the canvas VITE_CANVAS_PROJECT_ID)."
         },
-        "apiDesignConnector.authToken": {
+        "schemaNexus.authToken": {
           "type": "string",
           "default": "",
           "description": "Optional Firebase auth token / DB secret, used when your RTDB rules require auth. Leave blank for test-mode (open) rules."
         },
-        "apiDesignConnector.openCanvasOnStartup": {
+        "schemaNexus.openCanvasOnStartup": {
           "type": "boolean",
           "default": false,
           "description": "Open the read-only Design Canvas automatically when VS Code starts (only if the database URL and project id are set)."
@@ -113,7 +113,7 @@
     "publish:ovsx": "ovsx publish --no-dependencies"
   },
   "devDependencies": {
-    "@adc/shared": "*",
+    "schema-nexus-core": "*",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.21.5",

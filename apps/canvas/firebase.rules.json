@@ -40,6 +40,12 @@
         ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
         ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
       }
+    },
+    "infra_flows": {
+      "$projectId": {
+        ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
+      }
     }
   }
 }

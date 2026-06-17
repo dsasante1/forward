@@ -6,13 +6,16 @@ import {
   digest,
   type DigestItem,
   flattenTimelines,
+  flowToMermaid,
+  infraToComponentMermaid,
   type InfraEdge,
+  type InfraFlow,
   type InfraNode,
   laneCount,
   type TimelineEvent,
   type VersionAction,
   type VersionEntry,
-} from "@adc/shared";
+} from "schema-nexus-core";
 
 /**
  * Read-only design viewer that runs inside the VS Code webview.
@@ -37,6 +40,7 @@ interface InfraMessage {
   type: "infra";
   nodes: InfraNode[];
   edges: InfraEdge[];
+  flows: InfraFlow[];
 }
 
 interface TimelineMessage {
@@ -71,6 +75,8 @@ let latest: DesignElement[] = [];
 let latestProject = "";
 let infraNodes: InfraNode[] = [];
 let infraEdges: InfraEdge[] = [];
+let infraFlows: InfraFlow[] = [];
+let selectedFlowId: string | null = null; // flow currently narrated on the overlay
 let timelines: Record<string, VersionEntry[]> = {};
 let zoom = 1; // multiplier on top of the fit-to-width base scale; 1 = fit.
 
@@ -95,6 +101,7 @@ function scheduleRender(): void {
 
 const root = document.getElementById("app") as HTMLElement;
 const zoomLabel = document.getElementById("zoomLabel") as HTMLElement;
+const flowbar = document.getElementById("flowbar") as HTMLElement;
 
 // The current world container + screen-space transform, stashed by render() so
 // the hover handlers can repaint just the leader overlay (no full re-render,
@@ -114,9 +121,15 @@ window.addEventListener("message", (e: MessageEvent) => {
   } else if (msg?.type === "infra") {
     infraNodes = msg.nodes;
     infraEdges = msg.edges;
+    infraFlows = msg.flows ?? [];
+    // Drop a stale selection if its flow was deleted upstream.
+    if (selectedFlowId && !infraFlows.some((f) => f.id === selectedFlowId)) {
+      selectedFlowId = null;
+    }
     // Group containers first so they sit behind the nodes nested in them.
     orderedInfra = [...infraNodes].sort((a, b) => b.width * b.height - a.width * a.height);
     requestDataRender();
+    renderFlowPanel();
   } else if (msg?.type === "timeline") {
     timelines = msg.timelines;
     renderTimeline();
@@ -245,7 +258,9 @@ infraToggle?.addEventListener("click", () => {
   showInfra = !showInfra;
   infraToggle.classList.toggle("active", showInfra);
   infraToggle.setAttribute("aria-pressed", String(showInfra));
+  if (!showInfra) selectedFlowId = null; // hiding the overlay clears the narration
   scheduleRender();
+  renderFlowPanel();
 });
 
 // --- show/hide endpoint-timeline panel toggle ----------------------------
@@ -434,8 +449,11 @@ function infraLayer(
 ): DocumentFragment {
   const frag = document.createDocumentFragment();
   const byId = new Map(infraNodes.map((n) => [n.id, n]));
+  const flow = selectedFlowId ? infraFlows.find((f) => f.id === selectedFlowId) : undefined;
+  const active = flow ? flowNodeIds(flow, byId) : null;
 
-  // Edges first (drawn under the node boxes), connecting node centres.
+  // Edges first (drawn under the node boxes), connecting node centres. With a
+  // flow selected, edges off the flow's nodes recede so the narration reads.
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.id = "infraEdges";
   svg.setAttribute("width", String(bbox.w * scale + PAD * 2));
@@ -448,27 +466,258 @@ function infraLayer(
     const ay = py(a.y + a.height / 2);
     const bx = px(b.x + b.width / 2);
     const by = py(b.y + b.height / 2);
+    const dim = active && !(active.has(edge.from) && active.has(edge.to));
     const line = document.createElementNS(SVG_NS, "line");
     line.setAttribute("x1", String(ax));
     line.setAttribute("y1", String(ay));
     line.setAttribute("x2", String(bx));
     line.setAttribute("y2", String(by));
+    if (dim) line.setAttribute("class", "flow-edge-dim");
     svg.append(line);
     if (edge.label) {
       const t = document.createElementNS(SVG_NS, "text");
       t.setAttribute("x", String((ax + bx) / 2));
       t.setAttribute("y", String((ay + by) / 2));
-      t.setAttribute("class", "edgelabel");
+      t.setAttribute("class", dim ? "edgelabel flow-edge-dim" : "edgelabel");
       t.textContent = edge.label;
       svg.append(t);
     }
   }
+
+  // The selected flow's numbered, directed arrows paint on top of the edges.
+  if (flow) drawFlowArrows(svg, flow, byId, px, py, scale);
   frag.append(svg);
 
   // Draw order is cached (orderedInfra): group containers sit behind their nodes.
-  for (const n of orderedInfra)
-    frag.append(infraNode(n, px(n.x), py(n.y), n.width * scale, n.height * scale));
+  for (const n of orderedInfra) {
+    const node = infraNode(n, px(n.x), py(n.y), n.width * scale, n.height * scale);
+    if (active) node.classList.add(active.has(n.id) ? "flow-active" : "flow-dim");
+    frag.append(node);
+  }
   return frag;
+}
+
+/** Ids of every node a flow's steps touch (skipping hops to missing nodes). */
+function flowNodeIds(flow: InfraFlow, byId: Map<string, InfraNode>): Set<string> {
+  const ids = new Set<string>();
+  for (const s of flow.steps) {
+    if (byId.has(s.from)) ids.add(s.from);
+    if (byId.has(s.to)) ids.add(s.to);
+  }
+  return ids;
+}
+
+/**
+ * The on-canvas renderer of a flow (read-only mirror of the web canvas): one
+ * numbered directed arrow per step, from the `from` node's border to the `to`
+ * node's border, with an arrowhead and a numbered badge at the midpoint. Walks
+ * the same steps flowToMermaid serialises, with the same skip-dangling rule.
+ */
+function drawFlowArrows(
+  svg: SVGElement,
+  flow: InfraFlow,
+  byId: Map<string, InfraNode>,
+  px: (x: number) => number,
+  py: (y: number) => number,
+  scale: number,
+): void {
+  flow.steps.forEach((step, i) => {
+    const a = byId.get(step.from);
+    const b = byId.get(step.to);
+    if (!a || !b) return; // dangling hop — skip, mirroring the Mermaid export
+    // Work in screen space so the box clip + arrowhead match the drawn boxes.
+    const ar = { x: px(a.x), y: py(a.y), width: a.width * scale, height: a.height * scale };
+    const br = { x: px(b.x), y: py(b.y), width: b.width * scale, height: b.height * scale };
+    const acx = ar.x + ar.width / 2;
+    const acy = ar.y + ar.height / 2;
+    const bcx = br.x + br.width / 2;
+    const bcy = br.y + br.height / 2;
+    const start = borderPoint(ar, bcx, bcy);
+    const end = borderPoint(br, acx, acy);
+    const reply = step.kind === "reply";
+    const cls = ["flow-arrow", step.kind === "async" ? "flow-arrow-async" : "", reply ? "flow-arrow-reply" : ""]
+      .filter(Boolean)
+      .join(" ");
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", String(start.x));
+    line.setAttribute("y1", String(start.y));
+    line.setAttribute("x2", String(end.x));
+    line.setAttribute("y2", String(end.y));
+    line.setAttribute("class", cls);
+    svg.append(line);
+    svg.append(arrowHead(start.x, start.y, end.x, end.y, reply));
+
+    const mx = (start.x + end.x) / 2;
+    const my = (start.y + end.y) / 2;
+    const bg = document.createElementNS(SVG_NS, "circle");
+    bg.setAttribute("cx", String(mx));
+    bg.setAttribute("cy", String(my));
+    bg.setAttribute("r", "9");
+    bg.setAttribute("class", "flow-step-num-bg");
+    svg.append(bg, svgText(String(i + 1), mx, my + 4, "flow-step-num"));
+    if (step.label) svg.append(svgText(step.label, mx + 14, my + 4, "flow-step-label"));
+  });
+}
+
+/** The point on a rect's border along the ray from its centre toward (tx, ty). */
+function borderPoint(
+  r: { x: number; y: number; width: number; height: number },
+  tx: number,
+  ty: number,
+): { x: number; y: number } {
+  const cx = r.x + r.width / 2;
+  const cy = r.y + r.height / 2;
+  const dx = tx - cx;
+  const dy = ty - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const sx = dx !== 0 ? r.width / 2 / Math.abs(dx) : Infinity;
+  const sy = dy !== 0 ? r.height / 2 / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy);
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
+/** A small filled triangle at (x2,y2) pointing along the (x1,y1)->(x2,y2) line. */
+function arrowHead(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  reply: boolean,
+): SVGPolygonElement {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  const size = 9;
+  const spread = 0.4;
+  const p = document.createElementNS(SVG_NS, "polygon");
+  p.setAttribute(
+    "points",
+    `${x2},${y2} ${x2 - size * Math.cos(ang - spread)},${y2 - size * Math.sin(ang - spread)} ` +
+      `${x2 - size * Math.cos(ang + spread)},${y2 - size * Math.sin(ang + spread)}`,
+  );
+  p.setAttribute("class", reply ? "flow-arrowhead flow-arrowhead-reply" : "flow-arrowhead");
+  return p;
+}
+
+// ===========================================================================
+// Infrastructure flow panel (read-only mirror of the web canvas)
+// ===========================================================================
+const STEP_ARROW: Record<InfraFlow["steps"][number]["kind"], string> = {
+  sync: "→",
+  async: "⇢",
+  reply: "⤺",
+};
+
+/**
+ * The flow panel (overlay, top-left): a selector to pick which flow narrates the
+ * overlay, plus the selected flow's steps as a numbered narrative and a
+ * "Copy sequence diagram" action (the Mermaid export). Present only while the
+ * infra overlay is on. Read-only — authoring happens on the canvas / via MCP.
+ */
+function renderFlowPanel(): void {
+  flowbar.hidden = !showInfra;
+  if (!showInfra) return;
+  flowbar.replaceChildren();
+
+  flowbar.append(rowEl("h3", "Infrastructure (UML)"));
+
+  const byId = new Map(infraNodes.map((n) => [n.id, n]));
+
+  // Structural view: a UML component diagram of the whole graph — available
+  // whenever any node exists, independent of whether a flow is selected.
+  if (infraNodes.length) {
+    const archActions = document.createElement("div");
+    archActions.className = "flow-actions";
+    const archBtn = document.createElement("button");
+    archBtn.className = "flow-btn";
+    archBtn.textContent = "Copy component diagram";
+    archBtn.title = "Copy the architecture as a UML component diagram (Mermaid)";
+    archBtn.addEventListener("click", () => {
+      void navigator.clipboard?.writeText(infraToComponentMermaid(infraNodes, infraEdges));
+    });
+    archActions.append(archBtn);
+    flowbar.append(archActions);
+  }
+
+  flowbar.append(rowEl("h3", "Flows (sequence diagrams)"));
+
+  if (!infraFlows.length) {
+    flowbar.append(
+      rowEl("p", "No flows yet — author one via the MCP tools (write_flow).", "tl-empty"),
+    );
+    return;
+  }
+  const select = document.createElement("select");
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "— Select a flow —";
+  select.append(none);
+  for (const flow of infraFlows) {
+    const o = document.createElement("option");
+    o.value = flow.id;
+    o.textContent = flow.name;
+    if (flow.id === selectedFlowId) o.selected = true;
+    select.append(o);
+  }
+  select.addEventListener("change", () => {
+    selectedFlowId = select.value || null;
+    scheduleRender();
+    renderFlowPanel();
+  });
+  flowbar.append(select);
+
+  const flow = selectedFlowId ? infraFlows.find((f) => f.id === selectedFlowId) : undefined;
+  if (!flow) return;
+
+  if (flow.description) flowbar.append(rowEl("p", flow.description, "flow-desc"));
+
+  const ul = document.createElement("ul");
+  ul.className = "flow-steps";
+  flow.steps.forEach((step, i) => {
+    const li = document.createElement("li");
+    li.append(rowEl("span", String(i + 1), "flow-step-n"));
+    const body = document.createElement("div");
+
+    const route = document.createElement("div");
+    route.className = "flow-step-route";
+    route.append(document.createTextNode(byId.get(step.from)?.label ?? step.from));
+    const tok = document.createElement("span");
+    tok.className = "flow-arrow-tok";
+    tok.textContent = STEP_ARROW[step.kind];
+    route.append(tok, document.createTextNode(byId.get(step.to)?.label ?? step.to));
+    body.append(route);
+
+    if (step.label) body.append(rowEl("div", step.label, "flow-step-text"));
+
+    // Phase 4: link the hop to the design element whose apiBinding drives it.
+    if (step.endpointId) {
+      const el = latest.find((e) => e.id === step.endpointId);
+      if (el) {
+        const b = el.apiBinding;
+        const label =
+          b?.method || b?.endpoint
+            ? [b?.method, b?.endpoint].filter(Boolean).join(" ")
+            : (b?.title ?? (el.name || el.id));
+        const link = rowEl("span", `↳ ${label}`, "flow-step-endpoint");
+        link.addEventListener("click", () => revealElement(el.id));
+        body.append(link);
+      }
+    }
+
+    li.append(body);
+    ul.append(li);
+  });
+  flowbar.append(ul);
+
+  const actions = document.createElement("div");
+  actions.className = "flow-actions";
+  const copy = document.createElement("button");
+  copy.className = "flow-btn";
+  copy.textContent = "Copy sequence diagram";
+  copy.title = "Copy this flow as a UML sequence diagram (Mermaid)";
+  copy.addEventListener("click", () => {
+    void navigator.clipboard?.writeText(flowToMermaid(flow, byId));
+  });
+  actions.append(copy);
+  flowbar.append(actions);
 }
 
 function infraNode(
@@ -760,7 +1009,7 @@ function bounds(
 // ===========================================================================
 // Endpoint timeline panel (git-graph + catch-up digest)
 //
-// All the logic lives in @adc/shared (flattenTimelines / digest / computeLanes);
+// All the logic lives in schema-nexus-core (flattenTimelines / digest / computeLanes);
 // this only draws into the fixed #timeline panel. Clicking a row scrolls the
 // element into view and opens its doc card (when it still exists).
 // ===========================================================================

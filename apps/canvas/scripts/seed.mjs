@@ -60,10 +60,20 @@ async function put(path, body) {
 
 const elements = fixture.design_elements?.[projectId] ?? {};
 const timeline = fixture.version_timeline?.[projectId] ?? {};
+const infraNodes = fixture.infra_nodes?.[projectId] ?? {};
+const infraEdges = fixture.infra_edges?.[projectId] ?? {};
+const infraFlows = fixture.infra_flows?.[projectId] ?? {};
 
 await put(`design_elements/${projectId}`, elements);
 await put(`version_timeline/${projectId}`, timeline);
+// The infrastructure graph (pillar 3) and its narrated flows — without these the
+// Infra overlay and the flow panel come up empty against the mock/live database.
+await put(`infra_nodes/${projectId}`, infraNodes);
+await put(`infra_edges/${projectId}`, infraEdges);
+await put(`infra_flows/${projectId}`, infraFlows);
 
 console.log(
-  `Seeded ${Object.keys(elements).length} elements into "${projectId}" at ${base}`,
+  `Seeded ${Object.keys(elements).length} elements, ` +
+    `${Object.keys(infraNodes).length} infra nodes, ` +
+    `${Object.keys(infraFlows).length} flows into "${projectId}" at ${base}`,
 );

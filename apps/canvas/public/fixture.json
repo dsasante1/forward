@@ -305,5 +305,21 @@
         }
       ]
     }
+  },
+  "infra_flows": {
+    "project_xyz": {
+      "flow_login": {
+        "id": "flow_login",
+        "name": "User login",
+        "description": "How a sign-in request flows through the stack: the web client hits the API, which checks the session cache and the users table, then replies.",
+        "steps": [
+          { "from": "infra_web", "to": "infra_api", "label": "POST /api/v1/users/login", "kind": "sync", "endpointId": "el_login_submit" },
+          { "from": "infra_api", "to": "infra_redis", "label": "check session / rate-limit", "kind": "sync" },
+          { "from": "infra_api", "to": "infra_pg", "label": "verify credentials", "kind": "sync" },
+          { "from": "infra_api", "to": "infra_web", "label": "200 OK + session cookie", "kind": "reply" }
+        ],
+        "updatedAt": "2026-05-28T11:45:00Z"
+      }
+    }
   }
 }

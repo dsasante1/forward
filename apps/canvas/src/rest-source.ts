@@ -1,11 +1,12 @@
 import {
   DesignElement,
   InfraEdge,
+  InfraFlow,
   InfraNode,
   VersionEntry,
   normalizeList,
   paths,
-} from "@adc/shared";
+} from "schema-nexus-core";
 import type {
   CanvasSource,
   ElementSnapshot,
@@ -80,9 +81,10 @@ export class RestSource implements CanvasSource {
   }
 
   private async fetchInfra(): Promise<InfraSnapshot> {
-    const [nodesRes, edgesRes] = await Promise.all([
+    const [nodesRes, edgesRes, flowsRes] = await Promise.all([
       fetch(this.url(paths.infraNodes(this.projectId))),
       fetch(this.url(paths.infraEdges(this.projectId))),
+      fetch(this.url(paths.infraFlows(this.projectId))),
     ]);
     const nodes = normalizeList(await nodesRes.json()).flatMap((v) => {
       const p = InfraNode.safeParse(v);
@@ -92,7 +94,11 @@ export class RestSource implements CanvasSource {
       const p = InfraEdge.safeParse(v);
       return p.success ? [p.data] : [];
     });
-    return { nodes, edges };
+    const flows = normalizeList(await flowsRes.json()).flatMap((v) => {
+      const p = InfraFlow.safeParse(v);
+      return p.success ? [p.data] : [];
+    });
+    return { nodes, edges, flows };
   }
 
   private async fetchAll(): Promise<ElementSnapshot[]> {

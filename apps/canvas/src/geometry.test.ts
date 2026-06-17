@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { contains, findParent, descendants, snap } from "./geometry.js";
-import type { DesignElement } from "@adc/shared";
+import type { DesignElement } from "schema-nexus-core";
 
 function el(
   id: string,

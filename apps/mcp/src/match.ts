@@ -1,4 +1,4 @@
-import type { DesignElement } from "@adc/shared";
+import type { DesignElement } from "schema-nexus-core";
 
 /**
  * The linking problem, solved fuzzily: given a natural-language description of a
