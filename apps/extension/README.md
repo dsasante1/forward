@@ -1,4 +1,4 @@
-# Schema Nexus — VS Code Extension
+# Forward — VS Code Extension
 
 Document your API endpoints (any language/framework) directly onto design
 elements drawn on an open-source visual canvas — an open, developer-first
@@ -20,16 +20,16 @@ From inside VS Code you can:
 
 The companion web canvas (where designers draw the UI) is open source and runs
 on your machine — see the
-[project repository](https://github.com/dsasante1/schema-nexus).
+[project repository](https://github.com/dsasante1/forward).
 
 ## Setup
 
 1. Install this extension.
-2. Open **Settings → Schema Nexus** and set:
-   - `schemaNexus.firebaseDatabaseUrl` — your Firebase RTDB URL (BYOD).
-   - `schemaNexus.projectId` — the canvas namespace to annotate under
+2. Open **Settings → Forward** and set:
+   - `forward.firebaseDatabaseUrl` — your Firebase RTDB URL (BYOD).
+   - `forward.projectId` — the canvas namespace to annotate under
      (must match the canvas's `VITE_CANVAS_PROJECT_ID`).
-   - `schemaNexus.authToken` — *(optional)* a Firebase auth token / DB
+   - `forward.authToken` — *(optional)* a Firebase auth token / DB
      secret, only if your database rules require auth. **Put this in your User
      settings, not committed workspace settings.**
 

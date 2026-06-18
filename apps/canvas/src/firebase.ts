@@ -6,7 +6,7 @@ import {
   VersionEntry,
   normalizeList,
   paths,
-} from "schema-nexus-core";
+} from "forward-core";
 
 /**
  * Thrown when the signed-in user isn't a member of the project and the project

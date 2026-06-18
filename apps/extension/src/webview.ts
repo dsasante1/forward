@@ -15,7 +15,7 @@ import {
   type TimelineEvent,
   type VersionAction,
   type VersionEntry,
-} from "schema-nexus-core";
+} from "forward-core";
 
 /**
  * Read-only design viewer that runs inside the VS Code webview.
@@ -1009,7 +1009,7 @@ function bounds(
 // ===========================================================================
 // Endpoint timeline panel (git-graph + catch-up digest)
 //
-// All the logic lives in schema-nexus-core (flattenTimelines / digest / computeLanes);
+// All the logic lives in forward-core (flattenTimelines / digest / computeLanes);
 // this only draws into the fixed #timeline panel. Clicking a row scrolls the
 // element into view and opens its doc card (when it still exists).
 // ===========================================================================

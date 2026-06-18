@@ -1,20 +1,20 @@
 {
-  "name": "schema-nexus-vscode",
-  "displayName": "Schema Nexus",
+  "name": "forward-vscode",
+  "displayName": "Forward",
   "version": "0.1.0",
   "type": "module",
-  "publisher": "schema-nexus",
+  "publisher": "forward",
   "description": "Document any API (any language/framework) on your design canvas via your own Firebase RTDB.",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dsasante1/schema-nexus.git",
+    "url": "https://github.com/dsasante1/forward.git",
     "directory": "apps/extension"
   },
   "bugs": {
-    "url": "https://github.com/dsasante1/schema-nexus/issues"
+    "url": "https://github.com/dsasante1/forward/issues"
   },
-  "homepage": "https://github.com/dsasante1/schema-nexus#readme",
+  "homepage": "https://github.com/dsasante1/forward#readme",
   "keywords": [
     "api",
     "documentation",
@@ -37,64 +37,64 @@
   "contributes": {
     "commands": [
       {
-        "command": "schema-nexus.connectEndpoint",
+        "command": "forward.connectEndpoint",
         "title": "Document API on Design Element",
-        "category": "Schema Nexus"
+        "category": "Forward"
       },
       {
-        "command": "schema-nexus.openCanvas",
+        "command": "forward.openCanvas",
         "title": "Open Design Canvas",
-        "category": "Schema Nexus",
+        "category": "Forward",
         "icon": "$(open-preview)"
       },
       {
-        "command": "schema-nexus.removeDocumentation",
+        "command": "forward.removeDocumentation",
         "title": "Remove API Documentation from Element",
-        "category": "Schema Nexus"
+        "category": "Forward"
       },
       {
-        "command": "schema-nexus.addInfraNode",
+        "command": "forward.addInfraNode",
         "title": "Add Infrastructure Node",
-        "category": "Schema Nexus"
+        "category": "Forward"
       },
       {
-        "command": "schema-nexus.linkInfraNodes",
+        "command": "forward.linkInfraNodes",
         "title": "Link Infrastructure Nodes",
-        "category": "Schema Nexus"
+        "category": "Forward"
       },
       {
-        "command": "schema-nexus.removeInfraNode",
+        "command": "forward.removeInfraNode",
         "title": "Remove Infrastructure Node",
-        "category": "Schema Nexus"
+        "category": "Forward"
       }
     ],
     "menus": {
       "editor/title": [
         {
-          "command": "schema-nexus.openCanvas",
+          "command": "forward.openCanvas",
           "group": "navigation"
         }
       ]
     },
     "configuration": {
-      "title": "Schema Nexus",
+      "title": "Forward",
       "properties": {
-        "schemaNexus.firebaseDatabaseUrl": {
+        "forward.firebaseDatabaseUrl": {
           "type": "string",
           "default": "",
           "description": "Your Firebase Realtime Database URL (BYOD)."
         },
-        "schemaNexus.projectId": {
+        "forward.projectId": {
           "type": "string",
           "default": "",
           "description": "Canvas project id to annotate elements under (must match the canvas VITE_CANVAS_PROJECT_ID)."
         },
-        "schemaNexus.authToken": {
+        "forward.authToken": {
           "type": "string",
           "default": "",
           "description": "Optional Firebase auth token / DB secret, used when your RTDB rules require auth. Leave blank for test-mode (open) rules."
         },
-        "schemaNexus.openCanvasOnStartup": {
+        "forward.openCanvasOnStartup": {
           "type": "boolean",
           "default": false,
           "description": "Open the read-only Design Canvas automatically when VS Code starts (only if the database URL and project id are set)."
@@ -113,7 +113,7 @@
     "publish:ovsx": "ovsx publish --no-dependencies"
   },
   "devDependencies": {
-    "schema-nexus-core": "*",
+    "forward-core": "*",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.21.5",

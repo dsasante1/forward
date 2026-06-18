@@ -1,5 +1,5 @@
 /**
- * One-shot BYOD setup for the Schema Nexus.
+ * One-shot BYOD setup for the Forward.
  *
  * Interactively collects your own Firebase config, then wires up *both* halves
  * of the project from a single source of truth:
@@ -119,8 +119,8 @@ if (existsSync(settingsPath)) {
   }
 }
 if (settings) {
-  settings["schemaNexus.firebaseDatabaseUrl"] = databaseUrl;
-  settings["schemaNexus.projectId"] = canvasProjectId;
+  settings["forward.firebaseDatabaseUrl"] = databaseUrl;
+  settings["forward.projectId"] = canvasProjectId;
   writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
   console.log(`✓ wrote ${settingsPath} (no token — keep that in User settings)`);
 }

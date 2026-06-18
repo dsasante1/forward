@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { DesignElement } from "schema-nexus-core";
+import type { DesignElement } from "forward-core";
 import { rankElements } from "./match.js";
 
 function el(part: Partial<DesignElement> & { id: string }): DesignElement {

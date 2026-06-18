@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 // @ts-expect-error - .mjs sibling workspace, no types; it's a test double.
 import { startMockRtdb } from "../../mock-rtdb/server.mjs";
-import { paths } from "schema-nexus-core";
+import { paths } from "forward-core";
 import {
   bindApiToElement,
   fetchTimelinesConditional,

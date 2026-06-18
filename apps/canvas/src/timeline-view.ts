@@ -7,7 +7,7 @@ import {
   type VersionAction,
   type VersionDiff,
   type VersionEntry,
-} from "schema-nexus-core";
+} from "forward-core";
 
 /**
  * The project endpoint timeline: one overlay panel that turns the per-element
@@ -18,7 +18,7 @@ import {
  *      a single timeline rail, newest first, that opens to show the structured
  *      documentation diff (request/response field changes + breaking callout).
  *
- * The data crunching lives in schema-nexus-core (flattenTimelines / digest); this
+ * The data crunching lives in forward-core (flattenTimelines / digest); this
  * module only draws. Clicking a card selects that element on the canvas.
  */
 

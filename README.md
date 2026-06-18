@@ -1,4 +1,4 @@
-# Schema Nexus
+# Forward
 
 An open-source, developer-first alternative to Figma Code Connect. **Designers draw UI on
 an independent, open-source visual canvas; backend developers then annotate those design
@@ -73,7 +73,7 @@ sees the scoped tools, never the token.
 Designers normally own the design layer on the canvas, so an agent prefers
 documenting existing elements over drawing new ones — `create_element` is there
 for when the design is genuinely missing what you built. Writes go through the
-same `schema-nexus-core` contract the extension uses, so every change shows up live on
+same `forward-core` contract the extension uses, so every change shows up live on
 the read-only canvases and is recorded in the version history.
 
 Register the built server with your agent (full config, env vars and the
@@ -81,7 +81,7 @@ fuzzy-vs-deterministic linking flow are in [apps/mcp/README.md](apps/mcp/README.
 
 ```bash
 npm run build -w apps/mcp
-claude mcp add schema-nexus \
+claude mcp add forward \
   --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
   --env ADC_PROJECT_ID=your-project \
   --env ADC_AUTH_TOKEN=your-token \
@@ -94,9 +94,9 @@ The project ships as two parts that install differently:
 
 ### 1. The VS Code extension — from the Marketplace
 
-Search **"Schema Nexus"** in the VS Code Extensions view (or on
+Search **"Forward"** in the VS Code Extensions view (or on
 [Open VSX](https://open-vsx.org) for Cursor / VSCodium) and click **Install**.
-Then open **Settings → Schema Nexus** and set your Firebase Realtime
+Then open **Settings → Forward** and set your Firebase Realtime
 Database URL and `projectId` (see [apps/extension/README.md](apps/extension/README.md)).
 
 ### 2. The canvas + tooling — clone and bootstrap
@@ -104,8 +104,8 @@ Database URL and `projectId` (see [apps/extension/README.md](apps/extension/READ
 Designers run the web canvas locally against their own database:
 
 ```bash
-git clone https://github.com/dsasante1/schema-nexus
-cd schema-nexus
+git clone https://github.com/dsasante1/forward
+cd forward
 npm run bootstrap        # install + build + interactive Firebase setup
 npm run dev:canvas       # run the web canvas locally
 ```

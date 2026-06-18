@@ -1,4 +1,4 @@
-import type { DesignElement } from "schema-nexus-core";
+import type { DesignElement } from "forward-core";
 
 /**
  * The linking problem, solved fuzzily: given a natural-language description of a

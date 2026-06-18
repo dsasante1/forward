@@ -1,5 +1,5 @@
 {
-  "name": "schema-nexus-canvas",
+  "name": "forward-canvas",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -14,7 +14,7 @@
   "dependencies": {
     "firebase": "^10.12.2",
     "mermaid": "^11.15.0",
-    "schema-nexus-core": "*"
+    "forward-core": "*"
   },
   "devDependencies": {
     "vite": "^5.2.11"

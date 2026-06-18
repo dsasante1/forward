@@ -70,7 +70,7 @@ To achieve strict data modeling and maintain high-utility unit tests without cro
 "contributes": {
   "commands": [
     {
-      "command": "schema-nexus.connectEndpoint",
+      "command": "forward.connectEndpoint",
       "title": "Connect API Route to Design Canvas"
     }
   ]

@@ -9,7 +9,7 @@ import {
   type VersionEntry,
   flowToMermaid,
   infraToComponentMermaid,
-} from "schema-nexus-core";
+} from "forward-core";
 import { loadConfig } from "./config.js";
 import {
   FixtureSource,

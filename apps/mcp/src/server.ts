@@ -33,15 +33,15 @@ import {
   unbindApiFromElement,
   type CurrentLabel,
   type FirebaseConfig,
-} from "schema-nexus-core";
+} from "forward-core";
 import { findAnchorsInSource, scanPath } from "./anchor.js";
 import { rankElements } from "./match.js";
 
 /**
- * Schema Nexus — MCP server.
+ * Forward — MCP server.
  *
  * The AI-native surface of the project: it exposes the same RTDB writer the VS
- * Code extension uses (`schema-nexus-core`) as a handful of tools any MCP-capable
+ * Code extension uses (`forward-core`) as a handful of tools any MCP-capable
  * agent (Claude Code, Cursor, …) can call. So a backend dev who just finished a
  * feature can say "document the login endpoint on the canvas" and the agent
  * finds the right design element and writes the docs — no quick-pick, no form.
@@ -117,7 +117,7 @@ async function loadTimelineEvents(cfg: FirebaseConfig) {
 }
 
 const server = new McpServer({
-  name: "schema-nexus",
+  name: "forward",
   version: "0.1.0",
 });
 
@@ -885,10 +885,10 @@ server.registerTool(
 async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  console.error("[schema-nexus-mcp] ready on stdio");
+  console.error("[forward-mcp] ready on stdio");
 }
 
 main().catch((err) => {
-  console.error("[schema-nexus-mcp] fatal:", err);
+  console.error("[forward-mcp] fatal:", err);
   process.exit(1);
 });
