@@ -1,7 +1,7 @@
-# Schema Nexus — MCP server
+# Forward — MCP server
 
-The **AI-native** surface of Schema Nexus. It exposes the same Firebase
-RTDB writer the VS Code extension uses (`schema-nexus-core`) as a small set of
+The **AI-native** surface of Forward. It exposes the same Firebase
+RTDB writer the VS Code extension uses (`forward-core`) as a small set of
 [Model Context Protocol](https://modelcontextprotocol.io) tools, so **any**
 MCP-capable agent (Claude Code, Cursor, …) can document a design element for you.
 
@@ -79,7 +79,7 @@ npm start -w apps/mcp         # run over stdio (normally launched by the agent)
 Point your MCP client at the built server. For example, Claude Code:
 
 ```bash
-claude mcp add schema-nexus \
+claude mcp add forward \
   --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
   --env ADC_PROJECT_ID=your-project \
   --env ADC_AUTH_TOKEN=your-token \
@@ -92,7 +92,7 @@ Or the equivalent JSON in any MCP client (Cursor `mcp.json`, Claude Desktop
 ```json
 {
   "mcpServers": {
-    "schema-nexus": {
+    "forward": {
       "command": "node",
       "args": ["/absolute/path/to/apps/mcp/dist/server.js"],
       "env": {

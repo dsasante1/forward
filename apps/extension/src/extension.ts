@@ -5,7 +5,7 @@ import {
   type ApiBinding,
   type InfraEdge,
   type InfraNode,
-} from "schema-nexus-core";
+} from "forward-core";
 import {
   bindApiToElement,
   deleteInfraNode,
@@ -29,33 +29,33 @@ const POLL_MAX_MS = 30000; // backoff ceiling after repeated failures
 export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "schema-nexus.connectEndpoint",
+      "forward.connectEndpoint",
       connectEndpoint,
     ),
-    vscode.commands.registerCommand("schema-nexus.openCanvas", () =>
+    vscode.commands.registerCommand("forward.openCanvas", () =>
       openCanvas(context),
     ),
     vscode.commands.registerCommand(
-      "schema-nexus.removeDocumentation",
+      "forward.removeDocumentation",
       removeDocumentationCommand,
     ),
     vscode.commands.registerCommand(
-      "schema-nexus.addInfraNode",
+      "forward.addInfraNode",
       addInfraNode,
     ),
     vscode.commands.registerCommand(
-      "schema-nexus.linkInfraNodes",
+      "forward.linkInfraNodes",
       linkInfraNodes,
     ),
     vscode.commands.registerCommand(
-      "schema-nexus.removeInfraNode",
+      "forward.removeInfraNode",
       removeInfraNode,
     ),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
   // so we never throw a "set your config" toast on every launch.
-  const c = vscode.workspace.getConfiguration("schemaNexus");
+  const c = vscode.workspace.getConfiguration("forward");
   if (
     c.get<boolean>("openCanvasOnStartup") &&
     c.get<string>("firebaseDatabaseUrl") &&
@@ -68,13 +68,13 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {}
 
 function readConfig(): FirebaseConfig | undefined {
-  const c = vscode.workspace.getConfiguration("schemaNexus");
+  const c = vscode.workspace.getConfiguration("forward");
   const databaseUrl = c.get<string>("firebaseDatabaseUrl") ?? "";
   const projectId = c.get<string>("projectId") ?? "";
   const authToken = c.get<string>("authToken") ?? "";
   if (!databaseUrl || !projectId) {
     vscode.window.showErrorMessage(
-      "Set schemaNexus.firebaseDatabaseUrl and projectId in Settings (BYOD).",
+      "Set forward.firebaseDatabaseUrl and projectId in Settings (BYOD).",
     );
     return undefined;
   }
@@ -466,7 +466,7 @@ function openCanvas(context: vscode.ExtensionContext): void {
   if (!cfg) return;
 
   const panel = vscode.window.createWebviewPanel(
-    "schemaNexus.canvas",
+    "forward.canvas",
     "Design Canvas",
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },

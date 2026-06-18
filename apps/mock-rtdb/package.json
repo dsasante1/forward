@@ -1,5 +1,5 @@
 {
-  "name": "schema-nexus-mock-rtdb",
+  "name": "forward-mock-rtdb",
   "version": "0.1.0",
   "private": true,
   "type": "module",

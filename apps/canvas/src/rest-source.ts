@@ -6,7 +6,7 @@ import {
   VersionEntry,
   normalizeList,
   paths,
-} from "schema-nexus-core";
+} from "forward-core";
 import type {
   CanvasSource,
   ElementSnapshot,
