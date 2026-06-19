@@ -66,6 +66,21 @@
         "command": "forward.removeInfraNode",
         "title": "Remove Infrastructure Node",
         "category": "Forward"
+      },
+      {
+        "command": "forward.addFlow",
+        "title": "Add Flow (Sequence Diagram)",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.addFlowStep",
+        "title": "Add Step to Flow",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.removeFlow",
+        "title": "Remove Flow",
+        "category": "Forward"
       }
     ],
     "menus": {

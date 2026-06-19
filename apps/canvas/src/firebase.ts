@@ -61,6 +61,20 @@ export interface CanvasSource {
   /** Remove an element. */
   deleteElement(elementId: string): Promise<void>;
   /**
+   * Infra-graph writers — present only on sources that can persist (all three do
+   * today). The canvas gates its on-canvas infra editor on `saveInfraNode`, so a
+   * read-only source could omit these and simply render the overlay.
+   */
+  saveInfraNode?(node: InfraNode): Promise<void>;
+  /** Remove one infra node along with any edges that referenced it. */
+  deleteInfraNode?(nodeId: string): Promise<void>;
+  /** Create or update one infra edge. */
+  saveInfraEdge?(edge: InfraEdge): Promise<void>;
+  /** Create or update one narrated flow (the UML sequence-diagram source). */
+  saveInfraFlow?(flow: InfraFlow): Promise<void>;
+  /** Remove one narrated flow (nodes/edges it walked are left intact). */
+  deleteInfraFlow?(flowId: string): Promise<void>;
+  /**
    * Enrol another uid into the project's member roster. Only meaningful for the
    * membership-gated live source — offline/mock sources omit it, so the editor
    * only shows the "add member" control when this is present.
@@ -112,6 +126,43 @@ export class FixtureSource implements CanvasSource {
   async deleteElement(elementId: string): Promise<void> {
     this.elements.delete(elementId);
     this.timelines.delete(elementId);
+    this.emit();
+  }
+
+  async saveInfraNode(node: InfraNode): Promise<void> {
+    const n = InfraNode.parse(node);
+    const i = this.infra.nodes.findIndex((x) => x.id === n.id);
+    if (i >= 0) this.infra.nodes[i] = n;
+    else this.infra.nodes.push(n);
+    this.emit();
+  }
+
+  async deleteInfraNode(nodeId: string): Promise<void> {
+    this.infra.nodes = this.infra.nodes.filter((n) => n.id !== nodeId);
+    this.infra.edges = this.infra.edges.filter(
+      (e) => e.from !== nodeId && e.to !== nodeId,
+    );
+    this.emit();
+  }
+
+  async saveInfraEdge(edge: InfraEdge): Promise<void> {
+    const e = InfraEdge.parse(edge);
+    const i = this.infra.edges.findIndex((x) => x.id === e.id);
+    if (i >= 0) this.infra.edges[i] = e;
+    else this.infra.edges.push(e);
+    this.emit();
+  }
+
+  async saveInfraFlow(flow: InfraFlow): Promise<void> {
+    const f = InfraFlow.parse(flow);
+    const i = this.infra.flows.findIndex((x) => x.id === f.id);
+    if (i >= 0) this.infra.flows[i] = f;
+    else this.infra.flows.push(f);
+    this.emit();
+  }
+
+  async deleteInfraFlow(flowId: string): Promise<void> {
+    this.infra.flows = this.infra.flows.filter((f) => f.id !== flowId);
     this.emit();
   }
 
@@ -340,6 +391,58 @@ export class LiveSource implements CanvasSource {
     if (!fb) return; // access error already reported via options.onError
     const { db, ref, remove } = fb;
     await remove(ref(db, paths.element(this.projectId, elementId)));
+  }
+
+  async saveInfraNode(node: InfraNode): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, set } = fb;
+    await set(
+      ref(db, paths.infraNode(this.projectId, node.id)),
+      InfraNode.parse(node),
+    );
+  }
+
+  async deleteInfraNode(nodeId: string): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, remove, get } = fb;
+    await remove(ref(db, paths.infraNode(this.projectId, nodeId)));
+    // Drop any edges that referenced the node so none dangle.
+    const edgesSnap = await get(ref(db, paths.infraEdges(this.projectId)));
+    for (const v of normalizeList(edgesSnap.val())) {
+      const p = InfraEdge.safeParse(v);
+      if (p.success && (p.data.from === nodeId || p.data.to === nodeId)) {
+        await remove(ref(db, paths.infraEdge(this.projectId, p.data.id)));
+      }
+    }
+  }
+
+  async saveInfraEdge(edge: InfraEdge): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, set } = fb;
+    await set(
+      ref(db, paths.infraEdge(this.projectId, edge.id)),
+      InfraEdge.parse(edge),
+    );
+  }
+
+  async saveInfraFlow(flow: InfraFlow): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, set } = fb;
+    await set(
+      ref(db, paths.infraFlow(this.projectId, flow.id)),
+      InfraFlow.parse(flow),
+    );
+  }
+
+  async deleteInfraFlow(flowId: string): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, remove } = fb;
+    await remove(ref(db, paths.infraFlow(this.projectId, flowId)));
   }
 
   /**

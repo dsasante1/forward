@@ -139,4 +139,70 @@ export class RestSource implements CanvasSource {
     );
     if (!res.ok) throw new Error(`delete failed: ${res.status}`);
   }
+
+  async saveInfraNode(node: InfraNode): Promise<void> {
+    const body = InfraNode.parse(node);
+    const res = await fetch(
+      this.url(paths.infraNode(this.projectId, body.id)),
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) throw new Error(`save node failed: ${res.status}`);
+  }
+
+  async deleteInfraNode(nodeId: string): Promise<void> {
+    // Remove the node, then any edges that referenced it, so none dangle.
+    const { edges } = await this.fetchInfra();
+    const res = await fetch(
+      this.url(paths.infraNode(this.projectId, nodeId)),
+      { method: "DELETE" },
+    );
+    if (!res.ok) throw new Error(`delete node failed: ${res.status}`);
+    await Promise.all(
+      edges
+        .filter((e) => e.from === nodeId || e.to === nodeId)
+        .map((e) =>
+          fetch(this.url(paths.infraEdge(this.projectId, e.id)), {
+            method: "DELETE",
+          }),
+        ),
+    );
+  }
+
+  async saveInfraEdge(edge: InfraEdge): Promise<void> {
+    const body = InfraEdge.parse(edge);
+    const res = await fetch(
+      this.url(paths.infraEdge(this.projectId, body.id)),
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) throw new Error(`save edge failed: ${res.status}`);
+  }
+
+  async saveInfraFlow(flow: InfraFlow): Promise<void> {
+    const body = InfraFlow.parse(flow);
+    const res = await fetch(
+      this.url(paths.infraFlow(this.projectId, body.id)),
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) throw new Error(`save flow failed: ${res.status}`);
+  }
+
+  async deleteInfraFlow(flowId: string): Promise<void> {
+    const res = await fetch(
+      this.url(paths.infraFlow(this.projectId, flowId)),
+      { method: "DELETE" },
+    );
+    if (!res.ok) throw new Error(`delete flow failed: ${res.status}`);
+  }
 }

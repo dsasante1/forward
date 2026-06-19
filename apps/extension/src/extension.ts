@@ -1,21 +1,27 @@
 import * as vscode from "vscode";
 import {
   HttpMethod,
+  InfraFlow,
+  InfraFlowStep,
   InfraKind,
   type ApiBinding,
   type InfraEdge,
   type InfraNode,
+  type InfraStepKind,
 } from "forward-core";
 import {
   bindApiToElement,
+  deleteInfraFlow,
   deleteInfraNode,
   fetchElements,
   fetchElementsConditional,
+  fetchFlows,
   fetchInfra,
   fetchInfraConditional,
   fetchTimelinesConditional,
   listElements,
   saveInfraEdge,
+  saveInfraFlow,
   saveInfraNode,
   unbindApiFromElement,
   type FirebaseConfig,
@@ -51,6 +57,9 @@ export function activate(context: vscode.ExtensionContext): void {
       "forward.removeInfraNode",
       removeInfraNode,
     ),
+    vscode.commands.registerCommand("forward.addFlow", addFlow),
+    vscode.commands.registerCommand("forward.addFlowStep", addFlowStep),
+    vscode.commands.registerCommand("forward.removeFlow", removeFlow),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
@@ -450,6 +459,217 @@ async function removeInfraNode(): Promise<void> {
   try {
     await deleteInfraNode(cfg, choice.id);
     vscode.window.showInformationMessage(`Removed infra node: ${choice.label}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Remove failed: ${(err as Error).message}`);
+  }
+}
+
+// ==========================================================================
+// Narrated flows (pillar 3b) — UML sequence diagrams authored from the palette.
+// A flow walks existing infra nodes, so add the nodes first; both canvases and
+// the UML view render the result read-only. Mirrors the MCP write_flow /
+// add_flow_step / remove_flow tools so the surfaces stay at parity.
+// ==========================================================================
+
+// `stepKind` (not `kind`) deliberately: QuickPickItem already reserves `kind`
+// for its separator enum, and intersecting the two collapses the type to never.
+const STEP_KIND_PICKS: (vscode.QuickPickItem & { stepKind: InfraStepKind })[] = [
+  { label: "sync", description: "Solid request arrow (default)", stepKind: "sync" },
+  { label: "async", description: "Open fire-and-forget arrow", stepKind: "async" },
+  { label: "reply", description: "Dashed return arrow", stepKind: "reply" },
+];
+
+/**
+ * Prompt for one flow step — from → to (both existing infra nodes), a label, and
+ * a message style. Returns undefined if the user escapes any prompt.
+ */
+async function promptForStep(
+  nodes: InfraNode[],
+): Promise<InfraFlowStep | undefined> {
+  const item = (n: InfraNode): vscode.QuickPickItem & { id: string } => ({
+    label: n.label,
+    description: n.kind,
+    id: n.id,
+  });
+  const from = await vscode.window.showQuickPick(nodes.map(item), {
+    placeHolder: "Step FROM which node?",
+  });
+  if (!from) return undefined;
+  const to = await vscode.window.showQuickPick(nodes.map(item), {
+    placeHolder: `"${from.label}" → TO which node?`,
+  });
+  if (!to) return undefined;
+  const label = await vscode.window.showInputBox({
+    prompt: "What happens in this step? (optional)",
+    placeHolder: "e.g. POST /api/v1/users/login, check session, verify credentials",
+  });
+  if (label === undefined) return undefined;
+  const kindPick = await vscode.window.showQuickPick(STEP_KIND_PICKS, {
+    placeHolder: "Message style for this step",
+  });
+  if (!kindPick) return undefined;
+  return InfraFlowStep.parse({
+    from: from.id,
+    to: to.id,
+    label: label.trim(),
+    kind: kindPick.stepKind,
+  });
+}
+
+/**
+ * Author a narrated flow: name it, then add steps one at a time until done.
+ * Saved as an InfraFlow that renders as a UML sequence diagram.
+ */
+async function addFlow(): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+
+  let nodes: InfraNode[] = [];
+  try {
+    nodes = (await fetchInfra(cfg)).nodes;
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!nodes.length) {
+    vscode.window.showWarningMessage(
+      "Add at least one infra node before authoring a flow.",
+    );
+    return;
+  }
+
+  const name = await vscode.window.showInputBox({
+    prompt: "Name of this flow (required)",
+    placeHolder: "e.g. User login, Checkout, Webhook delivery",
+    validateInput: (v) => (v.trim() ? undefined : "A name is required."),
+  });
+  if (!name?.trim()) return;
+
+  const description = await vscode.window.showInputBox({
+    prompt: "Overview (Markdown supported, optional)",
+    placeHolder: "What this flow does end to end…",
+  });
+  if (description === undefined) return;
+
+  // Collect ordered steps until the user picks "Done" (or escapes).
+  const steps: InfraFlowStep[] = [];
+  for (;;) {
+    const step = await promptForStep(nodes);
+    if (!step) break; // escape → stop and save what's there
+    steps.push(step);
+    const more = await vscode.window.showQuickPick(
+      ["Add another step", "Done"],
+      { placeHolder: `${steps.length} step(s) so far. Add another?` },
+    );
+    if (more !== "Add another step") break;
+  }
+
+  const flow: InfraFlow = InfraFlow.parse({
+    id: `flow_${Date.now().toString(36)}`,
+    name: name.trim(),
+    description,
+    steps,
+    updatedAt: new Date().toISOString(),
+  });
+  try {
+    await saveInfraFlow(cfg, flow);
+    vscode.window.showInformationMessage(
+      `Added flow "${flow.name}" (${steps.length} step${steps.length === 1 ? "" : "s"}).`,
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+  }
+}
+
+/** Append one step to the end of an existing flow. */
+async function addFlowStep(): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+
+  let flows: InfraFlow[] = [];
+  let nodes: InfraNode[] = [];
+  try {
+    flows = await fetchFlows(cfg);
+    nodes = (await fetchInfra(cfg)).nodes;
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!flows.length) {
+    vscode.window.showWarningMessage(
+      'No flows yet — create one with "Forward: Add Flow".',
+    );
+    return;
+  }
+  if (!nodes.length) {
+    vscode.window.showWarningMessage("Add infra nodes before adding steps.");
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    flows.map((f) => ({
+      label: f.name,
+      description: `${f.steps.length} step(s)`,
+      id: f.id,
+    })),
+    { placeHolder: "Append a step to which flow?" },
+  );
+  if (!choice) return;
+  const flow = flows.find((f) => f.id === choice.id);
+  if (!flow) return;
+
+  const step = await promptForStep(nodes);
+  if (!step) return;
+
+  const next: InfraFlow = InfraFlow.parse({
+    ...flow,
+    steps: [...flow.steps, step],
+    updatedAt: new Date().toISOString(),
+  });
+  try {
+    await saveInfraFlow(cfg, next);
+    vscode.window.showInformationMessage(
+      `Added step to "${flow.name}" (${next.steps.length} total).`,
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+  }
+}
+
+/** Pick a flow, confirm, then delete it (infra nodes/edges are left intact). */
+async function removeFlow(): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+
+  let flows: InfraFlow[] = [];
+  try {
+    flows = await fetchFlows(cfg);
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!flows.length) {
+    vscode.window.showWarningMessage("No flows to remove.");
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    flows.map((f) => ({
+      label: f.name,
+      description: `${f.steps.length} step(s)`,
+      id: f.id,
+    })),
+    { placeHolder: "Remove which flow?" },
+  );
+  if (!choice) return;
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Remove flow "${choice.label}"? (Infra nodes and edges are left intact.)`,
+    { modal: true },
+    "Remove",
+  );
+  if (confirm !== "Remove") return;
+
+  try {
+    await deleteInfraFlow(cfg, choice.id);
+    vscode.window.showInformationMessage(`Removed flow: ${choice.label}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Remove failed: ${(err as Error).message}`);
   }

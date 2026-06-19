@@ -2,6 +2,8 @@ import {
   type ApiBinding,
   type DesignElement,
   HttpMethod,
+  InfraKind,
+  type InfraNode,
   type VersionEntry,
 } from "forward-core";
 
@@ -80,6 +82,105 @@ export function renderPanel(
   const history = section("Version history");
   history.append(timelineList(timeline));
   root.append(history);
+}
+
+/** Callbacks + state the infra drawer needs from the editor. */
+export interface InfraPanelHandlers {
+  /** Source can persist nodes (otherwise the drawer is read-only). */
+  canEdit: boolean;
+  /** Source can persist edges. */
+  canLink: boolean;
+  /** Link tool armed (waiting for two node clicks). */
+  linking: boolean;
+  /** The currently selected infra node, if any. */
+  node: InfraNode | undefined;
+  onAddNode(): void;
+  onToggleLink(): void;
+  onChangeNode(patch: Partial<InfraNode>): void;
+  onRemoveNode(): void;
+}
+
+/**
+ * The right-hand drawer for infrastructure mode — the infra analogue of
+ * `renderPanel`. Top: add-node / link actions. Below: an editor for the selected
+ * node (name, kind, tech, notes) and a remove button. Mirrors the design panel's
+ * builders so the two drawers look and behave the same.
+ */
+export function renderInfraPanel(
+  root: HTMLElement,
+  opts: InfraPanelHandlers,
+): void {
+  root.replaceChildren();
+  root.append(h("h2", "Infrastructure"));
+  root.append(
+    h("p", "Add nodes, link them, and drag to arrange the architecture.", "empty"),
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "infra-actions";
+  if (opts.canEdit) {
+    const add = document.createElement("button");
+    add.className = "doc-add";
+    add.textContent = "+ Add node";
+    add.addEventListener("click", opts.onAddNode);
+    actions.append(add);
+  }
+  if (opts.canLink) {
+    const link = document.createElement("button");
+    link.className = opts.linking ? "doc-add active" : "doc-add";
+    link.textContent = opts.linking
+      ? "Linking… click two nodes (Esc to cancel)"
+      : "Link nodes";
+    link.addEventListener("click", opts.onToggleLink);
+    actions.append(link);
+  }
+  root.append(actions);
+
+  const node = opts.node;
+  if (!node) {
+    root.append(
+      h("p", "Select a node to edit its details, or add one above.", "empty"),
+    );
+    return;
+  }
+
+  root.append(h("h2", node.label || node.id));
+  root.append(h("p", node.kind, "empty"));
+
+  const sec = section("Node");
+  const ro = !opts.canEdit;
+  sec.append(textRow("Name", node.label, (v) => opts.onChangeNode({ label: v }), ro));
+  sec.append(
+    selectRow(
+      "Kind",
+      node.kind,
+      InfraKind.options,
+      (v) => opts.onChangeNode({ kind: v as InfraNode["kind"] }),
+      ro,
+    ),
+  );
+  sec.append(
+    textRow("Tech", node.tech ?? "", (v) => opts.onChangeNode({ tech: v || undefined }), ro),
+  );
+  sec.append(
+    textareaRow(
+      "Notes",
+      node.description,
+      (v) => opts.onChangeNode({ description: v }),
+      5,
+      "Role in the system, config, gotchas…",
+      ro,
+    ),
+  );
+  root.append(sec);
+
+  if (opts.canEdit) {
+    const remove = document.createElement("button");
+    remove.className = "doc-remove";
+    remove.textContent = "Remove node";
+    remove.addEventListener("click", opts.onRemoveNode);
+    root.append(remove);
+  }
 }
 
 /** A collapsible panel section: a <details> with the title as its <summary>. */
@@ -218,10 +319,12 @@ function textRow(
   label: string,
   value: string,
   onChange: (v: string) => void,
+  readOnly = false,
 ): HTMLElement {
   const input = document.createElement("input");
   input.type = "text";
   input.value = value;
+  input.disabled = readOnly;
   input.addEventListener("change", () => onChange(input.value));
   return row(label, input);
 }
@@ -231,8 +334,10 @@ function selectRow(
   value: string,
   options: readonly string[],
   onChange: (v: string) => void,
+  readOnly = false,
 ): HTMLElement {
   const select = document.createElement("select");
+  select.disabled = readOnly;
   for (const opt of options) {
     const o = document.createElement("option");
     o.value = opt;
@@ -255,10 +360,12 @@ function textareaRow(
   onChange: (v: string) => void,
   rows = 4,
   placeholder = "",
+  readOnly = false,
 ): HTMLElement {
   const ta = document.createElement("textarea");
   ta.rows = rows;
   ta.value = value;
+  ta.disabled = readOnly;
   if (placeholder) ta.placeholder = placeholder;
   ta.addEventListener("change", () => onChange(ta.value));
   const div = document.createElement("div");

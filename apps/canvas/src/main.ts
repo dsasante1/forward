@@ -4,11 +4,11 @@ import {
   type ElementType,
   type InfraEdge,
   type InfraFlow,
+  type InfraFlowStep,
   type InfraKind,
   type InfraNode,
   type VersionEntry,
   flowToMermaid,
-  infraToComponentMermaid,
 } from "forward-core";
 import { loadConfig } from "./config.js";
 import {
@@ -19,7 +19,7 @@ import {
 } from "./firebase.js";
 import { RestSource } from "./rest-source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
-import { renderPanel } from "./panel.js";
+import { renderInfraPanel, renderPanel } from "./panel.js";
 import { renderTimelineView } from "./timeline-view.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -63,6 +63,7 @@ const umlPanelEl = document.getElementById("umlpanel") as HTMLElement;
 // opened — the offline/fixture path never pays for it. Dark theme to match the
 // canvas; "loose" security lets the «component» stereotype labels (<br/>) through.
 let umlSeq = 0; // unique id per render so Mermaid doesn't collide on re-renders
+let umlZoom = 1; // 1 = fit-to-pane; the −/+ controls scale around that fit
 let mermaidPromise: Promise<typeof import("mermaid").default> | undefined;
 function getMermaid(): Promise<typeof import("mermaid").default> {
   if (!mermaidPromise) {
@@ -83,7 +84,11 @@ const infraNodes = new Map<string, InfraNode>();
 let infraEdges: InfraEdge[] = [];
 const infraFlows = new Map<string, InfraFlow>();
 let selectedFlowId: string | null = null; // flow chosen in the UML view (null = component diagram)
+let selectedInfraId: string | null = null; // infra node selected for editing/deletion
+let linkMode = false; // Link tool armed: clicks pick two nodes to connect
+let linkSourceId: string | null = null; // first node picked while linking
 let umlOpen = false; // is the rendered-UML view showing?
+let umlEdit = false; // is the UML flow editor (right column) open?
 let tool: Tool = "select";
 let selectedId: string | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
@@ -95,6 +100,11 @@ let showTimeline = false; // show/hide the project endpoint-timeline panel
 let zoom = 1;
 let panX = 0;
 let panY = 0;
+// The infra overlay rides on its own translation (in world units, inside the
+// zoomed viewport) so it can be dragged clear of the design without panning —
+// or moving — the design beneath it.
+let infraPanX = 0;
+let infraPanY = 0;
 const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 1.2;
@@ -103,7 +113,9 @@ type Gesture =
   | { kind: "move"; id: string; startX: number; startY: number; orig: Rect }
   | { kind: "resize"; id: string; startX: number; startY: number; orig: Rect }
   | { kind: "create"; type: ElementType; startX: number; startY: number; id: string }
-  | { kind: "pan"; startX: number; startY: number; origPanX: number; origPanY: number; moved: boolean };
+  | { kind: "pan"; startX: number; startY: number; origPanX: number; origPanY: number; moved: boolean }
+  | { kind: "infra-pan"; startX: number; startY: number; origX: number; origY: number }
+  | { kind: "infra-move"; id: string; startX: number; startY: number; origX: number; origY: number; moved: boolean };
 let gesture: Gesture | null = null;
 let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 
@@ -160,7 +172,10 @@ function buildToolbar(): void {
   infraBtn.dataset.toggle = "infra";
   infraBtn.classList.toggle("active", showInfra);
   toolbar.append(infraBtn);
-  const umlBtn = iconButton(umlIcon(), "UML", openUml);
+  // The infra editing tools (add node / link / node editor) live in the right
+  // drawer — see renderInfraPanel — not the toolbar, so they don't read as
+  // general element-creation tools.
+  const umlBtn = iconButton(umlIcon(), "UML", toggleUml);
   umlBtn.dataset.toggle = "uml";
   toolbar.append(umlBtn);
   const tlBtn = iconButton(historyIcon(), "History", toggleTimeline);
@@ -201,7 +216,11 @@ function toggleInfra(): void {
   toolbar
     .querySelector('[data-toggle="infra"]')
     ?.classList.toggle("active", showInfra);
-  if (!showInfra) selectedFlowId = null; // hiding the overlay clears the highlight
+  if (!showInfra) {
+    selectedFlowId = null; // hiding the overlay clears the highlight
+    selectedInfraId = null;
+    if (linkMode) cancelLink();
+  }
   render();
 }
 
@@ -257,7 +276,12 @@ function render(): void {
   for (const y of guides.h) design.append(line(0, y, 4000, y));
   vp.append(design);
 
-  if (showInfra) vp.append(drawInfraLayer());
+  if (showInfra) {
+    const infra = drawInfraLayer();
+    // Independent translation: the overlay drags around without touching design.
+    infra.setAttribute("transform", `translate(${infraPanX} ${infraPanY})`);
+    vp.append(infra);
+  }
 
   // Focus-mode doc leader: the selected (or hovered) element draws one leader
   // line out to its documentation. Appended to the viewport AFTER the design
@@ -425,6 +449,10 @@ function arrowHead(
 
 function drawInfraNode(n: InfraNode): SVGGElement {
   const g = svgEl("g", {}) as SVGGElement;
+  g.dataset.infraId = n.id; // hit-test target for on-canvas infra editing
+  if (n.id === selectedInfraId || n.id === linkSourceId) {
+    g.classList.add("infra-node-selected");
+  }
   const color = INFRA_COLORS[n.kind];
 
   const box = svgEl("rect", {
@@ -454,6 +482,138 @@ function drawInfraNode(n: InfraNode): SVGGElement {
   g.append(kind, label);
   if (n.tech) g.append(text(n.tech, n.x + 12, n.y + 52, "infra-tech"));
   return g;
+}
+
+// ========================================================================
+// On-canvas infrastructure editing — move / create / link / delete nodes.
+// Gated on the source's optional infra writers; the offline fixture supports
+// them in memory, so the editor works with zero setup.
+// ========================================================================
+
+/** Select an infra node for editing (design + infra selection are exclusive). */
+function selectInfra(id: string | null): void {
+  selectedInfraId = id;
+  if (id) selectedId = null;
+  render();
+}
+
+/** Add a node at the centre of the current viewport and persist it. */
+async function addInfraNodeOnCanvas(): Promise<void> {
+  if (!source.saveInfraNode) {
+    notify("This data source is read-only for infrastructure.");
+    return;
+  }
+  if (!showInfra) toggleInfra(); // reveal the overlay so the new node shows
+  const label = window.prompt("New infrastructure node name:")?.trim();
+  if (!label) return;
+  // Screen centre → world coords, minus the overlay's own translation.
+  const box = svg.getBoundingClientRect();
+  const cx = (box.width / 2 - panX) / zoom - infraPanX;
+  const cy = (box.height / 2 - panY) / zoom - infraPanY;
+  const node: InfraNode = {
+    id: `infra_${Date.now().toString(36)}`,
+    kind: "service",
+    label,
+    description: "",
+    x: Math.round(cx - 80),
+    y: Math.round(cy - 36),
+    width: 160,
+    height: 72,
+    parentId: null,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    await source.saveInfraNode(node);
+    selectInfra(node.id);
+    notify(`Added "${label}". Drag to move; Link to connect; Del to remove.`);
+  } catch (err) {
+    notify(`Couldn't add node: ${(err as Error).message}`);
+  }
+}
+
+/** Delete the selected infra node (and its edges) after confirmation. */
+async function deleteSelectedInfra(): Promise<void> {
+  const id = selectedInfraId;
+  if (!id || !source.deleteInfraNode) return;
+  const n = infraNodes.get(id);
+  if (!window.confirm(`Remove infra node "${n?.label ?? id}" and its connections?`)) {
+    return;
+  }
+  selectedInfraId = null;
+  try {
+    await source.deleteInfraNode(id);
+    notify("Infra node removed.");
+  } catch (err) {
+    notify(`Couldn't remove node: ${(err as Error).message}`);
+  }
+  render();
+}
+
+/** Toggle the Link tool: click two nodes to connect them with an edge. */
+function toggleLink(): void {
+  if (linkMode) {
+    cancelLink();
+    return;
+  }
+  if (!source.saveInfraEdge) {
+    notify("This data source is read-only for infrastructure.");
+    return;
+  }
+  if (!showInfra) toggleInfra();
+  if (infraNodes.size < 2) {
+    notify("Add at least two infra nodes before linking.");
+    return;
+  }
+  linkMode = true;
+  linkSourceId = null;
+  render(); // the drawer's Link button now reads "Linking… click two nodes"
+}
+
+/** Leave link mode and clear any in-progress source pick. */
+function cancelLink(): void {
+  linkMode = false;
+  linkSourceId = null;
+  render();
+}
+
+/** A node was clicked while the Link tool is armed. */
+function onLinkPick(id: string): void {
+  if (!linkSourceId) {
+    linkSourceId = id;
+    const n = infraNodes.get(id);
+    notify(`Link from "${n?.label ?? id}" — now click the target node.`);
+    render();
+    return;
+  }
+  void completeLink(linkSourceId, id);
+}
+
+/** Create the edge between the two picked nodes, then leave link mode. */
+async function completeLink(fromId: string, toId: string): Promise<void> {
+  if (fromId === toId) {
+    notify("Pick a different target node.");
+    return;
+  }
+  const label = window.prompt("Edge label (optional):", "");
+  if (label === null) {
+    cancelLink();
+    return; // cancelled
+  }
+  const edge: InfraEdge = {
+    id: `edge_${Date.now().toString(36)}`,
+    from: fromId,
+    to: toId,
+    ...(label.trim() ? { label: label.trim() } : {}),
+    updatedAt: new Date().toISOString(),
+  };
+  cancelLink();
+  if (!source.saveInfraEdge) return;
+  try {
+    await source.saveInfraEdge(edge);
+    notify("Edge added.");
+  } catch (err) {
+    notify(`Couldn't add edge: ${(err as Error).message}`);
+  }
 }
 
 /** Parents before children so nested elements draw on top. */
@@ -679,6 +839,51 @@ svg.addEventListener("pointerdown", (e) => {
     return;
   }
 
+  // An infra node (drawn on top of the design) is the editor's hit target: in
+  // link mode it's an endpoint to connect; otherwise it's selected and dragged.
+  const infraEl = (e.target as Element).closest("[data-infra-id]");
+  if (
+    showInfra &&
+    infraEl instanceof SVGElement &&
+    infraEl.dataset.infraId
+  ) {
+    const id = infraEl.dataset.infraId;
+    if (linkMode) {
+      onLinkPick(id);
+      return;
+    }
+    selectInfra(id);
+    const n = infraNodes.get(id);
+    if (n && source.saveInfraNode) {
+      gesture = {
+        kind: "infra-move",
+        id,
+        startX: pt.x,
+        startY: pt.y,
+        origX: n.x,
+        origY: n.y,
+        moved: false,
+      };
+      svg.setPointerCapture(e.pointerId);
+    }
+    return;
+  }
+
+  // Grabbing the infra overlay elsewhere (an edge/label) drags it on its own
+  // translation, leaving the design (and the viewport pan) untouched.
+  if (showInfra && (e.target as Element).closest(".infra-layer")) {
+    gesture = {
+      kind: "infra-pan",
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: infraPanX,
+      origY: infraPanY,
+    };
+    svg.classList.add("panning");
+    svg.setPointerCapture(e.pointerId);
+    return;
+  }
+
   // Empty space: start a pan. A click with no movement deselects on pointerup.
   gesture = {
     kind: "pan",
@@ -701,6 +906,27 @@ svg.addEventListener("pointermove", (e) => {
     if (Math.abs(ddx) > 3 || Math.abs(ddy) > 3) gesture.moved = true;
     panX = gesture.origPanX + ddx;
     panY = gesture.origPanY + ddy;
+    render();
+    return;
+  }
+
+  if (gesture.kind === "infra-pan") {
+    // The overlay sits inside the zoomed viewport, so convert screen pixels to
+    // world units for 1:1 tracking with the cursor.
+    infraPanX = gesture.origX + (e.clientX - gesture.startX) / zoom;
+    infraPanY = gesture.origY + (e.clientY - gesture.startY) / zoom;
+    render();
+    return;
+  }
+
+  if (gesture.kind === "infra-move") {
+    const cur = toCanvas(e);
+    const n = infraNodes.get(gesture.id);
+    if (!n) return;
+    const nx = gesture.origX + (cur.x - gesture.startX);
+    const ny = gesture.origY + (cur.y - gesture.startY);
+    if (nx !== n.x || ny !== n.y) gesture.moved = true;
+    infraNodes.set(gesture.id, { ...n, x: nx, y: ny });
     render();
     return;
   }
@@ -742,8 +968,35 @@ svg.addEventListener("pointerup", () => {
 
   if (gesture.kind === "pan") {
     svg.classList.remove("panning");
-    if (!gesture.moved) select(null); // a plain click on empty space deselects
+    if (!gesture.moved) {
+      // A plain click on empty space deselects (and cancels an in-flight link).
+      if (linkMode) cancelLink();
+      selectInfra(null);
+      select(null);
+    }
     gesture = null;
+    return;
+  }
+
+  if (gesture.kind === "infra-pan") {
+    svg.classList.remove("panning");
+    gesture = null;
+    return;
+  }
+
+  if (gesture.kind === "infra-move") {
+    const { id, moved } = gesture;
+    gesture = null;
+    if (moved && source.saveInfraNode) {
+      const n = infraNodes.get(id);
+      if (n)
+        void source.saveInfraNode({
+          ...n,
+          x: Math.round(n.x),
+          y: Math.round(n.y),
+          updatedAt: new Date().toISOString(),
+        });
+    }
     return;
   }
 
@@ -774,10 +1027,18 @@ svg.addEventListener("pointerover", (e) => {
 });
 
 window.addEventListener("keydown", (e) => {
-  if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
-    const target = e.target as HTMLElement;
-    if (target.tagName === "INPUT") return;
-    deleteSelected();
+  const target = e.target as HTMLElement;
+  if (target.tagName === "INPUT") return;
+  if (e.key === "Escape" && linkMode) {
+    cancelLink();
+    return;
+  }
+  if (e.key === "Delete" || e.key === "Backspace") {
+    if (selectedInfraId) {
+      void deleteSelectedInfra();
+    } else if (selectedId) {
+      deleteSelected();
+    }
   }
 });
 
@@ -827,6 +1088,7 @@ function applyMove(id: string, dx: number, dy: number): void {
 
 function select(id: string | null): void {
   selectedId = id;
+  if (id) selectedInfraId = null; // design + infra selection are exclusive
   render();
 }
 
@@ -879,6 +1141,21 @@ function placeInstance(): void {
 // Properties + API panel
 // ========================================================================
 function renderSelectionPanel(): void {
+  // Infra mode takes over the right drawer — the infra analogue of the design
+  // properties panel, where the add-node / link tools and the node editor live.
+  if (showInfra) {
+    renderInfraPanel(panel, {
+      canEdit: Boolean(source.saveInfraNode),
+      canLink: Boolean(source.saveInfraEdge),
+      linking: linkMode,
+      node: selectedInfraId ? infraNodes.get(selectedInfraId) : undefined,
+      onAddNode: () => void addInfraNodeOnCanvas(),
+      onToggleLink: toggleLink,
+      onChangeNode: updateInfraNode,
+      onRemoveNode: () => void deleteSelectedInfra(),
+    });
+    return;
+  }
   const el = selectedId ? elements.get(selectedId) : undefined;
   const tl = selectedId ? (timelines.get(selectedId) ?? []) : [];
   renderPanel(panel, el, tl, (patch) => {
@@ -890,6 +1167,18 @@ function renderSelectionPanel(): void {
     void source.saveElement(updated);
     render();
   });
+}
+
+/** Apply an edit from the infra drawer to the selected node and persist it. */
+function updateInfraNode(patch: Partial<InfraNode>): void {
+  const id = selectedInfraId;
+  if (!id || !source.saveInfraNode) return;
+  const n = infraNodes.get(id);
+  if (!n) return;
+  const updated = { ...n, ...patch, updatedAt: now() };
+  infraNodes.set(id, updated);
+  void source.saveInfraNode(updated);
+  render();
 }
 
 // ========================================================================
@@ -925,12 +1214,59 @@ function renderTimelinePanel(): void {
 // Infrastructure UML (rendered Mermaid diagrams)
 // ========================================================================
 
-/** Open the rendered UML view (defaults to the architecture component diagram). */
-function openUml(): void {
+/**
+ * Toggle the rendered UML view (defaults to the architecture component diagram).
+ * Clicking the button again closes it — matching the Infra/Docs/Timeline buttons
+ * — so the full-stage backdrop never traps the user with a button that does
+ * nothing on a second click.
+ */
+function toggleUml(): void {
+  if (umlOpen) {
+    closeUml();
+    return;
+  }
   umlOpen = true;
+  umlZoom = 1; // open at fit
+  umlEdit = false; // open in view mode
   toolbar.querySelector('[data-toggle="uml"]')?.classList.add("active");
   void renderUmlPanel();
 }
+
+/**
+ * Size the rendered diagram to the body: at umlZoom 1 it fits the pane (so no
+ * scrollbar), and the −/+ controls scale around that fit. We set explicit pixel
+ * width/height (rather than a CSS transform) so the body's overflow can pan to
+ * every edge when the user zooms past the pane.
+ */
+function fitUmlSvg(): void {
+  const body = umlPanelEl.querySelector(".uml-body") as HTMLElement | null;
+  const svgEl = body?.querySelector("svg") as SVGSVGElement | null;
+  const label = umlPanelEl.querySelector(".uml-zoom-label");
+  if (label) label.textContent = `${Math.round(umlZoom * 100)}%`;
+  if (!body || !svgEl) return;
+  const vb = svgEl.viewBox.baseVal;
+  const iw = vb?.width || svgEl.getBoundingClientRect().width;
+  const ih = vb?.height || svgEl.getBoundingClientRect().height;
+  if (!iw || !ih) return;
+  const pad = 32; // .uml-body padding, both sides
+  const fit = Math.min((body.clientWidth - pad) / iw, (body.clientHeight - pad) / ih);
+  const scale = Math.max(0.02, fit * umlZoom);
+  svgEl.style.maxWidth = "none";
+  svgEl.style.maxHeight = "none";
+  svgEl.style.width = `${iw * scale}px`;
+  svgEl.style.height = `${ih * scale}px`;
+}
+
+/** Step the UML diagram zoom (minimize/maximize) and re-fit. */
+function zoomUml(factor: number): void {
+  umlZoom = Math.min(6, Math.max(0.2, umlZoom * factor));
+  fitUmlSvg();
+}
+
+// Keep the diagram fitted when the window (and thus the pane) resizes.
+window.addEventListener("resize", () => {
+  if (umlOpen) fitUmlSvg();
+});
 
 /** Copy Mermaid text to the clipboard with a small confirmation. */
 function copyMermaid(text: string): void {
@@ -941,11 +1277,11 @@ function copyMermaid(text: string): void {
 }
 
 /**
- * Render the real UML on its own surface. A dropdown chooses what to show:
- * "Architecture" → a UML component diagram of the whole graph; a flow → that
- * flow's UML sequence diagram. Same `infraToComponentMermaid` / `flowToMermaid`
- * the Copy action emits, rendered to SVG via (lazily loaded) Mermaid. The
- * backdrop hides the canvas so the diagram reads on its own — no overlay beneath.
+ * Render the real UML on its own surface. A dropdown chooses which flow to show
+ * as its UML sequence diagram (the architecture/component view already lives in
+ * the Infra overlay). Same `flowToMermaid` the Copy action emits, rendered to
+ * SVG via (lazily loaded) Mermaid. The backdrop hides the canvas so the diagram
+ * reads on its own — no overlay beneath.
  */
 async function renderUmlPanel(): Promise<void> {
   umlPanelEl.hidden = !umlOpen;
@@ -956,10 +1292,13 @@ async function renderUmlPanel(): Promise<void> {
 
   // Drop a stale selection so the dropdown + render stay consistent.
   if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
+  // The architecture/component view already lives in the Infra overlay, so the
+  // UML view only renders sequence diagrams — default to the first flow.
+  if (!selectedFlowId) selectedFlowId = infraFlows.keys().next().value ?? null;
   const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
-  const source = flow
-    ? flowToMermaid(flow, infraNodes)
-    : infraToComponentMermaid([...infraNodes.values()], infraEdges);
+  const mermaidSrc = flow ? flowToMermaid(flow, infraNodes) : null;
+  const canEditFlows = Boolean(source.saveInfraFlow);
+  if (!canEditFlows) umlEdit = false; // read-only source: no editor
 
   // Backdrop: clicking outside the card closes the view.
   umlPanelEl.replaceChildren();
@@ -970,18 +1309,21 @@ async function renderUmlPanel(): Promise<void> {
   const card = document.createElement("div");
   card.className = "uml-card";
 
-  // Header: a "UML" tag, the what-to-render dropdown, copy + close.
+  // Header: the what-to-render dropdown in the left corner, then (pushed right)
+  // the flow actions, zoom −/+ controls, copy, and close.
   const head = document.createElement("div");
   head.className = "uml-head";
-  head.append(hEl("span", "UML", "uml-kind"));
 
   const select = document.createElement("select");
   select.className = "uml-select";
-  const arch = document.createElement("option");
-  arch.value = "";
-  arch.textContent = "Architecture — component diagram";
-  if (!flow) arch.selected = true;
-  select.append(arch);
+  if (infraFlows.size === 0) {
+    const none = document.createElement("option");
+    none.textContent = "No sequence flows defined";
+    none.disabled = true;
+    none.selected = true;
+    select.append(none);
+    select.disabled = true;
+  }
   for (const f of infraFlows.values()) {
     const o = document.createElement("option");
     o.value = f.id;
@@ -997,34 +1339,92 @@ async function renderUmlPanel(): Promise<void> {
 
   const headActions = document.createElement("div");
   headActions.className = "uml-head-actions";
+
+  // Authoring: create a flow, or toggle the editor for the selected one.
+  if (canEditFlows) {
+    const newBtn = document.createElement("button");
+    newBtn.className = "uml-action";
+    newBtn.textContent = "+ New flow";
+    newBtn.addEventListener("click", createFlow);
+    const editBtn = document.createElement("button");
+    editBtn.className = umlEdit ? "uml-action active" : "uml-action";
+    editBtn.textContent = "Edit";
+    editBtn.disabled = !flow;
+    editBtn.addEventListener("click", () => {
+      umlEdit = !umlEdit;
+      void renderUmlPanel();
+    });
+    headActions.append(newBtn, editBtn);
+  }
+
+  const zoomOut = document.createElement("button");
+  zoomOut.className = "uml-zoom";
+  zoomOut.title = "Zoom out (minimize)";
+  zoomOut.textContent = "−";
+  zoomOut.disabled = !mermaidSrc;
+  zoomOut.addEventListener("click", () => zoomUml(1 / 1.2));
+  const zoomLabel = document.createElement("span");
+  zoomLabel.className = "uml-zoom-label";
+  const zoomIn = document.createElement("button");
+  zoomIn.className = "uml-zoom";
+  zoomIn.title = "Zoom in (maximize)";
+  zoomIn.textContent = "+";
+  zoomIn.disabled = !mermaidSrc;
+  zoomIn.addEventListener("click", () => zoomUml(1.2));
+
   const copyBtn = document.createElement("button");
   copyBtn.className = "uml-copy";
   copyBtn.title = "Copy as Mermaid text";
   copyBtn.textContent = "⧉";
-  copyBtn.addEventListener("click", () => copyMermaid(source));
+  copyBtn.disabled = !mermaidSrc;
+  copyBtn.addEventListener("click", () => {
+    if (mermaidSrc) copyMermaid(mermaidSrc);
+  });
   const close = document.createElement("button");
   close.className = "uml-close";
   close.title = "Close";
   close.textContent = "✕";
   close.addEventListener("click", closeUml);
-  headActions.append(copyBtn, close);
+  headActions.append(zoomOut, zoomLabel, zoomIn, copyBtn, close);
   head.append(headActions);
   card.append(head);
 
-  if (flow?.description) card.append(hEl("p", flow.description, "uml-desc"));
+  // Caption only when not editing (the editor owns the description field).
+  if (!umlEdit && flow?.description) {
+    card.append(hEl("p", flow.description, "uml-desc"));
+  }
 
+  // Content row: the diagram, plus the editor column when editing.
+  const content = document.createElement("div");
+  content.className = "uml-content";
   const body = document.createElement("div");
   body.className = "uml-body";
-  card.append(body);
+  content.append(body);
+  if (umlEdit && flow) content.append(buildUmlEditor(flow));
+  card.append(content);
   umlPanelEl.append(card);
+
+  if (!mermaidSrc) {
+    body.append(
+      hEl(
+        "p",
+        canEditFlows
+          ? 'No sequence flows yet — click "+ New flow" to author one.'
+          : "No sequence flows to render. Add a flow to the infrastructure graph.",
+        "uml-empty",
+      ),
+    );
+    return;
+  }
 
   body.append(hEl("p", "Rendering…", "uml-empty"));
   const token = ++umlSeq; // also the Mermaid render id; guards against races
   try {
     const mermaid = await getMermaid();
-    const { svg } = await mermaid.render(`uml_${token}`, source);
+    const { svg } = await mermaid.render(`uml_${token}`, mermaidSrc);
     if (!umlOpen || token !== umlSeq) return; // superseded by a newer render/close
     body.innerHTML = svg;
+    fitUmlSvg(); // size the diagram to the pane (no scrollbar at 100%)
   } catch (err) {
     body.innerHTML = "";
     body.append(hEl("pre", `Couldn't render UML:\n${(err as Error).message}`, "uml-error"));
@@ -1034,9 +1434,258 @@ async function renderUmlPanel(): Promise<void> {
 /** Close the rendered UML view. */
 function closeUml(): void {
   umlOpen = false;
+  umlEdit = false;
   umlPanelEl.hidden = true;
   umlPanelEl.replaceChildren();
   toolbar.querySelector('[data-toggle="uml"]')?.classList.remove("active");
+}
+
+// ------------------------------------------------------------------------
+// UML flow authoring — the sequence diagram is a pure render of a flow's
+// steps, so editing the flow here *is* editing the UML. Each change persists
+// and re-renders the diagram live.
+// ------------------------------------------------------------------------
+
+/** Create a new (empty) flow, select it, and open the editor on it. */
+function createFlow(): void {
+  if (!source.saveInfraFlow) return;
+  const name = window.prompt("New flow name:")?.trim();
+  if (!name) return;
+  const flow: InfraFlow = {
+    id: `flow_${Date.now().toString(36)}`,
+    name,
+    description: "",
+    steps: [],
+    updatedAt: now(),
+  };
+  infraFlows.set(flow.id, flow);
+  selectedFlowId = flow.id;
+  umlEdit = true;
+  void source.saveInfraFlow(flow);
+  void renderUmlPanel();
+}
+
+/** Merge a patch into the selected flow, persist, and re-render the diagram. */
+function updateFlow(patch: Partial<InfraFlow>): void {
+  const id = selectedFlowId;
+  if (!id || !source.saveInfraFlow) return;
+  const f = infraFlows.get(id);
+  if (!f) return;
+  const updated: InfraFlow = { ...f, ...patch, updatedAt: now() };
+  infraFlows.set(id, updated);
+  void source.saveInfraFlow(updated);
+  void renderUmlPanel();
+}
+
+/** Delete the selected flow after confirmation (its nodes/edges stay). */
+function deleteFlow(): void {
+  const id = selectedFlowId;
+  if (!id || !source.deleteInfraFlow) return;
+  const f = infraFlows.get(id);
+  if (!window.confirm(`Delete flow "${f?.name ?? id}"?`)) return;
+  infraFlows.delete(id);
+  selectedFlowId = null;
+  umlEdit = false;
+  void source.deleteInfraFlow(id);
+  void renderUmlPanel();
+}
+
+/** Append a step to the selected flow (defaults to the first node(s)). */
+function addFlowStepToSelected(): void {
+  const id = selectedFlowId;
+  const f = id ? infraFlows.get(id) : undefined;
+  if (!f) return;
+  const ids = [...infraNodes.keys()];
+  if (!ids.length) {
+    notify("Add infra nodes first (Infra → + Add node).");
+    return;
+  }
+  const step: InfraFlowStep = {
+    from: ids[0] ?? "",
+    to: ids[1] ?? ids[0] ?? "",
+    label: "",
+    kind: "sync",
+  };
+  updateFlow({ steps: [...f.steps, step] });
+}
+
+/** Replace step `i` of the selected flow with `{...step, ...patch}`. */
+function updateFlowStep(i: number, patch: Partial<InfraFlowStep>): void {
+  const id = selectedFlowId;
+  const f = id ? infraFlows.get(id) : undefined;
+  if (!f) return;
+  const steps = f.steps.map((s, idx) => (idx === i ? { ...s, ...patch } : s));
+  updateFlow({ steps });
+}
+
+/** Remove step `i`, or move it up/down (dir = -1 / +1) within the flow. */
+function mutateFlowSteps(i: number, action: "remove" | -1 | 1): void {
+  const id = selectedFlowId;
+  const f = id ? infraFlows.get(id) : undefined;
+  if (!f) return;
+  const steps = [...f.steps];
+  if (action === "remove") {
+    steps.splice(i, 1);
+  } else {
+    const j = i + action;
+    if (j < 0 || j >= steps.length) return;
+    const a = steps[i];
+    const b = steps[j];
+    if (!a || !b) return;
+    steps[i] = b;
+    steps[j] = a;
+  }
+  updateFlow({ steps });
+}
+
+/** The right-hand editor column for one flow: name, description, and steps. */
+function buildUmlEditor(flow: InfraFlow): HTMLElement {
+  const aside = document.createElement("aside");
+  aside.className = "uml-editor";
+  aside.append(hEl("h3", "Edit flow"));
+
+  // Name + description.
+  aside.append(umlField("Name", flow.name, (v) => updateFlow({ name: v.trim() || flow.name })));
+  aside.append(
+    umlField("Notes", flow.description, (v) => updateFlow({ description: v }), true),
+  );
+
+  // Steps.
+  aside.append(hEl("h4", "Steps"));
+  const nodeOpts = [...infraNodes.values()];
+  if (!nodeOpts.length) {
+    aside.append(
+      hEl("p", "No infra nodes yet — add nodes in the Infra overlay first.", "uml-empty"),
+    );
+  }
+  flow.steps.forEach((step, i) => {
+    aside.append(buildUmlStep(step, i, flow.steps.length, nodeOpts));
+  });
+
+  const addStep = document.createElement("button");
+  addStep.className = "doc-add";
+  addStep.textContent = "+ Add step";
+  addStep.disabled = !nodeOpts.length;
+  addStep.addEventListener("click", addFlowStepToSelected);
+  aside.append(addStep);
+
+  const del = document.createElement("button");
+  del.className = "doc-remove";
+  del.textContent = "Delete flow";
+  del.disabled = !source.deleteInfraFlow;
+  del.addEventListener("click", deleteFlow);
+  aside.append(del);
+  return aside;
+}
+
+/** One step row: from → to, a label, the message kind, and move/remove. */
+function buildUmlStep(
+  step: InfraFlowStep,
+  i: number,
+  count: number,
+  nodes: InfraNode[],
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "uml-step";
+
+  const fromTo = document.createElement("div");
+  fromTo.className = "uml-step-row";
+  fromTo.append(hEl("span", `${i + 1}.`, "uml-step-num"));
+  fromTo.append(nodeSelect(step.from, nodes, (v) => updateFlowStep(i, { from: v })));
+  fromTo.append(hEl("span", "→", "uml-step-arrow"));
+  fromTo.append(nodeSelect(step.to, nodes, (v) => updateFlowStep(i, { to: v })));
+  wrap.append(fromTo);
+
+  const labelInput = document.createElement("input");
+  labelInput.type = "text";
+  labelInput.value = step.label;
+  labelInput.placeholder = "what happens (e.g. POST /login)";
+  labelInput.addEventListener("change", () => updateFlowStep(i, { label: labelInput.value }));
+  wrap.append(labelInput);
+
+  const row2 = document.createElement("div");
+  row2.className = "uml-step-row";
+  const kind = document.createElement("select");
+  for (const k of ["sync", "async", "reply"] as const) {
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k;
+    if (k === step.kind) o.selected = true;
+    kind.append(o);
+  }
+  kind.addEventListener("change", () =>
+    updateFlowStep(i, { kind: kind.value as InfraFlowStep["kind"] }),
+  );
+  row2.append(kind);
+
+  const up = miniBtn("↑", "Move up", i === 0, () => mutateFlowSteps(i, -1));
+  const down = miniBtn("↓", "Move down", i === count - 1, () => mutateFlowSteps(i, 1));
+  const rm = miniBtn("✕", "Remove step", false, () => mutateFlowSteps(i, "remove"));
+  row2.append(up, down, rm);
+  wrap.append(row2);
+  return wrap;
+}
+
+/** A labelled text/textarea field for the flow editor. */
+function umlField(
+  label: string,
+  value: string,
+  onChange: (v: string) => void,
+  area = false,
+): HTMLElement {
+  const div = document.createElement("div");
+  div.className = area ? "row row-stack" : "row";
+  div.append(hEl("label", label));
+  const input = area
+    ? document.createElement("textarea")
+    : document.createElement("input");
+  if (input instanceof HTMLTextAreaElement) input.rows = 3;
+  input.value = value;
+  input.addEventListener("change", () => onChange(input.value));
+  div.append(input);
+  return div;
+}
+
+/** A node dropdown bound to a step endpoint. */
+function nodeSelect(
+  value: string,
+  nodes: InfraNode[],
+  onChange: (v: string) => void,
+): HTMLSelectElement {
+  const sel = document.createElement("select");
+  // Tolerate a step that points at a since-deleted node.
+  if (!nodes.some((n) => n.id === value) && value) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = "(missing node)";
+    o.selected = true;
+    sel.append(o);
+  }
+  for (const n of nodes) {
+    const o = document.createElement("option");
+    o.value = n.id;
+    o.textContent = n.label;
+    if (n.id === value) o.selected = true;
+    sel.append(o);
+  }
+  sel.addEventListener("change", () => onChange(sel.value));
+  return sel;
+}
+
+/** A small square button used for step move/remove. */
+function miniBtn(
+  glyph: string,
+  title: string,
+  disabled: boolean,
+  onClick: () => void,
+): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "uml-mini";
+  b.textContent = glyph;
+  b.title = title;
+  b.disabled = disabled;
+  b.addEventListener("click", onClick);
+  return b;
 }
 
 // ========================================================================

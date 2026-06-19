@@ -27,6 +27,8 @@
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         gap: 3px; line-height: 1;
       }
+      /* Outrank the .icon-btn display:flex so [hidden] tools actually hide. */
+      #toolbar button.icon-btn[hidden] { display: none; }
       #toolbar .icon-btn .tb-icon { width: 18px; height: 18px; }
       #toolbar .icon-btn span { font-size: 9.5px; }
       #toolbar button.active { border-color: #5b8cff; color: #fff; background: #223; }
@@ -83,6 +85,11 @@
       /* a flow dims the nodes it doesn't touch, and lights the ones it does */
       .infra-node-dim { opacity: .25; }
       .infra-node-active .infra-box { stroke-width: 2.5; }
+      .infra-box { cursor: grab; }
+      .infra-node-selected .infra-box {
+        stroke: #5b8cff; stroke-width: 2.5;
+        filter: drop-shadow(0 0 4px rgba(91,140,255,.6));
+      }
       .infra-edge-dim { opacity: .12; }
       .flow-arrow { stroke: #ffb020; stroke-width: 2; fill: none; }
       .flow-arrow-async { stroke-dasharray: 6 4; }
@@ -101,13 +108,12 @@
              overlaid on the infrastructure) --- */
       #umlpanel {
         position: absolute; inset: 0; z-index: 30;
-        display: flex; align-items: center; justify-content: center;
-        padding: 24px; background: rgba(8, 10, 14, 0.92);
+        display: flex; padding: 14px; background: rgba(8, 10, 14, 0.92);
       }
       #umlpanel[hidden] { display: none; }
       .uml-card {
         display: flex; flex-direction: column;
-        width: min(960px, 100%); max-height: 100%; overflow: hidden;
+        width: 100%; height: 100%; overflow: hidden;
         background: #11141b; border: 1px solid #232938; border-radius: 12px;
         box-shadow: 0 22px 60px rgba(0,0,0,.6);
       }
@@ -125,7 +131,7 @@
         padding: 2px 8px; border-radius: 99px; background: #1c2434; color: #9fb2d8;
       }
       .uml-select {
-        flex: 1; min-width: 0; max-width: 320px;
+        flex: none; min-width: 0; max-width: 360px;
         background: #161b26; color: #e6e6e6;
         border: 1px solid #283044; border-radius: 8px; padding: 6px 9px; font: inherit;
       }
@@ -133,7 +139,7 @@
         margin: 0; padding: 10px 14px; font-size: 12px; opacity: .8; line-height: 1.45;
         border-bottom: 1px solid #1e2433;
       }
-      .uml-head-actions { margin-left: auto; flex: none; display: flex; gap: 4px; }
+      .uml-head-actions { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; }
       .uml-tab {
         border: none; background: transparent; color: #8a93a3; font: inherit;
         font-size: 11px; cursor: pointer; padding: 4px 10px; border-radius: 99px;
@@ -141,13 +147,59 @@
       .uml-tab:hover { color: #cfd6e4; }
       .uml-tab.active { background: #232c40; color: #fff; }
       .uml-tab:disabled { opacity: .35; cursor: default; }
-      .uml-copy, .uml-close {
+      .uml-copy, .uml-close, .uml-zoom {
         border: none; background: transparent; color: #8a93a3;
         font-size: 14px; line-height: 1; cursor: pointer; padding: 4px 8px; border-radius: 7px;
       }
-      .uml-copy:hover, .uml-close:hover { color: #fff; background: #1b2233; }
-      .uml-body { padding: 20px; overflow: auto; background: #0d1017; }
-      .uml-body svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+      .uml-zoom { font-size: 16px; min-width: 28px; }
+      .uml-zoom-label {
+        flex: none; min-width: 44px; text-align: center;
+        font-size: 11px; color: #8a93a3; font-variant-numeric: tabular-nums;
+      }
+      .uml-copy:hover, .uml-close:hover, .uml-zoom:hover { color: #fff; background: #1b2233; }
+      .uml-copy:disabled, .uml-zoom:disabled { opacity: .35; cursor: default; }
+      .uml-action {
+        border: 1px solid #283044; background: #161b26; color: #cfd6e4;
+        font: inherit; font-size: 11px; cursor: pointer; padding: 5px 9px; border-radius: 7px;
+      }
+      .uml-action:hover { border-color: #5b8cff; color: #fff; }
+      .uml-action.active { border-color: #5b8cff; color: #fff; background: #223; }
+      .uml-action:disabled { opacity: .4; cursor: default; }
+      .uml-content { flex: 1; min-height: 0; display: flex; }
+      .uml-body {
+        flex: 1; min-height: 0; padding: 16px; overflow: auto;
+        background: #0d1017; display: flex;
+      }
+      /* Flow editor column (right of the diagram). */
+      .uml-editor {
+        flex: none; width: 320px; overflow: auto; padding: 14px;
+        border-left: 1px solid #1e2433; background: #0f131b;
+      }
+      .uml-editor h3 { margin: 0 0 8px; font-size: 14px; }
+      .uml-editor h4 {
+        margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; opacity: .55;
+      }
+      .uml-editor .row label { width: 52px; }
+      .uml-step {
+        display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 8px;
+        border: 1px solid #1e2433; border-radius: 8px; background: #11151d;
+      }
+      .uml-step-row { display: flex; align-items: center; gap: 6px; }
+      .uml-step-num { flex: none; opacity: .6; font-size: 11px; min-width: 16px; }
+      .uml-step-arrow { flex: none; opacity: .6; }
+      .uml-step select, .uml-step input {
+        flex: 1; min-width: 0; background: #0c0e13; color: #e6e6e6;
+        border: 1px solid #283044; border-radius: 6px; padding: 4px 6px; font: inherit;
+      }
+      .uml-mini {
+        flex: none; width: 26px; height: 26px; border: 1px solid #283044;
+        background: #161b26; color: #cfd6e4; border-radius: 6px; cursor: pointer;
+      }
+      .uml-mini:hover { border-color: #5b8cff; color: #fff; }
+      .uml-mini:disabled { opacity: .3; cursor: default; }
+      /* Sized to fit (or zoomed) in JS; margin:auto centres it yet still allows
+         scrolling to every edge when zoomed past the pane. */
+      .uml-body svg { display: block; margin: auto; }
       .uml-empty { padding: 24px; text-align: center; opacity: .55; }
       .uml-error {
         margin: 0; padding: 18px; color: #e0507a; white-space: pre-wrap;
@@ -195,6 +247,9 @@
       .doc-add:hover { border-color: #5b8cff; color: #fff; }
       .doc-remove { background: transparent; color: #d1603d; border-color: #3a2a2a; }
       .doc-remove:hover { border-color: #d1603d; }
+      .doc-add.active { border-color: #5b8cff; color: #fff; background: #223; }
+      .infra-actions { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+      .infra-actions .doc-add { margin-top: 0; }
       .doc-optional { margin-top: 8px; border-top: 1px solid #20242e; padding-top: 6px; }
       .doc-optional > summary {
         cursor: pointer; list-style: revert; font-size: 11px; letter-spacing: .4px;
