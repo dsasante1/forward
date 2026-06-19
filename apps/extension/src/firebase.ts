@@ -6,14 +6,17 @@
  */
 export {
   bindApiToElement,
+  deleteInfraFlow,
   deleteInfraNode,
   fetchElements,
   fetchElementsConditional,
+  fetchFlows,
   fetchInfra,
   fetchInfraConditional,
   fetchTimelinesConditional,
   listElements,
   saveInfraEdge,
+  saveInfraFlow,
   saveInfraNode,
   unbindApiFromElement,
   type FirebaseConfig,
