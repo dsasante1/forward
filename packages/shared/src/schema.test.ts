@@ -5,6 +5,7 @@ import {
   InfraNode,
   InfraEdge,
   InfraFlow,
+  Task,
   paths,
 } from "./schema.js";
 
@@ -281,6 +282,84 @@ describe("Infrastructure flows", () => {
   });
 });
 
+describe("Task layer", () => {
+  it("parses a minimal task and applies defaults", () => {
+    const task = Task.parse({
+      id: "task_1",
+      title: "Implement POST /auth/verify",
+      createdAt: "2026-06-19T09:00:00Z",
+      updatedAt: "2026-06-19T09:00:00Z",
+    });
+    expect(task.description).toBe("");
+    expect(task.status).toBe("todo");
+    expect(task.assignee).toBeUndefined();
+    expect(task.elementId).toBeUndefined();
+    expect(task.flowId).toBeUndefined();
+    expect(task.endpointId).toBeUndefined();
+  });
+
+  it("keeps optional cross-layer links when supplied", () => {
+    const task = Task.parse({
+      id: "task_2",
+      title: "Wire signup flow",
+      status: "in_progress",
+      assignee: "uid_abc",
+      elementId: "el_register_form",
+      flowId: "flow_signup",
+      endpointId: "el_register_form",
+      createdAt: "2026-06-19T09:00:00Z",
+      updatedAt: "2026-06-19T10:00:00Z",
+    });
+    expect(task.status).toBe("in_progress");
+    expect(task.elementId).toBe("el_register_form");
+    expect(task.flowId).toBe("flow_signup");
+    expect(task.endpointId).toBe("el_register_form");
+  });
+
+  it("rejects an unknown status", () => {
+    expect(() =>
+      Task.parse({
+        id: "task_bad",
+        title: "Bad",
+        status: "procrastinating",
+        createdAt: "2026-06-19T09:00:00Z",
+        updatedAt: "2026-06-19T09:00:00Z",
+      }),
+    ).toThrow();
+  });
+
+  it("requires a non-empty title", () => {
+    expect(() =>
+      Task.parse({
+        id: "task_notitle",
+        title: "",
+        createdAt: "2026-06-19T09:00:00Z",
+        updatedAt: "2026-06-19T09:00:00Z",
+      }),
+    ).toThrow();
+  });
+
+  it("accepts a tree carrying tasks", () => {
+    const tree = DatabaseTree.parse({
+      tasks: {
+        project_xyz: {
+          task_1: {
+            id: "task_1",
+            title: "Implement POST /auth/verify",
+            elementId: "el_register_form",
+            createdAt: "2026-06-19T09:00:00Z",
+            updatedAt: "2026-06-19T09:00:00Z",
+          },
+        },
+      },
+    });
+    expect(tree.tasks.project_xyz?.task_1?.title).toBe(
+      "Implement POST /auth/verify",
+    );
+    expect(tree.tasks.project_xyz?.task_1?.status).toBe("todo");
+  });
+});
+
 describe("paths", () => {
   it("builds RTDB paths consistently", () => {
     expect(paths.element("p", "e")).toBe("design_elements/p/e");
@@ -292,5 +371,7 @@ describe("paths", () => {
     expect(paths.infraEdge("p", "x")).toBe("infra_edges/p/x");
     expect(paths.infraFlows("p")).toBe("infra_flows/p");
     expect(paths.infraFlow("p", "f")).toBe("infra_flows/p/f");
+    expect(paths.tasks("p")).toBe("tasks/p");
+    expect(paths.task("p", "t")).toBe("tasks/p/t");
   });
 });

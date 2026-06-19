@@ -6,6 +6,7 @@ import {
   InfraNode,
   ProjectMember,
   ProjectRole,
+  Task,
   VersionEntry,
   paths,
 } from "./schema.js";
@@ -528,6 +529,82 @@ export async function deleteInfraFlow(
   flowId: string,
 ): Promise<void> {
   await del(url(cfg, paths.infraFlow(cfg.projectId, flowId)));
+}
+
+// --------------------------------------------------------------------------
+// Task tracker (project-scoped work items that link into the other layers)
+// --------------------------------------------------------------------------
+
+/**
+ * Read the project's tasks. Like the infra subtrees, this may arrive as a
+ * literal array or a push-keyed object, so normalize on read; rows that don't
+ * satisfy the schema are skipped rather than failing the whole read.
+ */
+export async function fetchTasks(cfg: FirebaseConfig): Promise<Task[]> {
+  const res = await fetch(url(cfg, paths.tasks(cfg.projectId)));
+  if (!res.ok) throw new Error(`Firebase read failed: ${res.status}`);
+  const tasks: Task[] = [];
+  for (const value of normalizeList(await res.json())) {
+    const parsed = Task.safeParse(value);
+    if (parsed.success) tasks.push(parsed.data);
+  }
+  return tasks;
+}
+
+/** Create or update one task (stamps `updatedAt`). */
+export async function saveTask(cfg: FirebaseConfig, task: Task): Promise<void> {
+  const body = Task.parse({ ...task, updatedAt: new Date().toISOString() });
+  await put(url(cfg, paths.task(cfg.projectId, body.id)), body);
+}
+
+/**
+ * Update some fields of an existing task, preserving the rest. Reads the task
+ * first so a partial change — status, assignee, a link — doesn't clobber the
+ * other fields. Throws if the task doesn't exist.
+ */
+export async function patchTask(
+  cfg: FirebaseConfig,
+  taskId: string,
+  patch: Partial<Omit<Task, "id" | "createdAt">>,
+): Promise<Task> {
+  const current = (await fetchTasks(cfg)).find((t) => t.id === taskId);
+  if (!current) throw new Error(`No task with id "${taskId}".`);
+  const next = Task.parse({
+    ...current,
+    ...patch,
+    id: taskId,
+    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(url(cfg, paths.task(cfg.projectId, taskId)), next);
+  return next;
+}
+
+/** Remove one task. */
+export async function deleteTask(
+  cfg: FirebaseConfig,
+  taskId: string,
+): Promise<void> {
+  await del(url(cfg, paths.task(cfg.projectId, taskId)));
+}
+
+/**
+ * Poller-facing read of the project's tasks. Returns `null` when nothing has
+ * changed since `etag` (so the caller can skip re-rendering), otherwise the
+ * parsed tasks and the new ETag to pass on the next poll.
+ */
+export async function fetchTasksConditional(
+  cfg: FirebaseConfig,
+  etag: string | undefined,
+): Promise<{ etag: string | undefined; tasks: Task[] } | null> {
+  const r = await getJsonConditional(url(cfg, paths.tasks(cfg.projectId)), etag);
+  if (!r) return null;
+  const tasks: Task[] = [];
+  for (const value of normalizeList(r.body)) {
+    const parsed = Task.safeParse(value);
+    if (parsed.success) tasks.push(parsed.data);
+  }
+  return { etag: r.etag, tasks };
 }
 
 async function put(u: string, body: unknown): Promise<void> {

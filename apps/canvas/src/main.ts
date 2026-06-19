@@ -7,6 +7,7 @@ import {
   type InfraFlowStep,
   type InfraKind,
   type InfraNode,
+  type Task,
   type VersionEntry,
   flowToMermaid,
 } from "forward-core";
@@ -21,6 +22,7 @@ import { RestSource } from "./rest-source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
 import { renderInfraPanel, renderPanel } from "./panel.js";
 import { renderTimelineView } from "./timeline-view.js";
+import { renderTasksView } from "./tasks-view.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -58,6 +60,7 @@ const toolbar = document.getElementById("toolbar") as HTMLElement;
 const zoomLabel = document.getElementById("zoomLabel") as HTMLElement | null;
 const historyEl = document.getElementById("history") as HTMLElement;
 const umlPanelEl = document.getElementById("umlpanel") as HTMLElement;
+const tasksEl = document.getElementById("tasks") as HTMLElement;
 
 // Mermaid is heavy (~700kB), so lazy-load it the first time a UML diagram is
 // opened — the offline/fixture path never pays for it. Dark theme to match the
@@ -95,6 +98,9 @@ let hoverId: string | null = null; // element under the pointer (drives the doc 
 let showDocs = true; // show/hide the minimized API indicators on documented elements
 let showInfra = false; // show/hide the infrastructure diagram overlay
 let showTimeline = false; // show/hide the project endpoint-timeline panel
+let showTasks = false; // show/hide the project task-tracker panel
+let taskFilterLinked = false; // restrict the task list to the current selection
+const tasks = new Map<string, Task>();
 
 // Viewport: `translate(panX, panY) scale(zoom)` applied to everything drawn.
 let zoom = 1;
@@ -143,6 +149,13 @@ source.subscribeInfra((infra) => {
   render();
   if (umlOpen) void renderUmlPanel(); // keep an open diagram in sync with new data
 });
+// Tasks (pillar 4) — present only on sources that can persist them; the panel
+// toggle is gated on saveTask, so a read-only source simply never shows it.
+source.subscribeTasks?.((next) => {
+  tasks.clear();
+  for (const t of next) tasks.set(t.id, t);
+  renderTasksPanel();
+});
 
 // ========================================================================
 // Toolbar
@@ -182,6 +195,14 @@ function buildToolbar(): void {
   tlBtn.dataset.toggle = "timeline";
   tlBtn.classList.toggle("active", showTimeline);
   toolbar.append(tlBtn);
+  // The task tracker only shows when the source can persist tasks (offline
+  // fixture, mock and live all can; a read-only source omits saveTask).
+  if (source.saveTask) {
+    const tasksBtn = iconButton(tasksIcon(), "Tasks", toggleTasks);
+    tasksBtn.dataset.toggle = "tasks";
+    tasksBtn.classList.toggle("active", showTasks);
+    toolbar.append(tasksBtn);
+  }
   // Membership management only applies to the live (auth-gated) source.
   if (source.addMember) {
     toolbar.append(divider());
@@ -231,6 +252,15 @@ function toggleTimeline(): void {
     .querySelector('[data-toggle="timeline"]')
     ?.classList.toggle("active", showTimeline);
   renderTimelinePanel();
+}
+
+/** Show or hide the project task-tracker panel (pillar 4). */
+function toggleTasks(): void {
+  showTasks = !showTasks;
+  toolbar
+    .querySelector('[data-toggle="tasks"]')
+    ?.classList.toggle("active", showTasks);
+  renderTasksPanel();
 }
 
 /** Show or hide the minimized API indicators on every documented element. */
@@ -296,6 +326,7 @@ function render(): void {
   updateZoomLabel();
   renderSelectionPanel();
   renderTimelinePanel();
+  renderTasksPanel();
 }
 
 // ========================================================================
@@ -1210,6 +1241,130 @@ function renderTimelinePanel(): void {
   });
 }
 
+/**
+ * Render the task tracker. The list links into the design/infra layers: when an
+ * element or flow is selected it offers a "only linked to selection" filter, and
+ * new tasks created from here are pre-linked to that selection. Re-runs on every
+ * render() so the filter tracks the live selection.
+ */
+function renderTasksPanel(): void {
+  tasksEl.hidden = !showTasks;
+  if (!showTasks || !source.saveTask) return;
+
+  // Derive the current focus (a selected element or flow) for filtering + the
+  // pre-link on new tasks.
+  const selEl = selectedId ? elements.get(selectedId) : undefined;
+  const focusFlow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
+  const focus = {
+    ...(selEl ? { elementId: selEl.id } : {}),
+    ...(focusFlow ? { flowId: focusFlow.id } : {}),
+    ...(selEl
+      ? { label: selEl.name || selEl.id }
+      : focusFlow
+        ? { label: focusFlow.name }
+        : {}),
+  };
+  const hasFocus = Boolean(focus.elementId || focus.flowId);
+
+  let list = [...tasks.values()].sort((a, b) =>
+    b.createdAt.localeCompare(a.createdAt),
+  );
+  if (hasFocus && taskFilterLinked) {
+    list = list.filter(
+      (t) =>
+        (focus.elementId &&
+          (t.elementId === focus.elementId ||
+            t.endpointId === focus.elementId)) ||
+        (focus.flowId && t.flowId === focus.flowId),
+    );
+  }
+
+  renderTasksView(
+    tasksEl,
+    list,
+    {
+      focus,
+      filterLinked: hasFocus && taskFilterLinked,
+      elementName: (id) => elements.get(id)?.name || elements.get(id)?.id,
+      flowName: (id) => infraFlows.get(id)?.name,
+    },
+    {
+      onClose: toggleTasks,
+      onToggleFilter: () => {
+        taskFilterLinked = !taskFilterLinked;
+        renderTasksPanel();
+      },
+      onCreate: ({ title, elementId, flowId }) => {
+        const ts = now();
+        const task: Task = {
+          id: `task_${Date.now().toString(36)}`,
+          title,
+          description: "",
+          status: "todo",
+          ...(elementId ? { elementId } : {}),
+          ...(flowId ? { flowId } : {}),
+          createdAt: ts,
+          updatedAt: ts,
+        };
+        // Optimistic insert; if the write is rejected (offline / locked DB),
+        // undo it and tell the user rather than leaving a phantom task.
+        tasks.set(task.id, task);
+        saveTaskOptimistic(task, () => tasks.delete(task.id), "create");
+        renderTasksPanel();
+      },
+      onChangeStatus: (id, status) => {
+        const prev = tasks.get(id);
+        if (!prev) return;
+        const updated = { ...prev, status, updatedAt: now() };
+        tasks.set(id, updated);
+        saveTaskOptimistic(updated, () => tasks.set(id, prev), "update");
+        renderTasksPanel();
+      },
+      onDelete: (id) => {
+        const prev = tasks.get(id);
+        if (!prev) return;
+        tasks.delete(id);
+        void source.deleteTask?.(id)?.catch((err) => {
+          tasks.set(id, prev); // roll back the optimistic delete
+          notify(`Couldn't delete task: ${(err as Error).message}`);
+          renderTasksPanel();
+        });
+        renderTasksPanel();
+      },
+      onClearLink: (id, field) => {
+        const prev = tasks.get(id);
+        if (!prev) return;
+        const updated: Task = { ...prev, updatedAt: now() };
+        delete updated[field];
+        tasks.set(id, updated);
+        saveTaskOptimistic(updated, () => tasks.set(id, prev), "update");
+        renderTasksPanel();
+      },
+      onSelectElement: (id) => {
+        if (elements.has(id)) select(id);
+      },
+    },
+  );
+}
+
+/**
+ * Persist a task that's already been applied optimistically to the local map.
+ * On a rejected write (offline / membership-locked database) it runs `rollback`
+ * to restore the prior state, notifies, and re-renders — so the panel never
+ * silently claims a save that didn't land.
+ */
+function saveTaskOptimistic(
+  task: Task,
+  rollback: () => void,
+  verb: "create" | "update",
+): void {
+  void source.saveTask?.(task)?.catch((err) => {
+    rollback();
+    notify(`Couldn't ${verb} task: ${(err as Error).message}`);
+    renderTasksPanel();
+  });
+}
+
 // ========================================================================
 // Infrastructure UML (rendered Mermaid diagrams)
 // ========================================================================
@@ -1934,6 +2089,17 @@ function historyIcon(): SVGElement {
     path("M3 3v5h5"),
     path("M3.05 13A9 9 0 1 0 6 5.3L3 8"),
     path("M12 7v5l4 2"),
+  ]);
+}
+// Checklist: a clipboard with two ticked lines.
+function tasksIcon(): SVGElement {
+  return lineIcon([
+    svgEl("rect", { x: "4", y: "4", width: "16", height: "18", rx: "2" }),
+    svgEl("rect", { x: "9", y: "2", width: "6", height: "4", rx: "1" }),
+    poly("8 11 9.5 12.5 12 10"),
+    poly("8 17 9.5 18.5 12 16"),
+    line(14, 11, 17, 11),
+    line(14, 17, 17, 17),
   ]);
 }
 function divider(): HTMLElement {

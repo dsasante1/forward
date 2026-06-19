@@ -3,6 +3,7 @@ import {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  Task,
   VersionEntry,
   normalizeList,
   paths,
@@ -80,6 +81,12 @@ export interface CanvasSource {
    * only shows the "add member" control when this is present.
    */
   addMember?(uid: string): Promise<void>;
+  /** Subscribe to the project's tasks (pillar 4); fires on every change. */
+  subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
+  /** Create or update one task. */
+  saveTask?(task: Task): Promise<void>;
+  /** Remove one task. */
+  deleteTask?(taskId: string): Promise<void>;
 }
 
 /**
@@ -91,8 +98,10 @@ export class FixtureSource implements CanvasSource {
   private elements = new Map<string, DesignElement>();
   private timelines = new Map<string, VersionEntry[]>();
   private infra: InfraSnapshot = { nodes: [], edges: [], flows: [] };
+  private tasks = new Map<string, Task>();
   private listeners = new Set<(els: ElementSnapshot[]) => void>();
   private infraListeners = new Set<(infra: InfraSnapshot) => void>();
+  private taskListeners = new Set<(tasks: Task[]) => void>();
   private loaded = false;
 
   constructor(
@@ -116,6 +125,23 @@ export class FixtureSource implements CanvasSource {
     if (this.loaded) onChange(this.infra);
     // If not yet loaded, load()'s emit() will fan out to infra listeners too.
     return () => this.infraListeners.delete(onChange);
+  }
+
+  subscribeTasks(onChange: (tasks: Task[]) => void): () => void {
+    this.taskListeners.add(onChange);
+    if (this.loaded) onChange([...this.tasks.values()]);
+    // If not yet loaded, load()'s emit() will fan out to task listeners too.
+    return () => this.taskListeners.delete(onChange);
+  }
+
+  async saveTask(task: Task): Promise<void> {
+    this.tasks.set(task.id, Task.parse(task));
+    this.emit();
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    this.tasks.delete(taskId);
+    this.emit();
   }
 
   async saveElement(element: DesignElement): Promise<void> {
@@ -202,6 +228,15 @@ export class FixtureSource implements CanvasSource {
       edges: Object.values(infraEdges).map((e) => InfraEdge.parse(e)),
       flows: Object.values(infraFlows).map((f) => InfraFlow.parse(f)),
     };
+
+    const taskRows =
+      (tree.tasks as Record<string, Record<string, unknown>>)?.[
+        this.projectId
+      ] ?? {};
+    for (const raw of Object.values(taskRows)) {
+      const t = Task.parse(raw);
+      this.tasks.set(t.id, t);
+    }
   }
 
   private snapshot(): ElementSnapshot[] {
@@ -215,6 +250,8 @@ export class FixtureSource implements CanvasSource {
     const snap = this.snapshot();
     for (const fn of this.listeners) fn(snap);
     for (const fn of this.infraListeners) fn(this.infra);
+    const tasks = [...this.tasks.values()];
+    for (const fn of this.taskListeners) fn(tasks);
   }
 }
 
@@ -456,5 +493,36 @@ export class LiveSource implements CanvasSource {
       role: "member",
       addedAt: new Date().toISOString(),
     });
+  }
+
+  subscribeTasks(onChange: (tasks: Task[]) => void): () => void {
+    let unsub = () => {};
+    void (async () => {
+      const fb = await this.fb().catch(() => null);
+      if (!fb) return; // access error already reported via options.onError
+      const { db, ref, onValue } = fb;
+      unsub = onValue(ref(db, paths.tasks(this.projectId)), (snap) => {
+        const tasks = normalizeList(snap.val()).flatMap((v) => {
+          const p = Task.safeParse(v);
+          return p.success ? [p.data] : [];
+        });
+        onChange(tasks);
+      });
+    })();
+    return () => unsub();
+  }
+
+  async saveTask(task: Task): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, set } = fb;
+    await set(ref(db, paths.task(this.projectId, task.id)), Task.parse(task));
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    const fb = await this.fb().catch(() => null);
+    if (!fb) return; // access error already reported via options.onError
+    const { db, ref, remove } = fb;
+    await remove(ref(db, paths.task(this.projectId, taskId)));
   }
 }

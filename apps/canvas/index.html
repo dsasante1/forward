@@ -460,6 +460,83 @@
         padding: 10px 16px; font-size: 13px; text-align: center;
         background: #3a1d1d; color: #ffb4b4; border-bottom: 1px solid #7a2e2e;
       }
+
+      /* --- task tracker panel (overlay, right of stage) --- */
+      #tasks {
+        position: absolute; top: 12px; right: 12px; bottom: 12px; width: 360px; z-index: 20;
+        background: #11141b; border: 1px solid #232938; border-radius: 12px;
+        overflow: auto; padding: 0;
+        --tk-todo: #8a93a3; --tk-progress: #5b8cff; --tk-blocked: #e0a23c; --tk-done: #36c275;
+        box-shadow: 0 18px 50px rgba(0,0,0,.45);
+      }
+      #tasks[hidden] { display: none; }
+      .tk-head {
+        position: sticky; top: 0; z-index: 2;
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 16px; background: #11141b; border-bottom: 1px solid #1e2433;
+      }
+      .tk-head h2 { margin: 0; font-size: 16px; font-weight: 650; }
+      .tk-close {
+        border: none; background: transparent; color: #8a93a3;
+        font-size: 15px; line-height: 1; cursor: pointer; padding: 4px 8px; border-radius: 7px;
+      }
+      .tk-close:hover { color: #fff; background: #1b2233; }
+      .tk-body { padding: 14px 16px 18px; }
+      .tk-create { display: flex; gap: 8px; margin-bottom: 10px; }
+      .tk-input {
+        flex: 1; min-width: 0; background: #161b26; color: #e6e6e6;
+        border: 1px solid #283044; border-radius: 8px; padding: 8px 10px; font: inherit;
+      }
+      .tk-input:focus { outline: 1px solid #5b8cff; outline-offset: -1px; }
+      .tk-add {
+        flex: none; font: inherit; font-size: 12px; cursor: pointer; padding: 6px 14px;
+        border-radius: 8px; border: 1px solid #2c63d6; background: #1d3c6e; color: #fff;
+      }
+      .tk-add:hover { filter: brightness(1.15); }
+      .tk-filter {
+        display: flex; align-items: center; gap: 8px; margin: 0 0 12px;
+        font-size: 12px; opacity: .8; cursor: pointer;
+      }
+      .tk-filter input { cursor: pointer; }
+      .tk-empty { padding: 12px 4px; font-size: 12px; opacity: .55; }
+      .tk-group-title {
+        display: flex; gap: 8px; align-items: center;
+        font-size: 12px; font-weight: 600; margin: 16px 0 6px; opacity: .8;
+      }
+      .tk-count {
+        font-size: 10px; padding: 1px 7px; border-radius: 99px;
+        background: #1c2434; color: #9fb2d8;
+      }
+      .tk-card {
+        margin-bottom: 8px; background: #141926; border: 1px solid #212a3b;
+        border-radius: 10px; padding: 10px 12px;
+      }
+      .tk-card-done { opacity: .6; }
+      .tk-card-head { display: flex; align-items: center; gap: 8px; }
+      .tk-dot {
+        flex: none; width: 12px; height: 12px; padding: 0; border-radius: 50%;
+        border: 2px solid #2a3242; background: transparent; cursor: pointer;
+      }
+      .tk-dot:hover { filter: brightness(1.4); }
+      .tk-dot-todo { border-color: var(--tk-todo); }
+      .tk-dot-in_progress { border-color: var(--tk-progress); background: var(--tk-progress); }
+      .tk-dot-blocked { border-color: var(--tk-blocked); background: var(--tk-blocked); }
+      .tk-dot-done { border-color: var(--tk-done); background: var(--tk-done); }
+      .tk-title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+      .tk-card-done .tk-title { text-decoration: line-through; }
+      .tk-del {
+        flex: none; border: none; background: transparent; color: #8a93a3;
+        font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+      }
+      .tk-del:hover { color: #fff; background: #3a1d1d; }
+      .tk-desc { margin: 6px 0 0; font-size: 12px; opacity: .75; line-height: 1.4; }
+      .tk-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+      .tk-chip {
+        font: inherit; font-size: 11px; padding: 2px 8px; border-radius: 99px;
+        background: #1c2434; color: #9fb2d8; border: 1px solid #2a3447; cursor: pointer;
+      }
+      button.tk-chip:hover { border-color: #5b8cff; color: #fff; }
+      .tk-chip-stale { opacity: .5; text-decoration: line-through; }
     </style>
   </head>
   <body>
@@ -474,6 +551,7 @@
       </div>
       <div id="umlpanel" hidden></div>
       <div id="history" hidden></div>
+      <div id="tasks" hidden></div>
     </div>
     <aside id="panel"><p class="empty">Select or draw an element.</p></aside>
     <script type="module" src="/src/main.ts"></script>

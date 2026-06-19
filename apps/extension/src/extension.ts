@@ -4,6 +4,8 @@ import {
   InfraFlow,
   InfraFlowStep,
   InfraKind,
+  Task,
+  TaskStatus,
   type ApiBinding,
   type InfraEdge,
   type InfraNode,
@@ -18,11 +20,14 @@ import {
   fetchFlows,
   fetchInfra,
   fetchInfraConditional,
+  fetchTasks,
   fetchTimelinesConditional,
   listElements,
+  patchTask,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
+  saveTask,
   unbindApiFromElement,
   type FirebaseConfig,
   type InfraPollState,
@@ -60,6 +65,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("forward.addFlow", addFlow),
     vscode.commands.registerCommand("forward.addFlowStep", addFlowStep),
     vscode.commands.registerCommand("forward.removeFlow", removeFlow),
+    vscode.commands.registerCommand("forward.createTask", createTask),
+    vscode.commands.registerCommand(
+      "forward.updateTaskStatus",
+      updateTaskStatus,
+    ),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
@@ -672,6 +682,167 @@ async function removeFlow(): Promise<void> {
     vscode.window.showInformationMessage(`Removed flow: ${choice.label}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Remove failed: ${(err as Error).message}`);
+  }
+}
+
+// ==========================================================================
+// Task tracker (pillar 4) — project-scoped work items that optionally link to
+// the design element the dev is documenting. Mirrors the MCP create_task /
+// update_task tools so the surfaces stay at parity.
+// ==========================================================================
+
+// `@adc <elementId>` source marker — the same anchor the MCP server resolves.
+// The `@` must not be part of a larger token (so an email like user@adc.io is
+// not mistaken for an anchor).
+const ANCHOR_RE = /(?<![\w@])@adc[ \t]+([A-Za-z0-9_-]+)/;
+
+/**
+ * Pre-fill the task's element link from an `@adc <id>` anchor near the cursor in
+ * the active editor — so filing a task from the endpoint you just anchored picks
+ * the right element automatically. Returns the anchored id, or undefined.
+ */
+function anchoredElementId(): string | undefined {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) return undefined;
+  // Look at the selection if there is one, else the whole current line.
+  const sel = editor.selection;
+  const range = sel.isEmpty ? editor.document.lineAt(sel.active.line).range : sel;
+  const match = ANCHOR_RE.exec(editor.document.getText(range));
+  return match?.[1];
+}
+
+const STATUS_PICKS: (vscode.QuickPickItem & { status: TaskStatus })[] = [
+  { label: "todo", description: "Not started", status: "todo" },
+  { label: "in_progress", description: "Being worked on", status: "in_progress" },
+  { label: "blocked", description: "Waiting on something", status: "blocked" },
+  { label: "done", description: "Complete", status: "done" },
+];
+
+/**
+ * File a new task. Title is mandatory; everything else optional. The task can be
+ * linked to a design element — pre-selected from an `@adc` anchor under the
+ * cursor when present, otherwise picked from the canvas elements.
+ */
+async function createTask(): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+
+  const title = await vscode.window.showInputBox({
+    prompt: "Task title (required)",
+    placeHolder: "e.g. Implement POST /auth/verify, wire signup flow",
+    validateInput: (v) => (v.trim() ? undefined : "A title is required."),
+  });
+  if (!title?.trim()) return;
+
+  const description = await vscode.window.showInputBox({
+    prompt: "Details (Markdown supported, optional)",
+    placeHolder: "Acceptance criteria, notes, links…",
+  });
+  if (description === undefined) return;
+
+  const statusPick = await vscode.window.showQuickPick(STATUS_PICKS, {
+    placeHolder: "Status",
+  });
+  if (!statusPick) return;
+
+  // Optionally link the task to a design element. Default to the anchored id
+  // (from an `@adc` marker under the cursor) when there is one.
+  let elementId = anchoredElementId();
+  if (!elementId) {
+    const elements = await safeListElements(cfg);
+    if (elements.length) {
+      const items: Array<vscode.QuickPickItem & { id?: string }> = [
+        { label: "— no design element —", id: undefined },
+        ...elements.map((el) => ({
+          label: el.name || el.id,
+          description: el.type,
+          detail: el.id,
+          id: el.id,
+        })),
+      ];
+      const choice = await vscode.window.showQuickPick(items, {
+        placeHolder: "Link this task to a design element? (optional)",
+        matchOnDetail: true,
+      });
+      if (!choice) return; // escaped — abort cleanly
+      elementId = choice.id;
+    }
+  } else {
+    vscode.window.showInformationMessage(
+      `Linking task to anchored element ${elementId}.`,
+    );
+  }
+
+  const now = new Date().toISOString();
+  const task: Task = Task.parse({
+    id: `task_${Date.now().toString(36)}`,
+    title: title.trim(),
+    description,
+    status: statusPick.status,
+    ...(elementId ? { elementId } : {}),
+    createdAt: now,
+    updatedAt: now,
+  });
+  try {
+    await saveTask(cfg, task);
+    vscode.window.showInformationMessage(`Created task: ${task.title}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+  }
+}
+
+/** Pick a task, then move it to a new status (the common "mark done" path). */
+async function updateTaskStatus(): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+
+  let tasks: Task[] = [];
+  try {
+    tasks = await fetchTasks(cfg);
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!tasks.length) {
+    vscode.window.showWarningMessage(
+      'No tasks yet — create one with "Forward: Create Task".',
+    );
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    tasks.map((t) => ({
+      label: t.title,
+      description: t.status,
+      detail: t.elementId ? `linked to ${t.elementId}` : undefined,
+      id: t.id,
+    })),
+    { placeHolder: "Update which task?" },
+  );
+  if (!choice) return;
+
+  const statusPick = await vscode.window.showQuickPick(STATUS_PICKS, {
+    placeHolder: "New status",
+  });
+  if (!statusPick) return;
+
+  try {
+    await patchTask(cfg, choice.id, { status: statusPick.status });
+    vscode.window.showInformationMessage(
+      `"${choice.label}" → ${statusPick.status}`,
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(`Update failed: ${(err as Error).message}`);
+  }
+}
+
+/** Read design elements, swallowing offline errors into an empty list. */
+async function safeListElements(
+  cfg: FirebaseConfig,
+): Promise<Array<{ id: string; name: string; type: string }>> {
+  try {
+    return await listElements(cfg);
+  } catch {
+    return [];
   }
 }
 

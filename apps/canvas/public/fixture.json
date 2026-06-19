@@ -223,18 +223,53 @@
             "breaking": "Breaking for malformed input. Clients sending non-conforming emails now receive 422 instead of 200.",
             "sections": [
               {
-                "label": "request · body.email",
+                "label": "request \u00b7 body.email",
                 "rows": [
-                  { "op": "unchanged", "cols": ["email", "string", "required"] },
-                  { "op": "removed", "cols": ["format", "—", "any non-empty string accepted"] },
-                  { "op": "added", "cols": ["format", "regex", "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"] }
+                  {
+                    "op": "unchanged",
+                    "cols": [
+                      "email",
+                      "string",
+                      "required"
+                    ]
+                  },
+                  {
+                    "op": "removed",
+                    "cols": [
+                      "format",
+                      "\u2014",
+                      "any non-empty string accepted"
+                    ]
+                  },
+                  {
+                    "op": "added",
+                    "cols": [
+                      "format",
+                      "regex",
+                      "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+                    ]
+                  }
                 ]
               },
               {
                 "label": "responses",
                 "rows": [
-                  { "op": "unchanged", "cols": ["200", "OK", "{ token, expiresIn }"] },
-                  { "op": "added", "cols": ["422", "error", "INVALID_EMAIL — email failed validation"] }
+                  {
+                    "op": "unchanged",
+                    "cols": [
+                      "200",
+                      "OK",
+                      "{ token, expiresIn }"
+                    ]
+                  },
+                  {
+                    "op": "added",
+                    "cols": [
+                      "422",
+                      "error",
+                      "INVALID_EMAIL \u2014 email failed validation"
+                    ]
+                  }
                 ]
               }
             ]
@@ -276,13 +311,27 @@
               {
                 "label": "endpoint",
                 "rows": [
-                  { "op": "removed", "cols": ["GET", "/api/v1/session", "validate session cookie"] }
+                  {
+                    "op": "removed",
+                    "cols": [
+                      "GET",
+                      "/api/v1/session",
+                      "validate session cookie"
+                    ]
+                  }
                 ]
               },
               {
                 "label": "responses",
                 "rows": [
-                  { "op": "removed", "cols": ["200", "OK", "{ valid, expiresIn }"] }
+                  {
+                    "op": "removed",
+                    "cols": [
+                      "200",
+                      "OK",
+                      "{ valid, expiresIn }"
+                    ]
+                  }
                 ]
               }
             ]
@@ -313,12 +362,68 @@
         "name": "User login",
         "description": "How a sign-in request flows through the stack: the web client hits the API, which checks the session cache and the users table, then replies.",
         "steps": [
-          { "from": "infra_web", "to": "infra_api", "label": "POST /api/v1/users/login", "kind": "sync", "endpointId": "el_login_submit" },
-          { "from": "infra_api", "to": "infra_redis", "label": "check session / rate-limit", "kind": "sync" },
-          { "from": "infra_api", "to": "infra_pg", "label": "verify credentials", "kind": "sync" },
-          { "from": "infra_api", "to": "infra_web", "label": "200 OK + session cookie", "kind": "reply" }
+          {
+            "from": "infra_web",
+            "to": "infra_api",
+            "label": "POST /api/v1/users/login",
+            "kind": "sync",
+            "endpointId": "el_login_submit"
+          },
+          {
+            "from": "infra_api",
+            "to": "infra_redis",
+            "label": "check session / rate-limit",
+            "kind": "sync"
+          },
+          {
+            "from": "infra_api",
+            "to": "infra_pg",
+            "label": "verify credentials",
+            "kind": "sync"
+          },
+          {
+            "from": "infra_api",
+            "to": "infra_web",
+            "label": "200 OK + session cookie",
+            "kind": "reply"
+          }
         ],
         "updatedAt": "2026-05-28T11:45:00Z"
+      }
+    }
+  },
+  "tasks": {
+    "project_xyz": {
+      "task_verify_endpoint": {
+        "id": "task_verify_endpoint",
+        "title": "Add rate limiting to Log in",
+        "description": "Throttle repeated failed attempts on POST /auth/login before GA.",
+        "status": "in_progress",
+        "assignee": "backend",
+        "elementId": "el_login_submit",
+        "endpointId": "el_login_submit",
+        "flowId": "flow_login",
+        "createdAt": "2026-06-17T09:00:00.000Z",
+        "updatedAt": "2026-06-18T14:00:00.000Z"
+      },
+      "task_profile_pagination": {
+        "id": "task_profile_pagination",
+        "title": "Paginate Fetch user profile activity",
+        "description": "The profile card's activity list needs cursor pagination.",
+        "status": "todo",
+        "elementId": "el_profile_card",
+        "endpointId": "el_profile_card",
+        "createdAt": "2026-06-18T11:00:00.000Z",
+        "updatedAt": "2026-06-18T11:00:00.000Z"
+      },
+      "task_login_polish": {
+        "id": "task_login_polish",
+        "title": "Polish login error states",
+        "description": "Inline validation + a clear message for locked accounts.",
+        "status": "done",
+        "elementId": "el_login_screen",
+        "createdAt": "2026-06-15T08:00:00.000Z",
+        "updatedAt": "2026-06-16T16:30:00.000Z"
       }
     }
   }

@@ -3,6 +3,7 @@ import {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  Task,
   VersionEntry,
   normalizeList,
   paths,
@@ -25,8 +26,10 @@ import type {
 export class RestSource implements CanvasSource {
   private timer: ReturnType<typeof setInterval> | undefined;
   private infraTimer: ReturnType<typeof setInterval> | undefined;
+  private taskTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
   private lastInfraJson = "";
+  private lastTasksJson = "";
 
   constructor(
     private readonly databaseUrl: string,
@@ -78,6 +81,51 @@ export class RestSource implements CanvasSource {
     return () => {
       if (this.infraTimer) clearInterval(this.infraTimer);
     };
+  }
+
+  subscribeTasks(onChange: (tasks: Task[]) => void): () => void {
+    const tick = async () => {
+      try {
+        const tasks = await this.fetchTasks();
+        const json = JSON.stringify(tasks);
+        if (json !== this.lastTasksJson) {
+          this.lastTasksJson = json;
+          onChange(tasks);
+        }
+      } catch (err) {
+        console.warn("[rest-source] tasks poll failed:", err);
+      }
+    };
+    void tick();
+    this.taskTimer = setInterval(tick, this.pollMs);
+    return () => {
+      if (this.taskTimer) clearInterval(this.taskTimer);
+    };
+  }
+
+  private async fetchTasks(): Promise<Task[]> {
+    const res = await fetch(this.url(paths.tasks(this.projectId)));
+    return normalizeList(await res.json()).flatMap((v) => {
+      const p = Task.safeParse(v);
+      return p.success ? [p.data] : [];
+    });
+  }
+
+  async saveTask(task: Task): Promise<void> {
+    const body = Task.parse(task);
+    const res = await fetch(this.url(paths.task(this.projectId, body.id)), {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`save task failed: ${res.status}`);
+  }
+
+  async deleteTask(taskId: string): Promise<void> {
+    const res = await fetch(this.url(paths.task(this.projectId, taskId)), {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error(`delete task failed: ${res.status}`);
   }
 
   private async fetchInfra(): Promise<InfraSnapshot> {
