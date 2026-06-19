@@ -10,26 +10,31 @@ import {
   InfraNode,
   ProjectRole,
   Style,
+  Task,
   addMember,
   bindApiToElement,
   deleteElement,
   deleteInfraFlow,
   deleteInfraNode,
+  deleteTask,
   digest,
   fetchElements,
   fetchFlows,
   fetchInfra,
+  fetchTasks,
   fetchTimelinesConditional,
   flattenTimelines,
   flowToMermaid,
   infraToComponentMermaid,
   listMembers,
   patchElement,
+  patchTask,
   removeMember,
   saveElement,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
+  saveTask,
   unbindApiFromElement,
   type CurrentLabel,
   type FirebaseConfig,
@@ -812,6 +817,146 @@ server.registerTool(
     try {
       const removed = await deleteElement(getConfig(), elementId, { cascade });
       return ok({ removed, count: removed.length });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: the project's task tracker --------------------------------------
+server.registerTool(
+  "list_tasks",
+  {
+    title: "List tasks",
+    description:
+      "Read the project's task tracker — work items that stand apart from the design elements " +
+      "but optionally link into them. Each task has a status (todo / in_progress / blocked / " +
+      "done), an optional assignee, and optional links: elementId (a design element), flowId (a " +
+      "narrated infra flow), and endpointId (a documented endpoint element). Filter by status or " +
+      "by any of the link ids to answer e.g. \"what's left to build for the signup flow?\". Start " +
+      "here before updating to reuse a task id.",
+    inputSchema: {
+      status: Task.shape.status
+        .optional()
+        .describe("Only return tasks in this status."),
+      elementId: z
+        .string()
+        .optional()
+        .describe("Only return tasks linked to this design element id."),
+      flowId: z
+        .string()
+        .optional()
+        .describe("Only return tasks linked to this infra flow id."),
+      endpointId: z
+        .string()
+        .optional()
+        .describe("Only return tasks linked to this endpoint element id."),
+    },
+  },
+  async ({ status, elementId, flowId, endpointId }) => {
+    try {
+      let tasks = await fetchTasks(getConfig());
+      if (status) tasks = tasks.filter((t) => t.status === status);
+      if (elementId) tasks = tasks.filter((t) => t.elementId === elementId);
+      if (flowId) tasks = tasks.filter((t) => t.flowId === flowId);
+      if (endpointId) tasks = tasks.filter((t) => t.endpointId === endpointId);
+      return ok({ count: tasks.length, tasks });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: create a task --------------------------------------------------
+server.registerTool(
+  "create_task",
+  {
+    title: "Create a task",
+    description:
+      "File a new work item on the project's task tracker. title is the core; description is " +
+      "free-form Markdown. status defaults to todo. The optional links tie the task to what it's " +
+      "about: elementId (the design element), flowId (an infra flow it implements), endpointId " +
+      "(the documented endpoint element). Links are independent — pass any, all, or none. Returns " +
+      "the new task id (use it with update_task).",
+    inputSchema: {
+      title: Task.shape.title.describe("Short summary of the work to do."),
+      description: Task.shape.description.describe("Markdown details, acceptance criteria, notes."),
+      status: Task.shape.status.describe(
+        "todo (default), in_progress, blocked, or done.",
+      ),
+      assignee: Task.shape.assignee.describe("A uid from the project roster, if assigned."),
+      elementId: Task.shape.elementId.describe("Design element this task concerns."),
+      flowId: Task.shape.flowId.describe("Infra flow this task implements."),
+      endpointId: Task.shape.endpointId.describe("Documented endpoint element this task concerns."),
+    },
+  },
+  async (fields) => {
+    try {
+      const now = new Date().toISOString();
+      const taskBody = Task.parse({
+        ...fields,
+        id: genId("task"),
+        createdAt: now,
+        updatedAt: now,
+      });
+      await saveTask(getConfig(), taskBody);
+      return ok({ id: taskBody.id, status: taskBody.status, action: "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: update a task --------------------------------------------------
+server.registerTool(
+  "update_task",
+  {
+    title: "Update a task",
+    description:
+      "Change fields of an existing task without touching the rest — e.g. move it to in_progress " +
+      "or done, reassign it, edit the title/description, or set/clear a link. Only the fields you " +
+      "pass are changed; createdAt is preserved. The most common call is just flipping status.",
+    inputSchema: {
+      taskId: z.string().min(1).describe("The task id to update (from list_tasks)."),
+      title: z.string().min(1).optional().describe("New title."),
+      description: z.string().optional().describe("New Markdown description."),
+      status: Task.shape.status.optional().describe("New status."),
+      assignee: z.string().optional().describe("New assignee uid."),
+      elementId: z.string().optional().describe("Link to a design element id."),
+      flowId: z.string().optional().describe("Link to an infra flow id."),
+      endpointId: z.string().optional().describe("Link to an endpoint element id."),
+    },
+  },
+  async ({ taskId, ...patch }) => {
+    try {
+      // Drop keys the caller omitted so they don't clobber existing values.
+      const clean = Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined),
+      );
+      const next = await patchTask(getConfig(), taskId, clean);
+      return ok({ id: next.id, status: next.status, action: "updated" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: remove a task --------------------------------------------------
+server.registerTool(
+  "delete_task",
+  {
+    title: "Delete a task",
+    description:
+      "Remove a work item from the project's task tracker. The design elements and infra flows " +
+      "it linked to are left untouched — only the task is deleted.",
+    inputSchema: {
+      taskId: z.string().min(1).describe("The task id to delete."),
+    },
+  },
+  async ({ taskId }) => {
+    try {
+      await deleteTask(getConfig(), taskId);
+      return ok({ taskId, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }

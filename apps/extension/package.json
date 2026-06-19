@@ -81,6 +81,16 @@
         "command": "forward.removeFlow",
         "title": "Remove Flow",
         "category": "Forward"
+      },
+      {
+        "command": "forward.createTask",
+        "title": "Create Task",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.updateTaskStatus",
+        "title": "Update Task Status",
+        "category": "Forward"
       }
     ],
     "menus": {

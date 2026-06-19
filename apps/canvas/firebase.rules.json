@@ -46,6 +46,12 @@
         ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
         ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
       }
+    },
+    "tasks": {
+      "$projectId": {
+        ".read": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()",
+        ".write": "auth != null && root.child('project_members').child($projectId).child(auth.uid).exists()"
+      }
     }
   }
 }

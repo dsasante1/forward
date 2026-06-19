@@ -39,11 +39,12 @@ Everything depends on this package; the apps depend on each other only through i
 - `timeline.ts` — pure helpers that flatten per-element `version_timeline` histories into one chronological event stream, lay it out as git-graph lanes, and collapse it into a catch-up digest (to-integrate / to-modify / to-remove since a baseline). Shared by both canvases.
 - `infra-flow.ts` — the infrastructure graph + narrated flows logic.
 
-### Three intentionally-separate data layers
+### Four intentionally-separate data layers
 
 1. **Design** — `DesignElement`s a designer draws (frame, rectangle, text, component, instance) with absolute geometry and `parentId` hierarchy. The primary artefact; exists on its own.
 2. **API binding** — an *optional* `apiBinding` a backend dev attaches to a design element from VS Code. Most elements never get one; an endpoint is never a first-class canvas object. Docs-first and framework-agnostic (`title` + Markdown `description` carry the meaning; `method`/`endpoint`/`parameters` are optional HTTP hints).
 3. **Infrastructure** — an *optional*, project-scoped graph of nodes + edges (and narrated flows over them), rendered as a separate overlay. Not attached to any design element.
+4. **Tasks** — an *optional*, project-scoped tracker of work items (`Task`, under the `tasks/$projectId` subtree). Like the infra graph it stands apart from the design elements, but each task optionally *links* into the other layers (`elementId` / `flowId` / `endpointId`) so work tracks against what it's about. Links are soft references resolved on read, not enforced foreign keys.
 
 A "project id" is a **namespace within the RTDB tree** (e.g. `project_xyz`), **not** a GCP project id. The canvas's `VITE_CANVAS_PROJECT_ID` and the extension's `forward.projectId` must match for the two sides to share elements.
 

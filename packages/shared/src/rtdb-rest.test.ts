@@ -2,14 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   addMember,
   deleteElement,
+  deleteTask,
   descendantIds,
   listMembers,
   patchElement,
+  patchTask,
   removeMember,
   saveElement,
+  saveTask,
   type FirebaseConfig,
 } from "./rtdb-rest.js";
-import type { DesignElement } from "./schema.js";
+import type { DesignElement, Task } from "./schema.js";
 
 const cfg: FirebaseConfig = {
   databaseUrl: "https://test-db.firebaseio.com",
@@ -158,5 +161,80 @@ describe("membership", () => {
     const members = await listMembers(cfg);
     expect(members).toHaveLength(2);
     expect(members.find((m) => m.uid === "owner1")?.role).toBe("owner");
+  });
+});
+
+/** A minimal valid task. */
+function task(id: string, overrides: Partial<Task> = {}): Task {
+  return {
+    id,
+    title: id,
+    description: "",
+    status: "todo",
+    createdAt: "2024-01-01T00:00:00.000Z",
+    updatedAt: "2024-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** Records every fetch and answers GETs from `tasks`, OKs everything else. */
+function mockTaskFetch(tasks: Task[] = []) {
+  const calls: Array<{ url: string; method: string; body?: unknown }> = [];
+  const fn = vi.fn(async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    calls.push({
+      url,
+      method,
+      body: init?.body ? JSON.parse(init.body as string) : undefined,
+    });
+    const body =
+      method === "GET" ? Object.fromEntries(tasks.map((t) => [t.id, t])) : null;
+    return {
+      ok: true,
+      status: 200,
+      headers: new Map(),
+      json: async () => body,
+    } as unknown as Response;
+  });
+  vi.stubGlobal("fetch", fn);
+  return calls;
+}
+
+describe("tasks", () => {
+  it("saveTask PUTs the parsed task and re-stamps updatedAt", async () => {
+    const calls = mockTaskFetch();
+    await saveTask(cfg, task("task_1", { elementId: "el_x" }));
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.url).toContain("/tasks/proj/task_1.json");
+    expect((put?.body as Task).elementId).toBe("el_x");
+    expect((put?.body as Task).updatedAt).not.toBe("2024-01-01T00:00:00.000Z");
+  });
+
+  it("patchTask merges the patch and preserves createdAt + other fields", async () => {
+    const calls = mockTaskFetch([
+      task("task_1", { title: "Original", elementId: "el_x" }),
+    ]);
+    const next = await patchTask(cfg, "task_1", { status: "done" });
+    expect(next.status).toBe("done");
+    expect(next.title).toBe("Original"); // untouched
+    expect(next.elementId).toBe("el_x"); // untouched link
+    expect(next.createdAt).toBe("2024-01-01T00:00:00.000Z");
+    expect(next.updatedAt).not.toBe("2024-01-01T00:00:00.000Z");
+    const put = calls.find((c) => c.method === "PUT");
+    expect(put?.url).toContain("/tasks/proj/task_1.json");
+  });
+
+  it("patchTask throws when the task does not exist", async () => {
+    mockTaskFetch([task("task_1")]);
+    await expect(patchTask(cfg, "ghost", { status: "done" })).rejects.toThrow(
+      /ghost/,
+    );
+  });
+
+  it("deleteTask DELETEs the task path", async () => {
+    const calls = mockTaskFetch();
+    await deleteTask(cfg, "task_1");
+    expect(calls[0]).toMatchObject({ method: "DELETE" });
+    expect(calls[0].url).toContain("/tasks/proj/task_1.json");
   });
 });

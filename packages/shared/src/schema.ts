@@ -204,6 +204,48 @@ export const InfraFlow = z.object({
 export type InfraFlow = z.infer<typeof InfraFlow>;
 
 // --------------------------------------------------------------------------
+// Task layer (the work tracker — pillar 4)
+// --------------------------------------------------------------------------
+
+/** Lifecycle of a work item. Drives the column/colour in the task panel. */
+export const TaskStatus = z.enum(["todo", "in_progress", "blocked", "done"]);
+export type TaskStatus = z.infer<typeof TaskStatus>;
+
+/**
+ * A project-scoped work item — the fourth, optional layer. Like the infra graph
+ * it stands apart from the design elements rather than being attached to one,
+ * but it optionally LINKS into the other layers so work tracks against what it's
+ * about. All three links are independent and OPTIONAL:
+ *   - `elementId`  → the DesignElement this task concerns.
+ *   - `flowId`     → the narrated InfraFlow this task implements.
+ *   - `endpointId` → the design element whose apiBinding defines the endpoint
+ *                    (the same join InfraFlowStep.endpointId uses).
+ * Links are soft references (stored ids, resolved lazily on read) — the layers
+ * sync independently, so a task may briefly point at a deleted element; renderers
+ * tolerate that rather than enforcing referential integrity.
+ */
+export const Task = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  /** Free-form Markdown notes (same subset as apiBinding/description). */
+  description: z.string().default(""),
+  status: TaskStatus.default("todo"),
+  /** A uid from the project's `project_members` roster, if assigned. */
+  assignee: z.string().optional(),
+  /** Optional link to the design element this task concerns. */
+  elementId: z.string().optional(),
+  /** Optional link to the narrated infra flow this task implements. */
+  flowId: z.string().optional(),
+  /** Optional link to the element whose apiBinding defines the endpoint. */
+  endpointId: z.string().optional(),
+  /** ISO-8601 timestamp the task was created. */
+  createdAt: z.string().datetime(),
+  /** ISO-8601 timestamp of the last write. */
+  updatedAt: z.string().datetime(),
+});
+export type Task = z.infer<typeof Task>;
+
+// --------------------------------------------------------------------------
 // Versioning + config
 // --------------------------------------------------------------------------
 
@@ -328,6 +370,7 @@ export const DatabaseTree = z.object({
   infra_nodes: z.record(z.record(InfraNode)).default({}),
   infra_edges: z.record(z.record(InfraEdge)).default({}),
   infra_flows: z.record(z.record(InfraFlow)).default({}),
+  tasks: z.record(z.record(Task)).default({}),
 });
 export type DatabaseTree = z.infer<typeof DatabaseTree>;
 
@@ -359,4 +402,7 @@ export const paths = {
   infraFlows: (projectId: string) => `infra_flows/${projectId}`,
   infraFlow: (projectId: string, flowId: string) =>
     `infra_flows/${projectId}/${flowId}`,
+  // Task tracker — project-scoped, stands apart but links into the other layers.
+  tasks: (projectId: string) => `tasks/${projectId}`,
+  task: (projectId: string, taskId: string) => `tasks/${projectId}/${taskId}`,
 } as const;
