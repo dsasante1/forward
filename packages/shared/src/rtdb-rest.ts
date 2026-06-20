@@ -263,13 +263,13 @@ export async function listMembers(
 /**
  * Enrol a uid into the project's roster (the REST-side of the canvas' 👤 +Member
  * control). The caller must already be a privileged/member client for the rules
- * to admit the write. Defaults the new uid to `member`; pass `owner` to grant
- * ownership. Re-adding an existing uid just updates its role.
+ * to admit the write. Defaults the new uid to `editor`; pass `owner` to grant
+ * ownership or `viewer` for read-only. Re-adding an existing uid updates its role.
  */
 export async function addMember(
   cfg: FirebaseConfig,
   uid: string,
-  role: ProjectRole = "member",
+  role: ProjectRole = "editor",
 ): Promise<void> {
   const member = ProjectMember.parse({ role, addedAt: new Date().toISOString() });
   await put(url(cfg, paths.projectMember(cfg.projectId, uid)), member);

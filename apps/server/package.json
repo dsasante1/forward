@@ -1,0 +1,47 @@
+{
+  "name": "forward-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Forward closed-source backend: the central API that owns auth (Clerk), the database (Supabase Postgres via Prisma), tenancy, and the realtime sync bus. Replaces the BYOD-Firebase model.",
+  "license": "UNLICENSED",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "start": "node dist/main.js",
+    "dev": "tsc -p tsconfig.json --watch & node --watch dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
+  },
+  "dependencies": {
+    "@clerk/backend": "^1.13.0",
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/config": "^3.2.0",
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/platform-express": "^10.4.0",
+    "@prisma/client": "^5.20.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "forward-core": "*",
+    "helmet": "^8.0.0",
+    "isomorphic-dompurify": "^2.16.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.14.0",
+    "prisma": "^5.20.0",
+    "typescript": "^5.4.5"
+  }
+}

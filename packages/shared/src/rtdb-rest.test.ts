@@ -135,10 +135,10 @@ describe("membership", () => {
     expect((put?.body as { addedAt: string }).addedAt).toBeTruthy();
   });
 
-  it("addMember defaults the role to member", async () => {
+  it("addMember defaults the role to editor", async () => {
     const calls = mockFetch();
     await addMember(cfg, "uid123");
-    expect((calls[0].body as { role: string }).role).toBe("member");
+    expect((calls[0].body as { role: string }).role).toBe("editor");
   });
 
   it("removeMember DELETEs the roster entry", async () => {
@@ -154,7 +154,7 @@ describe("membership", () => {
       status: 200,
       json: async () => ({
         owner1: { role: "owner", addedAt: "2024-01-01T00:00:00.000Z" },
-        m2: { role: "member", addedAt: "2024-02-01T00:00:00.000Z" },
+        m2: { role: "editor", addedAt: "2024-02-01T00:00:00.000Z" },
       }),
     }));
     vi.stubGlobal("fetch", fn);

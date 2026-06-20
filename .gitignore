@@ -5,8 +5,9 @@ out/
 *.log
 .DS_Store
 
-# Local Firebase config / secrets — BYOD, never commit
+# Local config / secrets — never commit. Templates (*.env.example) are kept.
 .env
-.env.local
+.env.*
+!.env.example
 firebase-config.local.json
 .vscode-test/
