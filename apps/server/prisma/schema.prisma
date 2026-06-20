@@ -1,0 +1,165 @@
+// Forward backend data model — Supabase Postgres.
+//
+// This is the centralized translation of the old Firebase RTDB tree (see the
+// `paths` map in packages/shared/src/schema.ts). The flexible per-layer shapes
+// (DesignElement, InfraNode, …) live in `data Json` columns and are validated on
+// write by the SAME forward-core Zod schemas the canvas/extension/MCP use, so the
+// contract stays single-sourced. The relational columns carry only what we query
+// or enforce on: tenancy (projectId), identity (userId/author), ordering, time.
+//
+// Tenancy is enforced in the service layer on every query; enable Postgres RLS in
+// a follow-up migration as defense-in-depth (see prisma/rls.sql).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  viewer
+  editor
+  owner
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  revoked
+  expired
+}
+
+// A user, keyed by their Clerk user id (we do not store passwords — Clerk owns auth).
+model User {
+  id            String          @id // Clerk user id, e.g. "user_2abc..."
+  email         String?
+  createdAt     DateTime        @default(now())
+  ownedProjects Project[]       @relation("ProjectOwner")
+  memberships   ProjectMember[]
+}
+
+// A project = the tenancy boundary (the old RTDB "project id" namespace).
+model Project {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("ProjectOwner", fields: [ownerId], references: [id])
+  createdAt DateTime @default(now())
+
+  members        ProjectMember[]
+  invites        Invite[]
+  elements       DesignElement[]
+  versionEntries VersionEntry[]
+  infraNodes     InfraNode[]
+  infraEdges     InfraEdge[]
+  infraFlows     InfraFlow[]
+  tasks          Task[]
+
+  @@index([ownerId])
+}
+
+// Per-project membership roster — replaces project_members + the Firebase rules ACL.
+model ProjectMember {
+  projectId String
+  userId    String
+  role      Role     @default(editor)
+  addedAt   DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([userId])
+}
+
+// A pending email invitation to a project. The owner creates it; the backend
+// emails a link carrying the opaque `token`; the invitee signs in and accepts,
+// which creates the ProjectMember row and marks the invite `accepted`.
+model Invite {
+  id        String       @id @default(cuid())
+  projectId String
+  email     String
+  role      Role         @default(editor)
+  token     String       @unique
+  status    InviteStatus @default(pending)
+  invitedBy String // Clerk uid of the owner who sent it
+  createdAt DateTime     @default(now())
+  expiresAt DateTime
+  acceptedAt DateTime?
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+  @@index([email])
+}
+
+// A design element (frame/rectangle/text/component/instance) + its optional
+// apiBinding. Full shape validated by forward-core `DesignElement`.
+model DesignElement {
+  projectId String
+  id        String
+  data      Json // DesignElement (geometry, style, apiBinding, …)
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+// The append-only documentation history (old version_timeline). INSERT ONLY:
+// the service never updates or deletes these, and no route exposes a mutation.
+// `author` + `ts` are stamped by the server from the authenticated session.
+model VersionEntry {
+  seq       BigInt   @id @default(autoincrement())
+  projectId String
+  elementId String
+  data      Json // forward-core VersionEntry (changeLog, diff, endpoint snapshot…)
+  author    String
+  ts        BigInt // epoch ms — mirrors VersionEntry.timestamp
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, elementId])
+  @@index([projectId, ts])
+}
+
+model InfraNode {
+  projectId String
+  id        String
+  data      Json // forward-core InfraNode
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+model InfraEdge {
+  projectId String
+  id        String
+  data      Json // forward-core InfraEdge
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+model InfraFlow {
+  projectId String
+  id        String
+  data      Json // forward-core InfraFlow
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+model Task {
+  projectId String
+  id        String
+  data      Json // forward-core Task
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}

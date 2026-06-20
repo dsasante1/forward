@@ -1,0 +1,37 @@
+import "reflect-metadata";
+import { Logger, ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import helmet from "helmet";
+import { AppModule } from "./app.module.js";
+
+// Prisma BigInt columns (e.g. VersionEntry.seq/ts) aren't JSON-serializable by
+// default. We never return them directly, but guard against accidental leaks.
+(BigInt.prototype as unknown as { toJSON: () => string }).toJSON = function () {
+  return this.toString();
+};
+
+async function bootstrap(): Promise<void> {
+  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+
+  app.use(helmet());
+  app.enableShutdownHooks();
+
+  const origins = process.env.CORS_ORIGINS?.split(",")
+    .map((o) => o.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: origins && origins.length ? origins : true,
+    credentials: true,
+    allowedHeaders: ["authorization", "content-type"],
+  });
+
+  // Defense in depth: anything not explicitly validated by a ZodBody pipe still
+  // gets stripped of unknown properties.
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+
+  const port = Number(process.env.PORT ?? 8080);
+  await app.listen(port, "0.0.0.0");
+  new Logger("Bootstrap").log(`Forward server listening on :${port}`);
+}
+
+void bootstrap();

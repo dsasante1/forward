@@ -340,22 +340,50 @@ export type UserConfig = z.infer<typeof UserConfig>;
 // --------------------------------------------------------------------------
 
 /**
- * Role of a uid within a project. The first authenticated user to touch a fresh
- * project claims it as `owner`; anyone an existing member enrolls is a `member`.
- * The security rules only check that a membership record *exists*, so both roles
- * grant the same read/write today — the distinction is kept for future use
- * (e.g. owner-only member management).
+ * Role of a uid within a project, in increasing privilege:
+ *   - `viewer` — read-only: may read every layer, may not mutate anything.
+ *   - `editor` — read + write design/binding/infra/tasks; may not manage members.
+ *   - `owner`  — everything an editor can do, plus managing the roster + invites.
+ * The first authenticated user to create a project claims it as `owner`. Write
+ * vs read is enforced server-side (the centralized backend), not by convention.
  */
-export const ProjectRole = z.enum(["owner", "member"]);
+export const ProjectRole = z.enum(["viewer", "editor", "owner"]);
 export type ProjectRole = z.infer<typeof ProjectRole>;
+
+/** Roles that may write (mutate) project data — everything above read-only. */
+export const WRITE_ROLES: readonly ProjectRole[] = ["editor", "owner"];
 
 /** One entry in a project's member roster: `project_members/$projectId/$uid`. */
 export const ProjectMember = z.object({
-  role: ProjectRole.default("member"),
+  role: ProjectRole.default("editor"),
   /** ISO-8601 timestamp the membership was granted. */
   addedAt: z.string(),
 });
 export type ProjectMember = z.infer<typeof ProjectMember>;
+
+/** Lifecycle of an email invitation to a project. */
+export const InviteStatus = z.enum(["pending", "accepted", "revoked", "expired"]);
+export type InviteStatus = z.infer<typeof InviteStatus>;
+
+/**
+ * An email invitation granting a person `role` on a project once they accept.
+ * The owner creates it (the backend emails a tokenized link); the invitee signs
+ * in and accepts, at which point a `ProjectMember` row is created. The opaque
+ * `token` is the capability carried in the link and is never shown in listings.
+ */
+export const ProjectInvite = z.object({
+  id: z.string().min(1),
+  projectId: z.string().min(1),
+  email: z.string().email(),
+  role: ProjectRole.default("editor"),
+  status: InviteStatus.default("pending"),
+  /** Clerk uid of the owner who sent it. */
+  invitedBy: z.string().min(1),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  acceptedAt: z.string().datetime().optional(),
+});
+export type ProjectInvite = z.infer<typeof ProjectInvite>;
 
 /**
  * Full Firebase tree (handy for fixtures / offline mode).
