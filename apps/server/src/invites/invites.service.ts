@@ -157,8 +157,8 @@ export class InvitesService {
       throw new GoneException("This invitation has expired.");
     }
 
-    const email = await this.primaryEmail(userId);
-    if (!email || email.toLowerCase() !== invite.email.toLowerCase()) {
+    const matched = await this.matchedEmail(userId, invite.email);
+    if (!matched) {
       throw new ForbiddenException(
         "This invitation was sent to a different email address.",
       );
@@ -166,8 +166,8 @@ export class InvitesService {
 
     await this.prisma.user.upsert({
       where: { id: userId },
-      update: { email },
-      create: { id: userId, email },
+      update: { email: matched },
+      create: { id: userId, email: matched },
     });
     await this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId: invite.projectId, userId } },
@@ -188,14 +188,25 @@ export class InvitesService {
     return { projectId: invite.projectId, role: invite.role };
   }
 
-  /** The invitee's primary email, via Clerk (the token carries no identity). */
-  private async primaryEmail(userId: string): Promise<string | undefined> {
+  /**
+   * If the invited address is one of the user's *verified* Clerk emails, return
+   * it (its canonical form); otherwise undefined. Checks every address, not just
+   * the primary — a person legitimately invited at a secondary verified email
+   * must still be able to accept. Requires verification so an unverified claim to
+   * the invited address can't redeem the invite.
+   */
+  private async matchedEmail(
+    userId: string,
+    inviteEmail: string,
+  ): Promise<string | undefined> {
+    const target = inviteEmail.trim().toLowerCase();
     try {
       const user = await this.clerk.users.getUser(userId);
-      const primary = user.emailAddresses.find(
-        (e) => e.id === user.primaryEmailAddressId,
-      );
-      return primary?.emailAddress ?? user.emailAddresses[0]?.emailAddress;
+      return user.emailAddresses.find(
+        (e) =>
+          e.emailAddress.toLowerCase() === target &&
+          e.verification?.status === "verified",
+      )?.emailAddress;
     } catch (err) {
       this.logger.warn(
         `Clerk user lookup failed for ${userId}: ${(err as Error).message}`,

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { ProjectRole } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
@@ -99,22 +100,19 @@ export class ProjectsService {
     role: ProjectRole,
     actor: string,
   ) {
-    const target = await this.prisma.projectMember.findUnique({
-      where: { projectId_userId: { projectId, userId } },
-      select: { role: true },
-    });
-    if (!target) throw new Error("No such member on this project");
-    if (target.role === "owner" && role !== "owner") {
-      const owners = await this.prisma.projectMember.count({
-        where: { projectId, role: "owner" },
+    await this.withProjectLock(projectId, async (tx) => {
+      const target = await tx.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId } },
+        select: { role: true },
       });
-      if (owners <= 1) {
-        throw new Error("Cannot demote the last owner of a project");
+      if (!target) throw new Error("No such member on this project");
+      if (target.role === "owner" && role !== "owner") {
+        await this.assertNotLastOwner(tx, projectId, "demote");
       }
-    }
-    await this.prisma.projectMember.update({
-      where: { projectId_userId: { projectId, userId } },
-      data: { role },
+      await tx.projectMember.update({
+        where: { projectId_userId: { projectId, userId } },
+        data: { role },
+      });
     });
     await this.realtime.publish(projectId, {
       resource: "members",
@@ -127,22 +125,21 @@ export class ProjectsService {
 
   /** Remove a member. The last owner cannot be removed (would orphan the project). */
   async removeMember(projectId: string, userId: string, actor: string) {
-    const target = await this.prisma.projectMember.findUnique({
-      where: { projectId_userId: { projectId, userId } },
-      select: { role: true },
-    });
-    if (!target) return;
-    if (target.role === "owner") {
-      const owners = await this.prisma.projectMember.count({
-        where: { projectId, role: "owner" },
+    const removed = await this.withProjectLock(projectId, async (tx) => {
+      const target = await tx.projectMember.findUnique({
+        where: { projectId_userId: { projectId, userId } },
+        select: { role: true },
       });
-      if (owners <= 1) {
-        throw new Error("Cannot remove the last owner of a project");
+      if (!target) return false;
+      if (target.role === "owner") {
+        await this.assertNotLastOwner(tx, projectId, "remove");
       }
-    }
-    await this.prisma.projectMember.delete({
-      where: { projectId_userId: { projectId, userId } },
+      await tx.projectMember.delete({
+        where: { projectId_userId: { projectId, userId } },
+      });
+      return true;
     });
+    if (!removed) return;
     await this.realtime.publish(projectId, {
       resource: "members",
       op: "delete",
@@ -150,5 +147,35 @@ export class ProjectsService {
       actor,
       at: Date.now(),
     });
+  }
+
+  /**
+   * Run `fn` while holding a row lock on the project, so concurrent member
+   * mutations on the same project serialize. Without this the read-count-then-
+   * mutate "last owner" guard is a TOCTOU: two simultaneous owner demotions/
+   * removals could both see >1 owner and both proceed, orphaning the project.
+   */
+  private withProjectLock<T>(
+    projectId: string,
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM "Project" WHERE id = ${projectId} FOR UPDATE`;
+      return fn(tx);
+    });
+  }
+
+  /** Throw if the project would be left with no owner. Call inside the lock. */
+  private async assertNotLastOwner(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+    action: "demote" | "remove",
+  ): Promise<void> {
+    const owners = await tx.projectMember.count({
+      where: { projectId, role: "owner" },
+    });
+    if (owners <= 1) {
+      throw new Error(`Cannot ${action} the last owner of a project`);
+    }
   }
 }

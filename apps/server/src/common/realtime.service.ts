@@ -11,6 +11,9 @@ export type RealtimeResource =
   | "tasks"
   | "members";
 
+/** Cap on how long a write may wait for the channel to join before giving up. */
+const SUBSCRIBE_TIMEOUT_MS = 5000;
+
 export interface ChangeEvent {
   resource: RealtimeResource;
   /** "upsert" | "delete" — what happened, so clients can patch incrementally. */
@@ -71,7 +74,13 @@ export class RealtimeService implements OnModuleDestroy {
     }
   }
 
-  /** Get (or create) the project channel, resolved only once it's SUBSCRIBED. */
+  /**
+   * Get (or create) the project channel, resolved only once it's SUBSCRIBED.
+   * Rejects on any terminal/non-subscribed status AND after a hard timeout, so a
+   * channel that never joins can't leave the awaited promise (and thus the write
+   * handler that awaits publish()) hanging forever. A rejection is swallowed by
+   * publish(), which evicts the cache so the next write re-subscribes cleanly.
+   */
   private channelFor(
     projectId: string,
   ): Promise<ReturnType<SupabaseClient["channel"]>> {
@@ -81,9 +90,21 @@ export class RealtimeService implements OnModuleDestroy {
         const channel = this.supabase.channel(`project:${projectId}`, {
           config: { broadcast: { ack: false } },
         });
+        const timer = setTimeout(() => {
+          void this.supabase.removeChannel(channel);
+          reject(new Error("subscribe timed out"));
+        }, SUBSCRIBE_TIMEOUT_MS);
         channel.subscribe((status) => {
-          if (status === "SUBSCRIBED") resolve(channel);
-          else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+          if (status === "SUBSCRIBED") {
+            clearTimeout(timer);
+            resolve(channel);
+          } else if (
+            status === "CHANNEL_ERROR" ||
+            status === "TIMED_OUT" ||
+            status === "CLOSED"
+          ) {
+            clearTimeout(timer);
+            void this.supabase.removeChannel(channel);
             reject(new Error(`channel ${status}`));
           }
         });

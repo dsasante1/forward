@@ -175,6 +175,11 @@ button.danger {
   border-color: var(--accent);
 }
 
+.badge.viewer {
+  color: var(--muted);
+  border-color: var(--border);
+}
+
 .badge.pending {
   color: #d8a657;
   border-color: #d8a657;

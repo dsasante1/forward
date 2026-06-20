@@ -1,9 +1,8 @@
-import { useState } from "react";
-import { useUser } from "@clerk/clerk-react";
+import { useEffect, useState } from "react";
 import type { ProjectRole } from "forward-core";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
-import { useProjectRealtime } from "../api/realtime.js";
+import { useProject } from "../api/ProjectContext.js";
 
 const ROLES: ProjectRole[] = ["viewer", "editor", "owner"];
 const ROLE_HELP: Record<ProjectRole, string> = {
@@ -16,24 +15,29 @@ const ROLE_HELP: Record<ProjectRole, string> = {
  * The project's people: pending email invitations and current members.
  *
  * Owners invite by email (the backend emails a tokenized accept link), change
- * roles, and revoke. Non-owners see a read-only roster. Role semantics:
- * viewer = read-only, editor = read+write, owner = also manages members.
+ * roles, and revoke. Non-owners see a read-only roster. The roster + the caller's
+ * role come from ProjectContext (one fetch, one realtime subscription per
+ * project); only the invites list is owned here.
  */
-export function MembersTab({ projectId }: { projectId: string }) {
+export function MembersTab() {
   const api = useApi();
-  const { user } = useUser();
-  const members = useAsync(() => api.listMembers(projectId), [api, projectId]);
+  const {
+    projectId,
+    myUid,
+    members,
+    membersLoading,
+    membersError,
+    reloadMembers,
+    myRole,
+    lastChange,
+  } = useProject();
   const invites = useAsync(() => api.listInvites(projectId), [api, projectId]);
 
-  // Live updates: roster + invite changes both broadcast as the "members" resource.
-  useProjectRealtime(projectId, (e) => {
-    if (e.resource === "members") {
-      members.reload();
-      invites.reload();
-    }
-  });
+  // Invite changes broadcast as the "members" resource; refetch invites on them.
+  useEffect(() => {
+    if (lastChange?.resource === "members") invites.reload();
+  }, [lastChange, invites]);
 
-  const myRole = members.data?.find((m) => m.uid === user?.id)?.role;
   const isOwner = myRole === "owner";
 
   const [email, setEmail] = useState("");
@@ -68,7 +72,7 @@ export function MembersTab({ projectId }: { projectId: string }) {
     setError(undefined);
     try {
       await api.updateMemberRole(projectId, uid, next);
-      members.reload();
+      reloadMembers();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -78,7 +82,7 @@ export function MembersTab({ projectId }: { projectId: string }) {
     setError(undefined);
     try {
       await api.removeMember(projectId, uid);
-      members.reload();
+      reloadMembers();
     } catch (err) {
       setError((err as Error).message);
     }
@@ -122,7 +126,7 @@ export function MembersTab({ projectId }: { projectId: string }) {
       )}
       {isOwner && (
         <p className="muted small">
-          viewer = read-only · editor = read + write · owner = also manages members
+          {ROLES.map((r) => `${r} = ${ROLE_HELP[r].toLowerCase()}`).join(" · ")}
         </p>
       )}
       {notice && <p className="muted small">{notice}</p>}
@@ -155,11 +159,11 @@ export function MembersTab({ projectId }: { projectId: string }) {
 
       {/* Members */}
       <h3 className="section-label">Members</h3>
-      {members.loading && <p className="muted">Loading members…</p>}
-      {members.error && <p className="error">{members.error}</p>}
+      {membersLoading && <p className="muted">Loading members…</p>}
+      {membersError && <p className="error">{membersError}</p>}
       <ul className="list">
-        {members.data?.map((m) => {
-          const isSelf = m.uid === user?.id;
+        {members?.map((m) => {
+          const isSelf = m.uid === myUid;
           return (
             <li key={m.uid} className="list-row">
               <span className="list-title">{m.email ?? m.uid}</span>

@@ -989,17 +989,19 @@ server.registerTool(
     description:
       "Enrol a uid into the project's roster so it can access the project (the REST-side of the " +
       "canvas' 👤 +Member control). The server's own credentials must be privileged enough for " +
-      "the security rules to admit this write. Defaults the new uid to member; pass role:\"owner\" " +
-      "to grant ownership.",
+      "the security rules to admit this write. Defaults the new uid to editor; pass role:\"owner\" " +
+      "to grant ownership or role:\"viewer\" for read-only.",
     inputSchema: {
       uid: z.string().min(1).describe("The user id to grant access to."),
-      role: ProjectRole.optional().describe("owner or member (default member)."),
+      role: ProjectRole.optional().describe(
+        "viewer, editor or owner (default editor).",
+      ),
     },
   },
   async ({ uid, role }) => {
     try {
       await addMember(getConfig(), uid, role);
-      return ok({ uid, role: role ?? "member", action: "added" });
+      return ok({ uid, role: role ?? "editor", action: "added" });
     } catch (err) {
       return fail((err as Error).message);
     }

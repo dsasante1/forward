@@ -62,7 +62,7 @@ export function ProjectsPage() {
             <Link to={`/projects/${p.id}`} className="card-title">
               {p.name}
             </Link>
-            <span className={`badge ${p.role}`}>{p.role ?? "member"}</span>
+            {p.role && <span className={`badge ${p.role}`}>{p.role}</span>}
           </li>
         ))}
       </ul>

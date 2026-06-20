@@ -484,13 +484,13 @@ export class LiveSource implements CanvasSource {
 
   /**
    * Add another uid to the roster. The caller must already be a member (the
-   * rules enforce this); the new uid joins as a plain `member`. Rejects so the
-   * UI can report a bad uid or a permission failure.
+   * rules enforce this); the new uid joins as an `editor` (the default role).
+   * Rejects so the UI can report a bad uid or a permission failure.
    */
   async addMember(uid: string): Promise<void> {
     const { db, ref, set } = await this.fb();
     await set(ref(db, paths.projectMember(this.projectId, uid)), {
-      role: "member",
+      role: "editor",
       addedAt: new Date().toISOString(),
     });
   }

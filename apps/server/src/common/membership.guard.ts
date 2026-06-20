@@ -15,6 +15,15 @@ export const REQUIRE_OWNER_KEY = "requireOwner";
 /** Mark a route as owner-only (e.g. managing the member roster, deleting a project). */
 export const RequireOwner = () => SetMetadata(REQUIRE_OWNER_KEY, true);
 
+export const REQUIRE_WRITE_KEY = "requireWrite";
+/**
+ * Force the write-permission check on a route regardless of its HTTP method —
+ * the explicit, declared form of "viewers may not call this". By default write
+ * is inferred from the verb (anything but GET/HEAD/OPTIONS is a write); use this
+ * for the rare GET that has side effects so a `viewer` is still denied.
+ */
+export const RequireWrite = () => SetMetadata(REQUIRE_WRITE_KEY, true);
+
 export interface Membership {
   projectId: string;
   role: ProjectRole;
@@ -70,11 +79,18 @@ export class MembershipGuard implements CanActivate {
       if (member.role !== "owner") {
         throw new ForbiddenException("Owner role required");
       }
-    } else if (!READ_METHODS.has(req.method) && member.role === "viewer") {
-      // A viewer is read-only: any mutating method on a non-owner route is denied.
-      throw new ForbiddenException(
-        "Read-only access: an editor or owner role is required to make changes",
+    } else {
+      // A write is anything but a read method, OR an explicit @RequireWrite route.
+      const requireWrite = this.reflector.getAllAndOverride<boolean>(
+        REQUIRE_WRITE_KEY,
+        [ctx.getHandler(), ctx.getClass()],
       );
+      const isWrite = requireWrite || !READ_METHODS.has(req.method);
+      if (isWrite && member.role === "viewer") {
+        throw new ForbiddenException(
+          "Read-only access: an editor or owner role is required to make changes",
+        );
+      }
     }
 
     req.membership = { projectId, role: member.role };

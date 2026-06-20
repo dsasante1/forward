@@ -1,6 +1,7 @@
 import { useAuth } from "@clerk/clerk-react";
 import { useCallback, useMemo } from "react";
 import * as api from "forward-core/api";
+import type { InviteSummary } from "forward-core/api";
 import type { Task, ProjectRole, DesignElement } from "forward-core";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "");
@@ -15,23 +16,11 @@ export interface Project {
   role?: ProjectRole;
 }
 
-/** A roster member (the backend's GET /members shape, mapped to `uid`). */
-export interface Member {
-  uid: string;
-  email: string | null;
-  role: ProjectRole;
-  addedAt: string;
-}
+/** A roster member — exactly the shared client's listMembers row shape. */
+export type Member = Awaited<ReturnType<typeof api.listMembers>>[number];
 
-/** A pending email invitation (GET /projects/:p/invites). */
-export interface Invite {
-  id: string;
-  email: string;
-  role: ProjectRole;
-  status: "pending" | "accepted" | "revoked" | "expired";
-  createdAt: string;
-  expiresAt: string;
-}
+/** A pending email invitation — the shared client's invite shape. */
+export type Invite = InviteSummary;
 
 /**
  * The single data-access hook. Every call fetches a *fresh* Clerk session token
@@ -84,45 +73,23 @@ export function useApi() {
           body: JSON.stringify({ name }),
         }),
 
-      // --- membership roster (project-scoped) ---
-      // Direct fetch (not forward-core/api) so we keep each member's email.
-      listMembers: async (projectId: string): Promise<Member[]> => {
-        const rows = await accountFetch<
-          Array<{ userId: string; email: string | null; role: ProjectRole; addedAt: string }>
-        >(`/projects/${projectId}/members`);
-        return (rows ?? []).map((m) => ({
-          uid: m.userId,
-          email: m.email,
-          role: m.role,
-          addedAt: m.addedAt,
-        }));
-      },
-      updateMemberRole: (projectId: string, uid: string, role: ProjectRole) =>
-        accountFetch<{ ok: true }>(
-          `/projects/${projectId}/members/${encodeURIComponent(uid)}`,
-          { method: "PATCH", body: JSON.stringify({ role }) },
-        ),
+      // --- membership roster (project-scoped, via forward-core/api) ---
+      listMembers: async (projectId: string): Promise<Member[]> =>
+        api.listMembers(await cfgFor(projectId)),
+      updateMemberRole: async (projectId: string, uid: string, role: ProjectRole) =>
+        api.updateMemberRole(await cfgFor(projectId), uid, role),
       removeMember: async (projectId: string, uid: string) =>
         api.removeMember(await cfgFor(projectId), uid),
 
-      // --- email invitations (project-scoped) ---
-      listInvites: (projectId: string) =>
-        accountFetch<Invite[]>(`/projects/${projectId}/invites`),
-      createInvite: (projectId: string, email: string, role: ProjectRole) =>
-        accountFetch<Invite & { emailSent: boolean }>(
-          `/projects/${projectId}/invites`,
-          { method: "POST", body: JSON.stringify({ email, role }) },
-        ),
-      revokeInvite: (projectId: string, inviteId: string) =>
-        accountFetch<{ ok: true }>(
-          `/projects/${projectId}/invites/${encodeURIComponent(inviteId)}`,
-          { method: "DELETE" },
-        ),
-      acceptInvite: (token: string) =>
-        accountFetch<{ projectId: string; role: ProjectRole }>(
-          `/invites/${encodeURIComponent(token)}/accept`,
-          { method: "POST" },
-        ),
+      // --- email invitations (project-scoped, via forward-core/api) ---
+      listInvites: async (projectId: string) =>
+        api.listInvites(await cfgFor(projectId)),
+      createInvite: async (projectId: string, email: string, role: ProjectRole) =>
+        api.createInvite(await cfgFor(projectId), email, role),
+      revokeInvite: async (projectId: string, inviteId: string) =>
+        api.revokeInvite(await cfgFor(projectId), inviteId),
+      acceptInvite: async (token: string) =>
+        api.acceptInvite(await cfgFor(""), token),
 
       // --- tasks (project-scoped) ---
       listTasks: async (projectId: string): Promise<Task[]> =>

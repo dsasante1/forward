@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Task, TaskStatus } from "forward-core";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
-import { useProjectRealtime } from "../api/realtime.js";
+import { useProject } from "../api/ProjectContext.js";
 
 const STATUSES: TaskStatus[] = ["todo", "in_progress", "blocked", "done"];
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -12,22 +12,18 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   done: "Done",
 };
 
-export function TasksTab({
-  projectId,
-  canWrite,
-}: {
-  projectId: string;
-  canWrite: boolean;
-}) {
+export function TasksTab() {
   const api = useApi();
+  const { projectId, canWrite, lastChange } = useProject();
   const { data: tasks, loading, error, reload } = useAsync(
     () => api.listTasks(projectId),
     [api, projectId],
   );
 
-  useProjectRealtime(projectId, (e) => {
-    if (e.resource === "tasks") reload();
-  });
+  // Live: refetch when the shared project channel reports a tasks change.
+  useEffect(() => {
+    if (lastChange?.resource === "tasks") reload();
+  }, [lastChange, reload]);
 
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -61,7 +57,9 @@ export function TasksTab({
   async function setStatus(task: Task, status: TaskStatus) {
     setMutateError(undefined);
     try {
-      await api.patchTask(projectId, task.id, { status });
+      // Save the in-hand task with the new status (server re-stamps updatedAt);
+      // avoids patchTask's full-list refetch just to read the one task.
+      await api.saveTask(projectId, { ...task, status });
       reload();
     } catch (err) {
       setMutateError((err as Error).message);

@@ -1,9 +1,12 @@
 -- AlterEnum: replace Role {owner, member} with {viewer, editor, owner}.
--- Safe recreate: no rows use 'member' (only the project owner exists).
+-- Any pre-existing 'member' row is remapped to 'editor' during the cast so the
+-- migration never aborts on a database that already had non-owner members.
 BEGIN;
 CREATE TYPE "Role_new" AS ENUM ('viewer', 'editor', 'owner');
 ALTER TABLE "ProjectMember" ALTER COLUMN "role" DROP DEFAULT;
-ALTER TABLE "ProjectMember" ALTER COLUMN "role" TYPE "Role_new" USING ("role"::text::"Role_new");
+ALTER TABLE "ProjectMember" ALTER COLUMN "role" TYPE "Role_new" USING (
+  (CASE WHEN "role"::text = 'member' THEN 'editor' ELSE "role"::text END)::"Role_new"
+);
 ALTER TYPE "Role" RENAME TO "Role_old";
 ALTER TYPE "Role_new" RENAME TO "Role";
 DROP TYPE "Role_old";

@@ -4,6 +4,7 @@ import {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  ProjectInvite,
   ProjectRole,
   Task,
   VersionEntry,
@@ -170,12 +171,13 @@ export async function unbindApiFromElement(
 
 export async function listMembers(
   cfg: ApiConfig,
-): Promise<Array<{ uid: string; role: ProjectRole; addedAt: string }>> {
+): Promise<Array<{ uid: string; email: string | null; role: ProjectRole; addedAt: string }>> {
   const rows = await get<
-    Array<{ userId: string; role: ProjectRole; addedAt: string }>
+    Array<{ userId: string; email: string | null; role: ProjectRole; addedAt: string }>
   >(cfg, "/members");
   return (rows ?? []).map((m) => ({
     uid: m.userId,
+    email: m.email ?? null,
     role: m.role,
     addedAt: m.addedAt,
   }));
@@ -189,8 +191,64 @@ export async function addMember(
   await request(cfg, "POST", "/members", { userId: uid, role });
 }
 
+export async function updateMemberRole(
+  cfg: ApiConfig,
+  uid: string,
+  role: ProjectRole,
+): Promise<void> {
+  await request(cfg, "PATCH", `/members/${encodeURIComponent(uid)}`, { role });
+}
+
 export async function removeMember(cfg: ApiConfig, uid: string): Promise<void> {
   await request(cfg, "DELETE", `/members/${encodeURIComponent(uid)}`);
+}
+
+// --------------------------------------------------------------------------
+// email invitations
+// --------------------------------------------------------------------------
+
+/** A pending invitation as returned by the API (the opaque token is never listed). */
+export type InviteSummary = Pick<
+  ProjectInvite,
+  "id" | "email" | "role" | "status" | "createdAt" | "expiresAt"
+>;
+
+export async function listInvites(cfg: ApiConfig): Promise<InviteSummary[]> {
+  return (await get<InviteSummary[]>(cfg, "/invites")) ?? [];
+}
+
+export async function createInvite(
+  cfg: ApiConfig,
+  email: string,
+  role: ProjectRole = "editor",
+): Promise<InviteSummary & { emailSent: boolean }> {
+  return request(cfg, "POST", "/invites", { email, role });
+}
+
+export async function revokeInvite(
+  cfg: ApiConfig,
+  inviteId: string,
+): Promise<void> {
+  await request(cfg, "DELETE", `/invites/${encodeURIComponent(inviteId)}`);
+}
+
+/**
+ * Redeem an invitation token. Account-level (not project-scoped) — the caller is
+ * not yet a member — so it bypasses the project base path.
+ */
+export async function acceptInvite(
+  cfg: ApiConfig,
+  inviteToken: string,
+): Promise<{ projectId: string; role: ProjectRole }> {
+  const res = await fetch(
+    `${cfg.baseUrl.replace(/\/$/, "")}/invites/${encodeURIComponent(inviteToken)}/accept`,
+    { method: "POST", headers: { authorization: `Bearer ${cfg.token}` } },
+  );
+  if (!res.ok) {
+    throw new Error(`Forward API accept invite failed: ${res.status}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : { projectId: "", role: "editor" };
 }
 
 // --------------------------------------------------------------------------
