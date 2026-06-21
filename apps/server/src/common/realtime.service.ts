@@ -26,7 +26,7 @@ export interface ChangeEvent {
 }
 
 /**
- * The realtime sync bus. In the BYOD model Firebase *was* the bus (the canvas
+ * The realtime sync bus. Previously Firebase *was* the bus (the canvas
  * used `onValue`, the extension polled with ETags). Centralized, the server is
  * the single writer, so after every successful write it broadcasts a compact
  * change event on a per-project Supabase Realtime channel (`project:<id>`).
@@ -37,7 +37,10 @@ export interface ChangeEvent {
 @Injectable()
 export class RealtimeService implements OnModuleDestroy {
   private readonly logger = new Logger(RealtimeService.name);
-  private readonly supabase: SupabaseClient;
+  // null when Supabase creds are absent (e.g. local dev): the bus becomes a
+  // no-op and clients fall back to refetch-on-demand. The bus is best-effort, so
+  // running without it must never crash the server.
+  private readonly supabase: SupabaseClient | null;
   // Cache the *subscription promise* so the first publish to a project waits for
   // the channel to reach SUBSCRIBED before sending (a send on an un-joined
   // channel is silently dropped — which would lose the first live event).
@@ -47,15 +50,24 @@ export class RealtimeService implements OnModuleDestroy {
   >();
 
   constructor(config: ConfigService) {
-    this.supabase = createClient(
-      config.getOrThrow<string>("SUPABASE_URL"),
-      config.getOrThrow<string>("SUPABASE_SERVICE_ROLE_KEY"),
-      { auth: { persistSession: false }, realtime: { params: {} } },
-    );
+    const url = config.get<string>("SUPABASE_URL");
+    const key = config.get<string>("SUPABASE_SERVICE_ROLE_KEY");
+    if (url && key) {
+      this.supabase = createClient(url, key, {
+        auth: { persistSession: false },
+        realtime: { params: {} },
+      });
+    } else {
+      this.supabase = null;
+      this.logger.warn(
+        "Supabase Realtime not configured — change events disabled (clients refetch on demand).",
+      );
+    }
   }
 
   /** Broadcast a change to everyone subscribed to this project's channel. */
   async publish(projectId: string, event: ChangeEvent): Promise<void> {
+    if (!this.supabase) return;
     try {
       const channel = await this.channelFor(projectId);
       await channel.send({
@@ -84,14 +96,16 @@ export class RealtimeService implements OnModuleDestroy {
   private channelFor(
     projectId: string,
   ): Promise<ReturnType<SupabaseClient["channel"]>> {
+    const supabase = this.supabase;
+    if (!supabase) return Promise.reject(new Error("realtime disabled"));
     let pending = this.channels.get(projectId);
     if (!pending) {
       pending = new Promise((resolve, reject) => {
-        const channel = this.supabase.channel(`project:${projectId}`, {
+        const channel = supabase.channel(`project:${projectId}`, {
           config: { broadcast: { ack: false } },
         });
         const timer = setTimeout(() => {
-          void this.supabase.removeChannel(channel);
+          void supabase.removeChannel(channel);
           reject(new Error("subscribe timed out"));
         }, SUBSCRIBE_TIMEOUT_MS);
         channel.subscribe((status) => {
@@ -104,7 +118,7 @@ export class RealtimeService implements OnModuleDestroy {
             status === "CLOSED"
           ) {
             clearTimeout(timer);
-            void this.supabase.removeChannel(channel);
+            void supabase.removeChannel(channel);
             reject(new Error(`channel ${status}`));
           }
         });
@@ -115,6 +129,6 @@ export class RealtimeService implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    await this.supabase.removeAllChannels();
+    await this.supabase?.removeAllChannels();
   }
 }

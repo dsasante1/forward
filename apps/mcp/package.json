@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "MCP server: let any AI agent document API endpoints onto the design canvas.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "bin": {
     "forward-mcp": "./dist/server.js"
   },

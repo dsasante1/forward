@@ -211,6 +211,45 @@ export type InfraFlow = z.infer<typeof InfraFlow>;
 export const TaskStatus = z.enum(["todo", "in_progress", "blocked", "done"]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
+/** What kind of work the item is — colours the type dot/badge in the tracker. */
+export const TaskType = z.enum(["bug", "feature", "task"]);
+export type TaskType = z.infer<typeof TaskType>;
+
+/** How urgent the work is. Independent of status. */
+export const TaskPriority = z.enum(["low", "medium", "high", "urgent"]);
+export type TaskPriority = z.infer<typeof TaskPriority>;
+
+/**
+ * One entry in a task's history feed. Two kinds share the shape:
+ *   - `comment` — a human note (`body`, free-form Markdown).
+ *   - `event`   — a system-style record of a change (`verb`, with an optional
+ *                 `target` value and/or short `badge` chip), e.g.
+ *                 verb "changed status to" target "In progress", or
+ *                 verb "added label" badge "bug".
+ * Activity is embedded on the task (oldest first) and written by whichever
+ * surface mutates the task, so the feed travels with the work item.
+ */
+export const TaskActivityKind = z.enum(["comment", "event"]);
+export type TaskActivityKind = z.infer<typeof TaskActivityKind>;
+
+export const TaskActivity = z.object({
+  id: z.string().min(1),
+  kind: TaskActivityKind,
+  /** uid of who did it (resolved to a display name on read against the roster). */
+  actor: z.string(),
+  /** ISO-8601 timestamp of the entry. */
+  at: z.string().datetime(),
+  /** comment: the Markdown body. */
+  body: z.string().optional(),
+  /** event: the verb phrase, e.g. "changed status to". */
+  verb: z.string().optional(),
+  /** event: a free-text value the verb acts on, e.g. a person or a date. */
+  target: z.string().optional(),
+  /** event: short chip text (a label or priority name). */
+  badge: z.string().optional(),
+});
+export type TaskActivity = z.infer<typeof TaskActivity>;
+
 /**
  * A project-scoped work item — the fourth, optional layer. Like the infra graph
  * it stands apart from the design elements rather than being attached to one,
@@ -226,18 +265,30 @@ export type TaskStatus = z.infer<typeof TaskStatus>;
  */
 export const Task = z.object({
   id: z.string().min(1),
+  /** Short human-facing key, e.g. "FWD-12" — assigned on create. */
+  key: z.string().optional(),
   title: z.string().min(1),
   /** Free-form Markdown notes (same subset as apiBinding/description). */
   description: z.string().default(""),
+  type: TaskType.default("task"),
   status: TaskStatus.default("todo"),
-  /** A uid from the project's `project_members` roster, if assigned. */
-  assignee: z.string().optional(),
+  priority: TaskPriority.default("medium"),
+  /** Free-form label names (e.g. "bug", "backend"). */
+  labels: z.array(z.string()).default([]),
+  /** uids from the project's `project_members` roster doing the work. */
+  assignees: z.array(z.string()).default([]),
+  /** uid of the member who filed the task. */
+  reporter: z.string().optional(),
+  /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
+  dueDate: z.string().optional(),
   /** Optional link to the design element this task concerns. */
   elementId: z.string().optional(),
   /** Optional link to the narrated infra flow this task implements. */
   flowId: z.string().optional(),
   /** Optional link to the element whose apiBinding defines the endpoint. */
   endpointId: z.string().optional(),
+  /** Chronological history of comments + events (oldest first). */
+  activity: z.array(TaskActivity).default([]),
   /** ISO-8601 timestamp the task was created. */
   createdAt: z.string().datetime(),
   /** ISO-8601 timestamp of the last write. */

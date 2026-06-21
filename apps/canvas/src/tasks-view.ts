@@ -209,7 +209,7 @@ function taskCard(
         : staleChip(`↳ ${flowId}`, "flowId", task.id, cb),
     );
   }
-  if (task.assignee) chips.append(hEl("span", `@${task.assignee}`, "tk-chip"));
+  for (const uid of task.assignees) chips.append(hEl("span", `@${uid}`, "tk-chip"));
   if (chips.childElementCount) card.append(chips);
 
   return card;

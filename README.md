@@ -1,14 +1,20 @@
 # Forward
 
-An open-source, developer-first alternative to Figma Code Connect. **Designers draw UI on
-an independent, open-source visual canvas; backend developers then annotate those design
-elements with API endpoints/docs straight from VS Code** — keeping frontend and backend in
-sync. Built on a **Bring-Your-Own-Database (BYOD)** model backed by the Firebase Realtime
-Database.
+A developer-first tool that keeps design and backend documentation in sync. **Designers draw UI on an independent
+visual canvas; backend developers then annotate those design elements — straight from VS Code —
+with API, infrastructure, and UML documentation, alongside a historical view of how the work
+has changed over time** — keeping frontend and backend in sync. Organizations and users sign
+up, manage members, and set up tasks for developers, so the design, its documentation, and the
+work tracked against it all live in one place.
+
+The product is moving to a centrally-hosted backend ([apps/server](apps/server)) that owns
+authentication, sign-up, the database, tenancy, and the realtime sync bus. The canvas,
+extension, and MCP surfaces currently sync through a Firebase Realtime Database via the shared
+`forward-core` contract; that single module is the swap point onto the new server.
 
 ```
-[Web Canvas: designers draw UI] --> [Your Firebase RTDB] <-- [VS Code: backend annotates elements]
-                                       (live two-way sync)
+[Web Canvas: designers draw UI] --> [Realtime sync bus] <-- [VS Code: backend annotates elements]
+                                      (live two-way sync)
 ```
 
 ## Two layers, one contract
@@ -150,12 +156,13 @@ git push --follow-tags
 
 To build a `.vsix` locally without publishing: `npm run package -w apps/extension`.
 
-## BYOD / privacy
+## Data & privacy
 
-No central server. Each user supplies their own Firebase config; data lives only in their
-Realtime Database. Config is read from local settings / env and is **never committed**
-(see [.gitignore](.gitignore)). Lock the database down with the security rules in
-[apps/canvas/firebase.rules.json](apps/canvas/firebase.rules.json).
+Firebase config and tokens are read from local settings / env and are **never committed**
+(see [.gitignore](.gitignore)). On the current Firebase path, lock the database down with the
+security rules in [apps/canvas/firebase.rules.json](apps/canvas/firebase.rules.json); once a
+surface is repointed at [apps/server](apps/server), auth and tenancy are enforced there
+(Clerk + per-project membership + Postgres RLS).
 
 ### Access control (per-project membership)
 
@@ -174,8 +181,8 @@ readable and writable only by uids listed in that project's `project_members` ro
   roster entry. If you instead give it a uid-scoped ID token, add that uid to each project's
   roster like any other member.
 
-The trust boundary is the **database** (one team per DB under BYOD); the membership roster
-adds isolation *between projects* within that database. Test-mode (open) rules and the
+On the current Firebase path the trust boundary is the **database** (one team per DB); the
+membership roster adds isolation *between projects* within that database. Test-mode (open) rules and the
 offline fixture / mock sources have no auth and skip membership entirely.
 
 ## Status

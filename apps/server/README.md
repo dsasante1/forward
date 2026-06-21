@@ -1,6 +1,6 @@
 # forward-server
 
-The closed-source backend that replaces Forward's BYOD-Firebase model. It is the
+The backend that replaces Forward's original Firebase-direct model. It is the
 **one component the old architecture deliberately omitted**: a central API that
 owns authentication, the database, tenancy, and the realtime sync bus. No client
 ever touches the database directly anymore.
@@ -10,7 +10,7 @@ Realtime · Google Cloud Run.**
 
 ## How it maps to the old model
 
-| Old (BYOD) | Now (this server) |
+| Old (Firebase-direct) | Now (this server) |
 |---|---|
 | Each client wrote the user's own Firebase RTDB directly | Clients call this API; it is the only DB writer |
 | Firebase security rules (`apps/canvas/firebase.rules.json`) | `ClerkAuthGuard` (authn) + `MembershipGuard` (per-project authz) + Postgres RLS |

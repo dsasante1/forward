@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 
 /**
- * Deterministic linking via in-code anchors — the Figma Code Connect model.
+ * Deterministic linking via in-code anchors.
  *
  * Instead of fuzzily matching a feature description to a design element (see
  * match.ts), a developer pins the link in the source itself, next to the code

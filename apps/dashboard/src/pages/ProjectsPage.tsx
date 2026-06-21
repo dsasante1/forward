@@ -59,7 +59,7 @@ export function ProjectsPage() {
       <ul className="cards">
         {projects?.map((p) => (
           <li key={p.id} className="card">
-            <Link to={`/projects/${p.id}`} className="card-title">
+            <Link to={`/app/projects/${p.id}`} className="card-title">
               {p.name}
             </Link>
             {p.role && <span className={`badge ${p.role}`}>{p.role}</span>}

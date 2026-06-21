@@ -1,5 +1,5 @@
 {
-  "//": "BYOD privacy: per-project membership ACL. A project's data is readable/writable only by uids in its project_members roster. The first authed user to a fresh project claims it (owner); existing members enrol others. Deploy with `firebase deploy --only database`.",
+  "//": "Per-project membership ACL. A project's data is readable/writable only by uids in its project_members roster. The first authed user to a fresh project claims it (owner); existing members enrol others. Deploy with `firebase deploy --only database`.",
   "//extension": "The VS Code extension authenticates over REST with a privileged token (a Firebase DB secret bypasses these rules as admin). If you instead give it a uid-scoped ID token, add that uid to each project's project_members roster.",
   "rules": {
     "user_configs": {

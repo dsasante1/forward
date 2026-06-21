@@ -6,16 +6,16 @@ export function Layout() {
   return (
     <div className="app">
       <header className="topbar">
-        <Link to="/" className="brand">
+        <Link to="/app" className="brand">
           Forward
         </Link>
         <div className="topbar-right">
           <OrganizationSwitcher
             hidePersonal={false}
-            afterCreateOrganizationUrl="/"
-            afterSelectOrganizationUrl="/"
+            afterCreateOrganizationUrl="/app"
+            afterSelectOrganizationUrl="/app"
           />
-          <Link to="/account" className="link">
+          <Link to="/app/account" className="link">
             Account
           </Link>
           <UserButton />

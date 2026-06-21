@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Forward closed-source backend: the central API that owns auth (Clerk), the database (Supabase Postgres via Prisma), tenancy, and the realtime sync bus. Replaces the BYOD-Firebase model.",
+  "description": "Forward backend: the central API that owns auth (Clerk), the database (Supabase Postgres via Prisma), tenancy, and the realtime sync bus.",
   "license": "UNLICENSED",
   "main": "./dist/main.js",
   "scripts": {

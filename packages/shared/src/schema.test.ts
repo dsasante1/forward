@@ -292,7 +292,12 @@ describe("Task layer", () => {
     });
     expect(task.description).toBe("");
     expect(task.status).toBe("todo");
-    expect(task.assignee).toBeUndefined();
+    expect(task.type).toBe("task");
+    expect(task.priority).toBe("medium");
+    expect(task.labels).toEqual([]);
+    expect(task.assignees).toEqual([]);
+    expect(task.activity).toEqual([]);
+    expect(task.reporter).toBeUndefined();
     expect(task.elementId).toBeUndefined();
     expect(task.flowId).toBeUndefined();
     expect(task.endpointId).toBeUndefined();
@@ -303,7 +308,7 @@ describe("Task layer", () => {
       id: "task_2",
       title: "Wire signup flow",
       status: "in_progress",
-      assignee: "uid_abc",
+      assignees: ["uid_abc"],
       elementId: "el_register_form",
       flowId: "flow_signup",
       endpointId: "el_register_form",

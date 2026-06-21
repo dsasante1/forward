@@ -18,7 +18,7 @@ export function ProjectPage() {
     <ProjectProvider projectId={projectId}>
       <div className="page">
         <div className="page-head">
-          <Link to="/" className="link">
+          <Link to="/app" className="link">
             ← Projects
           </Link>
         </div>
