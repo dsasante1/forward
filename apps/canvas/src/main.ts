@@ -7,9 +7,11 @@ import {
   type InfraFlowStep,
   type InfraKind,
   type InfraNode,
-  Task,
+  type Task,
   type VersionEntry,
+  applyTaskChange,
   flowToMermaid,
+  newTask,
 } from "forward-core";
 import { loadConfig } from "./config.js";
 import {
@@ -101,6 +103,8 @@ let showTimeline = false; // show/hide the project endpoint-timeline panel
 let showTasks = false; // show/hide the project task-tracker panel
 let taskFilterLinked = false; // restrict the task list to the current selection
 const tasks = new Map<string, Task>();
+// The canvas has no signed-in user; activity it writes is attributed to "canvas".
+const TASK_ACTOR = "canvas";
 
 // Viewport: `translate(panX, panY) scale(zoom)` applied to everything drawn.
 let zoom = 1;
@@ -1295,17 +1299,10 @@ function renderTasksPanel(): void {
         renderTasksPanel();
       },
       onCreate: ({ title, elementId, flowId }) => {
-        const ts = now();
-        const task: Task = Task.parse({
-          id: `task_${Date.now().toString(36)}`,
-          title,
-          description: "",
-          status: "todo",
-          ...(elementId ? { elementId } : {}),
-          ...(flowId ? { flowId } : {}),
-          createdAt: ts,
-          updatedAt: ts,
-        });
+        const task = newTask(
+          { title, ...(elementId ? { elementId } : {}), ...(flowId ? { flowId } : {}) },
+          { actor: TASK_ACTOR, existingKeys: [...tasks.values()].map((t) => t.key) },
+        );
         // Optimistic insert; if the write is rejected (offline / locked DB),
         // undo it and tell the user rather than leaving a phantom task.
         tasks.set(task.id, task);
@@ -1315,7 +1312,7 @@ function renderTasksPanel(): void {
       onChangeStatus: (id, status) => {
         const prev = tasks.get(id);
         if (!prev) return;
-        const updated = { ...prev, status, updatedAt: now() };
+        const updated = applyTaskChange(prev, { status }, TASK_ACTOR);
         tasks.set(id, updated);
         saveTaskOptimistic(updated, () => tasks.set(id, prev), "update");
         renderTasksPanel();
@@ -1334,8 +1331,7 @@ function renderTasksPanel(): void {
       onClearLink: (id, field) => {
         const prev = tasks.get(id);
         if (!prev) return;
-        const updated: Task = { ...prev, updatedAt: now() };
-        delete updated[field];
+        const updated = applyTaskChange(prev, { [field]: undefined }, TASK_ACTOR);
         tasks.set(id, updated);
         saveTaskOptimistic(updated, () => tasks.set(id, prev), "update");
         renderTasksPanel();

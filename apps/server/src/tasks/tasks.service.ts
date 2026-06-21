@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { Task } from "forward-core";
+import { Task, nextTaskKey } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
 import { sanitizeFields, sanitizeMarkdown } from "../common/sanitize.js";
@@ -46,8 +46,21 @@ export class TasksService {
       createdAt: clean.createdAt || now,
       updatedAt: now,
     };
-    await this.prisma.withUser(actor, (tx) =>
-      tx.task.upsert({
+    return this.prisma.withUser(actor, async (tx) => {
+      // Backstop: a task that arrives without a key (e.g. from an older client)
+      // gets the next sequential FWD-NN from the keys already in the project.
+      if (!next.key) {
+        const rows = await tx.task.findMany({
+          where: { projectId },
+          select: { data: true },
+        });
+        const keys = rows.flatMap((r) => {
+          const p = Task.safeParse(r.data);
+          return p.success && p.data.key ? [p.data.key] : [];
+        });
+        next.key = nextTaskKey(keys);
+      }
+      await tx.task.upsert({
         where: { projectId_id: { projectId, id: next.id } },
         update: { data: next as unknown as Json, updatedAt: new Date() },
         create: {
@@ -57,10 +70,10 @@ export class TasksService {
           createdAt: new Date(next.createdAt),
           updatedAt: new Date(),
         },
-      }),
-    );
-    await this.emit(projectId, "upsert", [next.id], actor);
-    return next;
+      });
+      await this.emit(projectId, "upsert", [next.id], actor);
+      return next;
+    });
   }
 
   async delete(projectId: string, id: string, actor: string): Promise<void> {

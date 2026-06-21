@@ -156,12 +156,3 @@ export function dateInputValue(value: string | undefined): string {
   if (Number.isNaN(d.getTime())) return ""; // free-form label has no date value
   return d.toISOString().slice(0, 10);
 }
-
-/** Next sequential FWD-NN key from the existing tasks' keys. */
-export function nextKey(keys: (string | undefined)[]): string {
-  const max = keys.reduce((acc, k) => {
-    const m = k?.match(/(\d+)\s*$/);
-    return m ? Math.max(acc, parseInt(m[1]!, 10)) : acc;
-  }, 0);
-  return `FWD-${max + 1}`;
-}

@@ -2,7 +2,7 @@
 name: document-with-forward
 description: Drives the Forward MCP server to do the backend dev's real jobs — attach API docs to the design element you just built, edit the infrastructure diagram/flows, and catch up on endpoint changes since a baseline. Use when the forward MCP tools are connected and the user says things like "document the login endpoint I built", "map this endpoint to its button", "add a Redis cache to the architecture diagram", "what endpoints changed this week", or "give a frontend dev the catch-up digest". Requires the forward MCP server; do NOT use to edit the MCP server's own code (use add-mcp-tool) or the shared contract (use schema-change).
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   mcp-server: forward
 ---
 
@@ -58,7 +58,27 @@ flow) → **`add_flow_step`** (append a step) → **`remove_flow`**.
 - **`get_history`** returns one element's full created/modified/deleted timeline when you
   need the detail behind a digest line.
 
-## Workflow 4 — Project access
+## Workflow 4 — Work the task tracker
+
+Tasks are the project's work items; they optionally link into the other layers
+(`elementId` / `flowId` / `endpointId`). Every change you make is recorded in the task's
+activity feed attributed to the agent, exactly as the dashboard records human changes — so
+prefer these tools over guessing state.
+
+1. **`list_tasks`** to survey work — filter by `status`, `type`, `priority`, `label`,
+   `assignee`, or any link id (e.g. "high-priority bugs for the signup flow"). It returns a
+   summary per task (no feed) plus an `activityCount`.
+2. **`get_task`** to read one task in full *including its activity/comment feed* — do this to
+   catch up before you change or comment on a task, so you act on the current state.
+3. **`create_task`** to file work (title + optional type/status/priority/labels/assignees/
+   dueDate/links). A sequential `FWD-NN` key and the agent as reporter are assigned for you.
+4. **`update_task`** to change fields (status, type, priority, labels, assignees, dueDate,
+   title/description, links). Only the fields you pass change; each is logged in the feed.
+5. **`comment_task`** to post into the discussion thread humans use — report progress, ask a
+   question, or record a decision. Read with `get_task` first so it lands in context.
+6. **`delete_task`** to remove a work item (its linked layers are untouched).
+
+## Workflow 5 — Project access
 
 **`list_members`** to see the roster; **`add_member`** / **`remove_member`** (by uid) to
 enrol or remove collaborators. There's no open self-join — enrolment is deliberately
@@ -73,6 +93,11 @@ explicit.
   `write_infra_node` (Redis), then `connect_infra` API→Redis and Redis→DB.
 - User: *"What endpoints changed in the last week?"* → `get_catchup_digest` with a 7-day
   baseline; offer `get_history` on any line they want to drill into.
+- User: *"File a high-priority bug for the signup 500 and assign it to me."* → `create_task`
+  (type bug, priority high, the signup element/endpoint as a link); then `comment_task` if
+  there's context to record.
+- User: *"Mark the promo-code task done and note it's verified."* → `list_tasks` to find it,
+  `update_task` status done, `comment_task` "verified in staging".
 
 ## Troubleshooting
 

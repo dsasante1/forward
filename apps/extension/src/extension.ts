@@ -4,12 +4,14 @@ import {
   InfraFlow,
   InfraFlowStep,
   InfraKind,
-  Task,
   TaskStatus,
+  applyTaskChange,
+  newTask,
   type ApiBinding,
   type InfraEdge,
   type InfraNode,
   type InfraStepKind,
+  type Task,
 } from "forward-core";
 import {
   bindApiToElement,
@@ -23,7 +25,6 @@ import {
   fetchTasks,
   fetchTimelinesConditional,
   listElements,
-  patchTask,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
@@ -718,6 +719,19 @@ const STATUS_PICKS: (vscode.QuickPickItem & { status: TaskStatus })[] = [
   { label: "done", description: "Complete", status: "done" },
 ];
 
+// The extension is a trusted admin client with no per-user identity; activity it
+// writes to a task's feed is attributed to "extension".
+const TASK_ACTOR = "extension";
+
+/** Read the project's tasks, swallowing offline errors into an empty list. */
+async function safeFetchTasks(cfg: FirebaseConfig): Promise<Task[]> {
+  try {
+    return await fetchTasks(cfg);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * File a new task. Title is mandatory; everything else optional. The task can be
  * linked to a design element — pre-selected from an `@adc` anchor under the
@@ -773,16 +787,17 @@ async function createTask(): Promise<void> {
     );
   }
 
-  const now = new Date().toISOString();
-  const task: Task = Task.parse({
-    id: `task_${Date.now().toString(36)}`,
-    title: title.trim(),
-    description,
-    status: statusPick.status,
-    ...(elementId ? { elementId } : {}),
-    createdAt: now,
-    updatedAt: now,
-  });
+  // Read existing tasks so the new one gets the next FWD-NN key.
+  const existing = await safeFetchTasks(cfg);
+  const task = newTask(
+    {
+      title: title.trim(),
+      description,
+      status: statusPick.status,
+      ...(elementId ? { elementId } : {}),
+    },
+    { actor: TASK_ACTOR, existingKeys: existing.map((t) => t.key) },
+  );
   try {
     await saveTask(cfg, task);
     vscode.window.showInformationMessage(`Created task: ${task.title}`);
@@ -825,8 +840,13 @@ async function updateTaskStatus(): Promise<void> {
   });
   if (!statusPick) return;
 
+  const prev = tasks.find((t) => t.id === choice.id);
+  if (!prev) return;
+
   try {
-    await patchTask(cfg, choice.id, { status: statusPick.status });
+    // Apply through the shared helper so the change is recorded in the task's
+    // activity feed, exactly as the dashboard and canvas do.
+    await saveTask(cfg, applyTaskChange(prev, { status: statusPick.status }, TASK_ACTOR));
     vscode.window.showInformationMessage(
       `"${choice.label}" → ${statusPick.status}`,
     );
