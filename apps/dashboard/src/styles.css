@@ -385,6 +385,32 @@ button.danger:hover:not(:disabled) {
   font-weight: 600;
 }
 
+/* Tab-level actions row (e.g. "open project in canvas"). */
+.docs-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+/* Full-screen embedded canvas route. */
+.canvas-page { position: fixed; inset: 0; }
+.canvas-host { position: absolute; inset: 0; }
+.canvas-back {
+  position: absolute; top: 10px; right: 14px; z-index: 10;
+  font-size: 0.85rem; padding: 6px 12px; border-radius: 6px;
+  background: var(--panel); border: 1px solid var(--border);
+}
+
+/* "Open in canvas" deep link — pushed to the right of the endpoint row. */
+.canvas-link {
+  margin-left: auto;
+  font-size: 0.8rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
 .endpoint {
   font-family: var(--mono);
   font-size: 0.82rem;

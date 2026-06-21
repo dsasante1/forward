@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
 
@@ -9,6 +10,7 @@ import { useAsync } from "../api/useAsync.js";
  */
 export function DocsTab({ projectId }: { projectId: string }) {
   const api = useApi();
+  const navigate = useNavigate();
   const { data: elements, loading, error } = useAsync(
     () => api.listElements(projectId),
     [api, projectId],
@@ -16,8 +18,28 @@ export function DocsTab({ projectId }: { projectId: string }) {
 
   const documented = elements?.filter((el) => el.apiBinding) ?? [];
 
+  /**
+   * Open the embedded web canvas for this project, focusing one element when
+   * `elementId` is given. In-app navigation (same origin + Clerk session) — the
+   * canvas route authenticates with the live session, so no token travels in URLs.
+   */
+  const openInCanvas = (elementId?: string) => {
+    const base = `/app/projects/${projectId}/canvas`;
+    navigate(elementId ? `${base}?el=${encodeURIComponent(elementId)}` : base);
+  };
+
   return (
     <section className="tab-body">
+      <div className="docs-toolbar">
+        <button
+          type="button"
+          onClick={() => openInCanvas()}
+          title="Open this project on the web canvas"
+        >
+          Open project in canvas ↗
+        </button>
+      </div>
+
       {loading && <p className="muted">Loading documentation…</p>}
       {error && <p className="error">{error}</p>}
       {elements && documented.length === 0 && (
@@ -36,6 +58,14 @@ export function DocsTab({ projectId }: { projectId: string }) {
                 {b.method && <span className="method">{b.method}</span>}
                 <span className="doc-title">{b.title}</span>
                 {b.endpoint && <code className="endpoint">{b.endpoint}</code>}
+                <button
+                  type="button"
+                  className="link canvas-link"
+                  onClick={() => openInCanvas(el.id)}
+                  title="Open this element on the web canvas"
+                >
+                  Open in canvas ↗
+                </button>
               </div>
               {b.description && <p className="doc-desc">{b.description}</p>}
               {b.parameters.length > 0 && (
