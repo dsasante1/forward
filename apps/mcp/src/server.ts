@@ -12,7 +12,9 @@ import {
   Style,
   Task,
   addMember,
+  applyTaskChange,
   bindApiToElement,
+  commentOnTask,
   deleteElement,
   deleteInfraFlow,
   deleteInfraNode,
@@ -27,8 +29,8 @@ import {
   flowToMermaid,
   infraToComponentMermaid,
   listMembers,
+  newTask,
   patchElement,
-  patchTask,
   removeMember,
   saveElement,
   saveInfraEdge,
@@ -830,37 +832,64 @@ server.registerTool(
     title: "List tasks",
     description:
       "Read the project's task tracker — work items that stand apart from the design elements " +
-      "but optionally link into them. Each task has a status (todo / in_progress / blocked / " +
-      "done), optional assignees, and optional links: elementId (a design element), flowId (a " +
-      "narrated infra flow), and endpointId (a documented endpoint element). Filter by status or " +
-      "by any of the link ids to answer e.g. \"what's left to build for the signup flow?\". Start " +
-      "here before updating to reuse a task id.",
+      "but optionally link into them. Each task carries a type (bug / feature / task), status " +
+      "(todo / in_progress / blocked / done), priority, labels, assignees, a reporter, an optional " +
+      "due date, a running activity/comment feed, and optional links: elementId (a design element), " +
+      "flowId (a narrated infra flow), and endpointId (a documented endpoint element). Filter by any " +
+      "of these to answer e.g. \"what high-priority bugs are left for the signup flow?\". Returns a " +
+      "summary per task; call get_task for one task's full body + activity. Start here to reuse ids.",
     inputSchema: {
-      status: Task.shape.status
-        .optional()
-        .describe("Only return tasks in this status."),
-      elementId: z
-        .string()
-        .optional()
-        .describe("Only return tasks linked to this design element id."),
-      flowId: z
-        .string()
-        .optional()
-        .describe("Only return tasks linked to this infra flow id."),
-      endpointId: z
-        .string()
-        .optional()
-        .describe("Only return tasks linked to this endpoint element id."),
+      status: Task.shape.status.optional().describe("Only tasks in this status."),
+      type: Task.shape.type.optional().describe("Only tasks of this type."),
+      priority: Task.shape.priority.optional().describe("Only tasks at this priority."),
+      label: z.string().optional().describe("Only tasks carrying this label."),
+      assignee: z.string().optional().describe("Only tasks assigned to this uid."),
+      elementId: z.string().optional().describe("Only tasks linked to this design element id."),
+      flowId: z.string().optional().describe("Only tasks linked to this infra flow id."),
+      endpointId: z.string().optional().describe("Only tasks linked to this endpoint element id."),
     },
   },
-  async ({ status, elementId, flowId, endpointId }) => {
+  async ({ status, type, priority, label, assignee, elementId, flowId, endpointId }) => {
     try {
       let tasks = await fetchTasks(getConfig());
       if (status) tasks = tasks.filter((t) => t.status === status);
+      if (type) tasks = tasks.filter((t) => t.type === type);
+      if (priority) tasks = tasks.filter((t) => t.priority === priority);
+      if (label) tasks = tasks.filter((t) => t.labels.includes(label));
+      if (assignee) tasks = tasks.filter((t) => t.assignees.includes(assignee));
       if (elementId) tasks = tasks.filter((t) => t.elementId === elementId);
       if (flowId) tasks = tasks.filter((t) => t.flowId === flowId);
       if (endpointId) tasks = tasks.filter((t) => t.endpointId === endpointId);
-      return ok({ count: tasks.length, tasks });
+      // Keep the list light: omit the activity feed (read it with get_task).
+      const summary = tasks.map(({ activity, ...rest }) => ({
+        ...rest,
+        activityCount: activity.length,
+      }));
+      return ok({ count: summary.length, tasks: summary });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: one task in full, including its activity feed --------------------
+server.registerTool(
+  "get_task",
+  {
+    title: "Get a task",
+    description:
+      "Read one task in full — every field plus its chronological activity/comment feed. Call this " +
+      "to catch up on the discussion and history before commenting or changing a task, so you act " +
+      "on the current state rather than a stale summary from list_tasks.",
+    inputSchema: {
+      taskId: z.string().min(1).describe("The task id to read (from list_tasks)."),
+    },
+  },
+  async ({ taskId }) => {
+    try {
+      const task = (await fetchTasks(getConfig())).find((t) => t.id === taskId);
+      if (!task) return fail(`No task with id "${taskId}".`);
+      return ok({ task });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -874,17 +903,19 @@ server.registerTool(
     title: "Create a task",
     description:
       "File a new work item on the project's task tracker. title is the core; description is " +
-      "free-form Markdown. status defaults to todo. The optional links tie the task to what it's " +
-      "about: elementId (the design element), flowId (an infra flow it implements), endpointId " +
-      "(the documented endpoint element). Links are independent — pass any, all, or none. Returns " +
-      "the new task id (use it with update_task).",
+      "free-form Markdown. type defaults to task, status to todo, priority to medium. The reporter " +
+      "is recorded as the agent and a sequential FWD-NN key is assigned. The optional links tie the " +
+      "task to what it's about: elementId (the design element), flowId (an infra flow it implements), " +
+      "endpointId (the documented endpoint element) — pass any, all, or none. Returns the new task id.",
     inputSchema: {
       title: Task.shape.title.describe("Short summary of the work to do."),
       description: Task.shape.description.describe("Markdown details, acceptance criteria, notes."),
-      status: Task.shape.status.describe(
-        "todo (default), in_progress, blocked, or done.",
-      ),
+      type: Task.shape.type.describe("bug, feature, or task (default)."),
+      status: Task.shape.status.describe("todo (default), in_progress, blocked, or done."),
+      priority: Task.shape.priority.describe("low, medium (default), high, or urgent."),
+      labels: Task.shape.labels.describe("Free-form label names, e.g. backend, bug."),
       assignees: Task.shape.assignees.describe("uids from the project roster to assign."),
+      dueDate: Task.shape.dueDate.describe("Due date (ISO yyyy-mm-dd or a short label)."),
       elementId: Task.shape.elementId.describe("Design element this task concerns."),
       flowId: Task.shape.flowId.describe("Infra flow this task implements."),
       endpointId: Task.shape.endpointId.describe("Documented endpoint element this task concerns."),
@@ -892,15 +923,11 @@ server.registerTool(
   },
   async (fields) => {
     try {
-      const now = new Date().toISOString();
-      const taskBody = Task.parse({
-        ...fields,
-        id: genId("task"),
-        createdAt: now,
-        updatedAt: now,
-      });
-      await saveTask(getConfig(), taskBody);
-      return ok({ id: taskBody.id, status: taskBody.status, action: "created" });
+      const cfg = getConfig();
+      const existingKeys = (await fetchTasks(cfg)).map((t) => t.key);
+      const task = newTask(fields, { actor: AGENT, existingKeys });
+      await saveTask(cfg, task);
+      return ok({ id: task.id, key: task.key, status: task.status, action: "created" });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -914,16 +941,20 @@ server.registerTool(
     title: "Update a task",
     description:
       "Change fields of an existing task without touching the rest — e.g. move it to in_progress " +
-      "or done, reassign it, edit the title/description, or set/clear a link. Only the fields you " +
-      "pass are changed; createdAt is preserved. The most common call is just flipping status.",
+      "or done, retype/reprioritize it, reassign it, relabel it, set a due date, edit the " +
+      "title/description, or set a link. Only the fields you pass change; the rest (and createdAt) " +
+      "are preserved, and each change is recorded in the task's activity feed attributed to the " +
+      "agent. The most common call is just flipping status.",
     inputSchema: {
       taskId: z.string().min(1).describe("The task id to update (from list_tasks)."),
       title: z.string().min(1).optional().describe("New title."),
       description: z.string().optional().describe("New Markdown description."),
+      type: Task.shape.type.optional().describe("New type."),
       status: Task.shape.status.optional().describe("New status."),
-      assignees: Task.shape.assignees.optional().describe("Replace the assignee uid list."),
       priority: Task.shape.priority.optional().describe("New priority."),
       labels: Task.shape.labels.optional().describe("Replace the label list."),
+      assignees: Task.shape.assignees.optional().describe("Replace the assignee uid list."),
+      dueDate: Task.shape.dueDate.describe("New due date."),
       elementId: z.string().optional().describe("Link to a design element id."),
       flowId: z.string().optional().describe("Link to an infra flow id."),
       endpointId: z.string().optional().describe("Link to an endpoint element id."),
@@ -931,12 +962,45 @@ server.registerTool(
   },
   async ({ taskId, ...patch }) => {
     try {
+      const cfg = getConfig();
+      const prev = (await fetchTasks(cfg)).find((t) => t.id === taskId);
+      if (!prev) return fail(`No task with id "${taskId}".`);
       // Drop keys the caller omitted so they don't clobber existing values.
       const clean = Object.fromEntries(
         Object.entries(patch).filter(([, v]) => v !== undefined),
       );
-      const next = await patchTask(getConfig(), taskId, clean);
+      const next = applyTaskChange(prev, clean, AGENT);
+      await saveTask(cfg, next);
       return ok({ id: next.id, status: next.status, action: "updated" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: comment on a task ----------------------------------------------
+server.registerTool(
+  "comment_task",
+  {
+    title: "Comment on a task",
+    description:
+      "Add a comment to a task's activity feed — the same thread humans use in the dashboard. Use " +
+      "it to report progress, ask a question, or record a decision so teammates see it in context. " +
+      "The comment is attributed to the agent and sanitized server-side. Read the thread first with " +
+      "get_task so your comment lands in context.",
+    inputSchema: {
+      taskId: z.string().min(1).describe("The task id to comment on (from list_tasks)."),
+      body: z.string().min(1).describe("The comment text (Markdown)."),
+    },
+  },
+  async ({ taskId, body }) => {
+    try {
+      const cfg = getConfig();
+      const prev = (await fetchTasks(cfg)).find((t) => t.id === taskId);
+      if (!prev) return fail(`No task with id "${taskId}".`);
+      const next = commentOnTask(prev, AGENT, body);
+      await saveTask(cfg, next);
+      return ok({ id: next.id, action: "commented" });
     } catch (err) {
       return fail((err as Error).message);
     }
