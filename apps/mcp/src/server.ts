@@ -831,7 +831,7 @@ server.registerTool(
     description:
       "Read the project's task tracker — work items that stand apart from the design elements " +
       "but optionally link into them. Each task has a status (todo / in_progress / blocked / " +
-      "done), an optional assignee, and optional links: elementId (a design element), flowId (a " +
+      "done), optional assignees, and optional links: elementId (a design element), flowId (a " +
       "narrated infra flow), and endpointId (a documented endpoint element). Filter by status or " +
       "by any of the link ids to answer e.g. \"what's left to build for the signup flow?\". Start " +
       "here before updating to reuse a task id.",
@@ -884,7 +884,7 @@ server.registerTool(
       status: Task.shape.status.describe(
         "todo (default), in_progress, blocked, or done.",
       ),
-      assignee: Task.shape.assignee.describe("A uid from the project roster, if assigned."),
+      assignees: Task.shape.assignees.describe("uids from the project roster to assign."),
       elementId: Task.shape.elementId.describe("Design element this task concerns."),
       flowId: Task.shape.flowId.describe("Infra flow this task implements."),
       endpointId: Task.shape.endpointId.describe("Documented endpoint element this task concerns."),
@@ -921,7 +921,9 @@ server.registerTool(
       title: z.string().min(1).optional().describe("New title."),
       description: z.string().optional().describe("New Markdown description."),
       status: Task.shape.status.optional().describe("New status."),
-      assignee: z.string().optional().describe("New assignee uid."),
+      assignees: Task.shape.assignees.optional().describe("Replace the assignee uid list."),
+      priority: Task.shape.priority.optional().describe("New priority."),
+      labels: Task.shape.labels.optional().describe("Replace the label list."),
       elementId: z.string().optional().describe("Link to a design element id."),
       flowId: z.string().optional().describe("Link to an infra flow id."),
       endpointId: z.string().optional().describe("Link to an endpoint element id."),

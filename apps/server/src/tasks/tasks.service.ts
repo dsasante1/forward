@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { Task } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
-import { sanitizeFields } from "../common/sanitize.js";
+import { sanitizeFields, sanitizeMarkdown } from "../common/sanitize.js";
 
 type Json = Prisma.InputJsonValue;
 
@@ -38,6 +38,11 @@ export class TasksService {
     const clean = sanitizeFields(task, ["title", "description"]);
     const next: Task = {
       ...clean,
+      // Comment bodies are user-authored Markdown rendered in other members'
+      // browsers — sanitize them the same way as title/description.
+      activity: clean.activity.map((a) =>
+        a.body === undefined ? a : { ...a, body: sanitizeMarkdown(a.body) },
+      ),
       createdAt: clean.createdAt || now,
       updatedAt: now,
     };

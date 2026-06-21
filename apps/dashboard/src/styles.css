@@ -397,3 +397,622 @@ button.danger:hover:not(:disabled) {
   white-space: pre-wrap;
   line-height: 1.6;
 }
+
+/* ===================================================================== */
+/* Tasks tracker (list + detail)                                          */
+/* ===================================================================== */
+
+.tasks {
+  display: block;
+}
+
+.tk-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.2rem 0 1rem;
+  flex-wrap: wrap;
+}
+
+.tk-pill {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 20px;
+  padding: 0.45rem 0.95rem;
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+.tk-pill:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.3);
+}
+
+.tk-pill.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: #f1ece1;
+}
+
+.tk-counts {
+  margin-left: auto;
+  color: var(--faint);
+  font-size: 0.75rem;
+}
+
+.tk-rows {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.tk-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.tk-row:hover {
+  border-color: rgba(191, 90, 54, 0.4);
+  transform: translateY(-1px);
+}
+
+/* The big left/centre area that opens the task. Reset button chrome. */
+.tk-row-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  text-align: left;
+  padding: 0.95rem 1.1rem;
+  font-family: var(--sans);
+  font-weight: 400;
+  cursor: pointer;
+}
+
+.tk-row-open:hover:not(:disabled) {
+  transform: none;
+}
+
+.tk-type-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tk-row-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.tk-row-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.tk-key {
+  color: var(--faint);
+  font-size: 0.7rem;
+  flex: none;
+}
+
+.tk-row-title {
+  font-weight: 500;
+  font-size: 0.95rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tk-row-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.tk-label {
+  font-size: 0.66rem;
+  padding: 0.12rem 0.5rem;
+  border-radius: 4px;
+}
+
+.tk-due {
+  color: var(--faint);
+  font-size: 0.75rem;
+  flex: none;
+}
+
+.tk-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0 1.1rem 0 0.4rem;
+}
+
+.tk-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 132px;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--panel-bright);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 400;
+}
+
+.tk-status-btn:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.3);
+}
+
+.tk-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.tk-del {
+  padding: 0.55rem 0.95rem;
+  font-size: 0.82rem;
+}
+
+/* --- avatars --- */
+.tk-avatar {
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 1;
+}
+
+.tk-avatar-stack {
+  display: flex;
+  align-items: center;
+}
+
+.tk-stacked {
+  margin-left: -6px;
+  border: 2px solid var(--panel);
+}
+
+.tk-stacked:first-child {
+  margin-left: 0;
+}
+
+/* --- detail --- */
+.tk-back {
+  background: transparent;
+  border: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  padding: 0;
+  margin-bottom: 1.3rem;
+}
+
+.tk-back:hover:not(:disabled) {
+  transform: none;
+  color: var(--text);
+}
+
+.tk-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 2.5rem;
+  align-items: start;
+}
+
+.tk-detail-main {
+  min-width: 0;
+}
+
+.tk-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.tk-type-badge {
+  font-size: 0.66rem;
+  padding: 0.18rem 0.55rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tk-detail-title {
+  font-size: 1.85rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0 0 1.6rem;
+}
+
+.tk-desc-box {
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: 10px;
+  padding: 1.1rem 1.25rem;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: #3a352d;
+  white-space: pre-wrap;
+}
+
+/* Editable variant: same box, but a real textarea the user can type into. */
+textarea.tk-desc-edit {
+  display: block;
+  width: 100%;
+  font-family: var(--sans);
+  resize: vertical;
+  min-height: 5.5rem;
+  transition: border-color 0.18s ease;
+}
+
+textarea.tk-desc-edit:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.tk-desc-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.tk-desc-save {
+  padding: 0.5rem 1.1rem;
+  font-size: 0.82rem;
+}
+
+.tk-desc-discard {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.5rem 0.95rem;
+  font-size: 0.82rem;
+}
+
+.tk-desc-discard:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.3);
+}
+
+.tk-links {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.tk-link-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--panel-bright);
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  padding: 0.7rem 0.9rem;
+  font-size: 0.78rem;
+}
+
+.tk-activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 2.2rem 0 1.3rem;
+}
+
+.tk-feed {
+  position: relative;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.tk-event {
+  position: relative;
+  padding-left: 2.6rem;
+  min-height: 1rem;
+}
+
+.tk-event-dot {
+  position: absolute;
+  left: 9px;
+  top: 4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--bg);
+}
+
+.tk-event-line {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.tk-event-actor {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tk-event-badge {
+  font-size: 0.68rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 4px;
+  margin: 0 0.25rem;
+  color: var(--accent);
+  background: rgba(191, 90, 54, 0.14);
+}
+
+/* Colour-coded value in an event line (type / status / priority / label). */
+.tk-event-tag {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.08rem 0.5rem;
+  border-radius: 4px;
+  vertical-align: baseline;
+}
+
+.tk-event-avatar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border: 2px solid var(--bg);
+}
+
+.tk-event-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-bottom: 0.45rem;
+}
+
+.tk-comment-box {
+  background: var(--panel-bright);
+  border: 1px solid var(--hair);
+  border-radius: 9px;
+  padding: 0.75rem 0.95rem;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.tk-composer-row {
+  position: relative;
+  padding-left: 2.6rem;
+}
+
+.tk-composer {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+
+.tk-composer textarea {
+  width: 100%;
+  border: none;
+  background: transparent;
+  resize: vertical;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text);
+  font-family: var(--sans);
+}
+
+.tk-composer textarea:focus {
+  outline: none;
+}
+
+.tk-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.tk-mention {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border);
+  background: var(--panel-bright);
+  color: var(--muted);
+  border-radius: 20px;
+  padding: 0.25rem 0.65rem 0.25rem 0.3rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.tk-mention:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.3);
+}
+
+.tk-comment-btn {
+  margin-left: auto;
+  padding: 0.55rem 1.2rem;
+  font-size: 0.82rem;
+}
+
+/* --- sidebar --- */
+.tk-sidebar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.4rem 1.3rem 1.4rem;
+}
+
+.tk-side-block {
+  padding: 1.1rem 0 1rem;
+  border-bottom: 1px solid var(--hair);
+}
+
+.tk-side-block:last-child {
+  border-bottom: none;
+}
+
+.tk-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.tk-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 400;
+  border: 1px solid var(--border);
+  background: var(--panel-bright);
+  color: var(--text);
+}
+
+.tk-choice:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.3);
+}
+
+.tk-choice.active {
+  font-weight: 500;
+}
+
+.tk-people {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.tk-person {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.tk-add-dashed {
+  margin-top: 0.8rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px dashed rgba(28, 26, 21, 0.25);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.tk-add-dashed:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.45);
+}
+
+.tk-picker {
+  margin-top: 0.5rem;
+  background: var(--panel-bright);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.3rem;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.tk-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 400;
+  color: var(--text);
+  text-align: left;
+}
+
+.tk-picker-row:hover:not(:disabled) {
+  transform: none;
+  background: rgba(28, 26, 21, 0.04);
+}
+
+.tk-picker-name {
+  flex: 1;
+}
+
+.tk-check {
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+.tk-dates {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.tk-date-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.82rem;
+}
+
+.tk-date-input {
+  flex: none;
+  background: var(--panel-bright);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text);
+  color-scheme: light;
+}
+
+.tk-date-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+@media (max-width: 820px) {
+  .tk-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .tk-row {
+    flex-direction: column;
+  }
+  .tk-row-meta {
+    padding: 0 1.1rem 0.9rem;
+    flex-wrap: wrap;
+  }
+}

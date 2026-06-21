@@ -7,7 +7,7 @@ import {
   type InfraFlowStep,
   type InfraKind,
   type InfraNode,
-  type Task,
+  Task,
   type VersionEntry,
   flowToMermaid,
 } from "forward-core";
@@ -1296,7 +1296,7 @@ function renderTasksPanel(): void {
       },
       onCreate: ({ title, elementId, flowId }) => {
         const ts = now();
-        const task: Task = {
+        const task: Task = Task.parse({
           id: `task_${Date.now().toString(36)}`,
           title,
           description: "",
@@ -1305,7 +1305,7 @@ function renderTasksPanel(): void {
           ...(flowId ? { flowId } : {}),
           createdAt: ts,
           updatedAt: ts,
-        };
+        });
         // Optimistic insert; if the write is rejected (offline / locked DB),
         // undo it and tell the user rather than leaving a phantom task.
         tasks.set(task.id, task);
