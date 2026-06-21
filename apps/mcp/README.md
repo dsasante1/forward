@@ -55,7 +55,7 @@ The `write_documentation` input schema is derived from the shared `ApiBinding`
 contract, so the structured fields (`method`, `endpoint`, `parameters`, …) stay
 in lock-step with [packages/shared](../../packages/shared).
 
-## Configuration (BYOD)
+## Configuration
 
 The server holds the Firebase credentials; the agent never sees them. Set:
 
@@ -112,9 +112,9 @@ Two ways to answer "which design element does this code belong to?":
 - **Fuzzy — `find_element`.** Matches a feature description to an element by
   token overlap. No setup, but fuzzy, so confirm with the user when the score is
   low or two candidates are close.
-- **Deterministic — `resolve_anchors`.** Pin the link in the source itself, the
-  Figma Code Connect model. Drop an `@adc <elementId>` marker (any comment style)
-  next to the code that implements the element:
+- **Deterministic — `resolve_anchors`.** Pin the link in the source itself. Drop
+  an `@adc <elementId>` marker (any comment style) next to the code that
+  implements the element:
 
   ```ts
   // @adc el_login_submit

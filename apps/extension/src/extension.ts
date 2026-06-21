@@ -93,7 +93,7 @@ function readConfig(): FirebaseConfig | undefined {
   const authToken = c.get<string>("authToken") ?? "";
   if (!databaseUrl || !projectId) {
     vscode.window.showErrorMessage(
-      "Set forward.firebaseDatabaseUrl and projectId in Settings (BYOD).",
+      "Set forward.firebaseDatabaseUrl and projectId in Settings.",
     );
     return undefined;
   }

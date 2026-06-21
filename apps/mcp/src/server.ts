@@ -59,7 +59,7 @@ import { rankElements } from "./match.js";
 const AGENT = process.env.ADC_AGENT || "agent";
 
 /**
- * BYOD config from the environment. Thrown errors surface to the agent as a tool
+ * Configuration from the environment. Thrown errors surface to the agent as a tool
  * error telling the user which variables to set, rather than crashing the server.
  */
 function getConfig(): FirebaseConfig {

@@ -50,7 +50,7 @@ function Redeem({ token }: { token: string }) {
       <div className="invite-result">
         <h2>Couldn't accept this invitation</h2>
         <p className="error">{state.message}</p>
-        <Link className="link" to="/">
+        <Link className="link" to="/app">
           Go to your projects
         </Link>
       </div>
@@ -60,7 +60,7 @@ function Redeem({ token }: { token: string }) {
     <div className="invite-result">
       <h2>You're in! 🎉</h2>
       <p className="muted">You've joined the project.</p>
-      <Link className="link" to={`/projects/${state.projectId}`}>
+      <Link className="link" to={`/app/projects/${state.projectId}`}>
         Open the project →
       </Link>
     </div>

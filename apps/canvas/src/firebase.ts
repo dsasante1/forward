@@ -29,7 +29,7 @@ export class ProjectAccessError extends Error {
 /**
  * Data source for the canvas editor. Implementations:
  *  - FixtureSource: reads/writes a static JSON tree in memory (offline dev/demo).
- *  - LiveSource:    subscribes to / writes the user's Firebase RTDB (BYOD).
+ *  - LiveSource:    subscribes to / writes the Firebase RTDB.
  *  - RestSource:    polls the RTDB REST API — used against the local mock-rtdb
  *                   server for end-to-end testing without a cloud project.
  *                   (see ./rest-source.ts)
@@ -257,7 +257,7 @@ export class FixtureSource implements CanvasSource {
 
 /**
  * Live RTDB source. Lazy-imports the firebase SDK so the fixture path has zero
- * SDK cost. `config` is the user's own Firebase web config (BYOD).
+ * SDK cost. `config` is the Firebase web config.
  *
  * With `useAnonAuth`, it signs in anonymously before any read/write so
  * locked-down rules (`auth != null`) are satisfied. For test-mode (open) rules

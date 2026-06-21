@@ -2,8 +2,8 @@
   "name": "forward",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-source, BYOD-Firebase alternative to Figma Code Connect: map API docs to an independent design canvas.",
-  "license": "MIT",
+  "description": "A developer-first tool: map API docs to an independent design canvas.",
+  "license": "UNLICENSED",
   "workspaces": [
     "packages/*",
     "apps/*"

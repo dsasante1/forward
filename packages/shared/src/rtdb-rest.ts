@@ -19,7 +19,7 @@ import { normalizeList } from "./rtdb.js";
  * one writer stays the single source of truth: change a path or payload shape
  * here once and both surfaces follow.
  *
- * BYOD: the database URL comes from the caller's own settings/env. Designers
+ * The database URL comes from the caller's settings/env. Designers
  * normally author the design layer on the canvas, but this client speaks the
  * full data contract too — it can create/update/delete design elements, document
  * them (write into an element's `apiBinding` sub-tree + append version history),

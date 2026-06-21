@@ -1,9 +1,8 @@
 # Forward — VS Code Extension
 
 Document your API endpoints (any language/framework) directly onto design
-elements drawn on an open-source visual canvas — an open, developer-first
-alternative to Figma Code Connect. Built on a **Bring-Your-Own-Database (BYOD)**
-model: your data lives only in *your* Firebase Realtime Database.
+elements drawn on a visual canvas — a developer-first alternative to Figma Code
+Connect.
 
 ## What it does
 
@@ -18,26 +17,19 @@ From inside VS Code you can:
   every endpoint's created/modified/deleted history, plus a catch-up digest of
   what to integrate, modify or remove since a chosen baseline.
 
-The companion web canvas (where designers draw the UI) is open source and runs
-on your machine — see the
-[project repository](https://github.com/dsasante1/forward).
+The companion web canvas is where designers draw the UI.
 
 ## Setup
 
 1. Install this extension.
 2. Open **Settings → Forward** and set:
-   - `forward.firebaseDatabaseUrl` — your Firebase RTDB URL (BYOD).
+   - `forward.firebaseDatabaseUrl` — your Firebase RTDB URL.
    - `forward.projectId` — the canvas namespace to annotate under
      (must match the canvas's `VITE_CANVAS_PROJECT_ID`).
    - `forward.authToken` — *(optional)* a Firebase auth token / DB
      secret, only if your database rules require auth. **Put this in your User
      settings, not committed workspace settings.**
 
-## Privacy
-
-No central server. The extension talks only to the Firebase Realtime Database
-URL you configure. Nothing is sent anywhere else.
-
 ## License
 
-MIT
+Proprietary. All rights reserved.

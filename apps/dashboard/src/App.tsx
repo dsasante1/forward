@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { SignedIn, SignedOut, RedirectToSignIn } from "@clerk/clerk-react";
 import { Layout } from "./components/Layout.js";
+import { LandingPage } from "./pages/LandingPage.js";
 import { SignInPage } from "./pages/SignInPage.js";
 import { SignUpPage } from "./pages/SignUpPage.js";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage.js";
@@ -23,6 +24,9 @@ function Protected({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <Routes>
+      {/* Public marketing surface. */}
+      <Route path="/" element={<LandingPage />} />
+
       {/* Clerk owns signup / login / reset / MFA / email verification. */}
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
@@ -30,16 +34,18 @@ export default function App() {
       {/* Public: gates sign-in itself, then redeems the invite token. */}
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
 
+      {/* The signed-in app lives under /app. */}
       <Route
+        path="/app"
         element={
           <Protected>
             <Layout />
           </Protected>
         }
       >
-        <Route path="/" element={<ProjectsPage />} />
-        <Route path="/projects/:projectId" element={<ProjectPage />} />
-        <Route path="/account" element={<AccountPage />} />
+        <Route index element={<ProjectsPage />} />
+        <Route path="projects/:projectId" element={<ProjectPage />} />
+        <Route path="account" element={<AccountPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

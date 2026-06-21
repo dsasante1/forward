@@ -5,7 +5,7 @@
   "type": "module",
   "publisher": "forward",
   "description": "Document any API (any language/framework) on your design canvas via your own Firebase RTDB.",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "repository": {
     "type": "git",
     "url": "https://github.com/dsasante1/forward.git",
@@ -107,7 +107,7 @@
         "forward.firebaseDatabaseUrl": {
           "type": "string",
           "default": "",
-          "description": "Your Firebase Realtime Database URL (BYOD)."
+          "description": "Your Firebase Realtime Database URL."
         },
         "forward.projectId": {
           "type": "string",

@@ -1,13 +1,24 @@
 :root {
-  --bg: #0f1115;
-  --panel: #171a21;
-  --border: #272b35;
-  --text: #e6e8ec;
-  --muted: #8b91a0;
-  --accent: #5b8cff;
-  --danger: #ff5b6e;
-  --owner: #7c5bff;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* Warm editorial palette — matches the landing page (landing.css). */
+  --bg: #efe8da;
+  --panel: #faf6ee;
+  --panel-bright: #fffdf8;
+  --bar: #f3ede1;
+  --border: rgba(28, 26, 21, 0.14);
+  --hair: rgba(28, 26, 21, 0.1);
+  --text: #1c1a15;
+  --muted: #57514a;
+  --faint: #9c9488;
+  --accent: #bf5a36;
+  --accent2: #3a6ea8;
+  --danger: #b3402a;
+  --owner: #8a6db0;
+
+  --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  font-family: var(--sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 * {
@@ -18,6 +29,10 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+}
+
+::selection {
+  background: rgba(191, 90, 54, 0.22);
 }
 
 a {
@@ -35,27 +50,41 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1.25rem;
+  padding: 0.85rem 2.5rem;
   border-bottom: 1px solid var(--border);
-  background: var(--panel);
+  background: var(--bar);
 }
 
 .brand {
-  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-weight: 600;
   text-decoration: none;
-  font-size: 1.1rem;
+  font-size: 1rem;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+
+.brand::before {
+  content: "";
+  width: 18px;
+  height: 18px;
+  transform: rotate(45deg);
+  border: 1.6px solid var(--text);
 }
 
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 1.1rem;
 }
 
 .content {
-  max-width: 860px;
+  max-width: 1000px;
   margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
+  padding: 2.5rem 2.5rem 5rem;
 }
 
 .account section {
@@ -66,28 +95,58 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 h1 {
-  font-size: 1.5rem;
+  font-size: 1.9rem;
+  font-weight: 600;
+  letter-spacing: -0.025em;
   margin: 0;
+}
+
+h2 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .row {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.6rem;
   margin-bottom: 0.75rem;
 }
 
 input,
 select {
-  background: var(--panel);
+  background: var(--panel-bright);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--text);
-  padding: 0.5rem 0.65rem;
+  padding: 0.7rem 0.85rem;
   font-size: 0.95rem;
+  font-family: var(--sans);
+  transition: border-color 0.18s ease;
+}
+
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8' fill='none' stroke='%23666' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-size: 0.7rem;
+}
+
+input::placeholder {
+  color: var(--faint);
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 
 input {
@@ -95,17 +154,24 @@ input {
 }
 
 button {
-  background: var(--accent);
-  border: none;
-  border-radius: 8px;
-  color: white;
-  padding: 0.5rem 0.9rem;
+  background: var(--text);
+  border: 1px solid var(--text);
+  border-radius: 6px;
+  color: #f1ece1;
+  padding: 0.7rem 1.2rem;
   font-size: 0.9rem;
+  font-weight: 500;
+  font-family: var(--sans);
   cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease;
+}
+
+button:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -115,9 +181,19 @@ button.danger {
   border: 1px solid var(--border);
 }
 
+button.danger:hover:not(:disabled) {
+  border-color: var(--danger);
+}
+
 .link {
-  color: var(--accent);
+  color: var(--muted);
   text-decoration: none;
+  font-size: 0.92rem;
+  transition: color 0.18s ease;
+}
+
+.link:hover {
+  color: var(--text);
 }
 
 .muted {
@@ -130,6 +206,7 @@ button.danger {
 
 .error {
   color: var(--danger);
+  font-weight: 500;
 }
 
 .cards {
@@ -137,7 +214,7 @@ button.danger {
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .card {
@@ -147,32 +224,40 @@ button.danger {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 0.9rem 1rem;
+  padding: 1rem 1.1rem;
+  transition: border-color 0.18s ease, transform 0.18s ease;
+}
+
+.card:hover {
+  border-color: rgba(28, 26, 21, 0.28);
+  transform: translateY(-1px);
 }
 
 .card-title {
   font-weight: 600;
   text-decoration: none;
+  color: var(--text);
 }
 
 .badge {
-  font-size: 0.72rem;
+  font-family: var(--mono);
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 0.15rem 0.5rem;
-  border-radius: 999px;
+  letter-spacing: 0.1em;
+  padding: 0.2rem 0.55rem;
+  border-radius: 5px;
   border: 1px solid var(--border);
-  color: var(--muted);
+  color: var(--faint);
 }
 
 .badge.owner {
   color: var(--owner);
-  border-color: var(--owner);
+  border-color: color-mix(in srgb, var(--owner) 50%, transparent);
 }
 
 .badge.editor {
   color: var(--accent);
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
 .badge.viewer {
@@ -181,16 +266,17 @@ button.danger {
 }
 
 .badge.pending {
-  color: #d8a657;
-  border-color: #d8a657;
+  color: #a98f5e;
+  border-color: color-mix(in srgb, #a98f5e 55%, transparent);
 }
 
 .section-label {
-  font-size: 0.78rem;
+  font-family: var(--mono);
+  font-size: 0.72rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--muted);
-  margin: 1.25rem 0 0.5rem;
+  letter-spacing: 0.16em;
+  color: var(--faint);
+  margin: 1.5rem 0 0.6rem;
 }
 
 .invite-result {
@@ -201,16 +287,27 @@ button.danger {
 
 .tabs {
   display: flex;
-  gap: 0.25rem;
+  gap: 1.1rem;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 1rem;
+  margin-bottom: 1.25rem;
 }
 
 .tab {
   background: transparent;
-  color: var(--muted);
+  color: var(--faint);
+  border: none;
   border-radius: 0;
   border-bottom: 2px solid transparent;
+  padding: 0.5rem 0;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tab:hover:not(:disabled) {
+  transform: none;
+  color: var(--muted);
 }
 
 .tab.active {
@@ -223,7 +320,7 @@ button.danger {
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 0.4rem;
+  gap: 0.5rem;
 }
 
 .list-row {
@@ -233,7 +330,7 @@ button.danger {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.6rem 0.8rem;
+  padding: 0.75rem 0.95rem;
 }
 
 .list-title {
@@ -241,7 +338,7 @@ button.danger {
 }
 
 .mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--mono);
   font-size: 0.85rem;
 }
 
@@ -249,11 +346,11 @@ button.danger {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--muted);
+  background: var(--faint);
 }
 
 .status-dot.in_progress {
-  background: var(--accent);
+  background: var(--accent2);
 }
 
 .status-dot.blocked {
@@ -261,14 +358,14 @@ button.danger {
 }
 
 .status-dot.done {
-  background: #3fbf6f;
+  background: #5a8f5a;
 }
 
 .doc-row {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.8rem 1rem;
+  padding: 0.9rem 1.1rem;
 }
 
 .doc-head {
@@ -278,8 +375,9 @@ button.danger {
 }
 
 .method {
+  font-family: var(--mono);
   font-size: 0.72rem;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--accent);
 }
 
@@ -288,13 +386,14 @@ button.danger {
 }
 
 .endpoint {
-  font-family: ui-monospace, monospace;
+  font-family: var(--mono);
   font-size: 0.82rem;
   color: var(--muted);
 }
 
 .doc-desc {
   color: var(--muted);
-  margin: 0.4rem 0 0;
+  margin: 0.5rem 0 0;
   white-space: pre-wrap;
+  line-height: 1.6;
 }

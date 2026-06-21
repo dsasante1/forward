@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Forward is an open-source, developer-first alternative to Figma Code Connect. Designers draw UI on an independent visual canvas; backend developers annotate those design elements with API documentation from VS Code. It is **BYOD (Bring-Your-Own-Database)**: there is no central server — each user supplies their own Firebase Realtime Database, and that RTDB is the live two-way sync bus between every surface.
+Forward is a developer-first tool. Designers draw UI on an independent visual canvas; backend developers annotate those design elements — from VS Code — with API, infrastructure, and UML documentation, plus a historical (timeline) view of how development has changed over time, keeping frontend and backend in sync. Organizations and users sign up, manage members, and set up tasks for developers. The product is migrating to a centrally-hosted model: a backend API (`apps/server` — NestJS/Prisma/Clerk/Supabase) owns auth, sign-up, the database, tenancy, and the realtime sync bus. The original surfaces (canvas, extension, MCP) still talk to a Firebase Realtime Database directly through `forward-core`; that one module is the swap point onto the new server.
 
 ## Commands
 
@@ -63,7 +63,7 @@ The locked rules (`apps/canvas/firebase.rules.json`) enforce a **per-project mem
 
 - ESM throughout (`"type": "module"`); strict TS with `noUncheckedIndexedAccess`.
 - When adding/changing any RTDB-backed data, do it in `packages/shared` first (schema + `paths` + the rest client), then consume from the apps — don't duplicate path strings or shapes in an app.
-- BYOD config (Firebase URLs, tokens, `.env.local`, `.vscode/settings.json`) is read from local settings/env and is **never committed**.
+- Local config (Firebase URLs, tokens, `.env.local`, `.vscode/settings.json`) is read from local settings/env and is **never committed**.
 
 ## Publishing
 

@@ -12,7 +12,7 @@ if (!publishableKey) {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={publishableKey} afterSignOutUrl="/sign-in">
+    <ClerkProvider publishableKey={publishableKey} afterSignOutUrl="/">
       <BrowserRouter>
         <App />
       </BrowserRouter>
