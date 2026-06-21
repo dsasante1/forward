@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import type {
-  Task,
-  TaskActivity,
-  TaskPriority,
-  TaskStatus,
-  TaskType,
+import {
+  applyTaskChange,
+  commentOnTask,
+  newTask,
+  type Task,
+  type TaskActivity,
+  type TaskStatus,
+  type TaskType,
 } from "forward-core";
 import { useApi, type Member } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
@@ -19,17 +21,12 @@ import {
   STATUS_ORDER,
   TYPE_META,
   labelColor,
-  nextKey,
   personOf,
   relTime,
   shortDate,
   tint,
   type Person,
 } from "./tasks-format.js";
-
-function uuid(): string {
-  return crypto.randomUUID();
-}
 
 export function TasksTab() {
   const api = useApi();
@@ -47,6 +44,9 @@ export function TasksTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mutateError, setMutateError] = useState<string>();
 
+  // The uid stamped on activity events this user creates.
+  const actor = myUid ?? "you";
+
   /** Persist a whole task, then refresh. The server re-stamps updatedAt. */
   async function save(task: Task) {
     setMutateError(undefined);
@@ -56,18 +56,6 @@ export function TasksTab() {
     } catch (err) {
       setMutateError((err as Error).message);
     }
-  }
-
-  /** Append an activity entry stamped to the current user + now. */
-  function withActivity(task: Task, entry: Omit<TaskActivity, "id" | "actor" | "at">): Task {
-    return {
-      ...task,
-      updatedAt: new Date().toISOString(),
-      activity: [
-        ...task.activity,
-        { id: uuid(), actor: myUid ?? "you", at: new Date().toISOString(), ...entry },
-      ],
-    };
   }
 
   const selected = tasks?.find((t) => t.id === selectedId) ?? null;
@@ -83,9 +71,9 @@ export function TasksTab() {
           canWrite={canWrite}
           members={members}
           myUid={myUid}
+          actor={actor}
           onBack={() => setSelectedId(null)}
           onSave={save}
-          withActivity={withActivity}
         />
       ) : (
         <TaskList
@@ -94,29 +82,16 @@ export function TasksTab() {
           canWrite={canWrite}
           members={members}
           myUid={myUid}
+          actor={actor}
           onOpen={setSelectedId}
           onSave={save}
-          withActivity={withActivity}
           onCreate={async (title) => {
-            const now = new Date().toISOString();
-            const task: Task = {
-              id: uuid(),
-              key: nextKey((tasks ?? []).map((t) => t.key)),
-              title,
-              description: "",
-              type: "task",
-              status: "todo",
-              priority: "medium",
-              labels: [],
-              assignees: [],
-              reporter: myUid,
-              activity: [
-                { id: uuid(), kind: "event", actor: myUid ?? "you", at: now, verb: "created this task" },
-              ],
-              createdAt: now,
-              updatedAt: now,
-            };
-            await save(task);
+            await save(
+              newTask(
+                { title },
+                { actor, existingKeys: (tasks ?? []).map((t) => t.key) },
+              ),
+            );
           }}
           onDelete={async (id) => {
             setMutateError(undefined);
@@ -145,22 +120,22 @@ function TaskList({
   canWrite,
   members,
   myUid,
+  actor,
   onOpen,
   onCreate,
   onDelete,
   onSave,
-  withActivity,
 }: {
   tasks: Task[] | undefined;
   loading: boolean;
   canWrite: boolean;
   members: Member[] | undefined;
   myUid: string | undefined;
+  actor: string;
   onOpen: (id: string) => void;
   onCreate: (title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSave: (task: Task) => Promise<void>;
-  withActivity: (task: Task, e: Omit<TaskActivity, "id" | "actor" | "at">) => Task;
 }) {
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -178,13 +153,7 @@ function TaskList({
   function cycleStatus(task: Task) {
     const i = STATUS_ORDER.indexOf(task.status);
     const next = STATUS_ORDER[(i + 1) % STATUS_ORDER.length]!;
-    void onSave(
-      withActivity({ ...task, status: next }, {
-        kind: "event",
-        verb: "changed status to",
-        target: STATUS_META[next].label,
-      }),
-    );
+    void onSave(applyTaskChange(task, { status: next }, actor));
   }
 
   const visible = (tasks ?? []).filter((t) =>
@@ -311,17 +280,17 @@ function TaskDetail({
   canWrite,
   members,
   myUid,
+  actor,
   onBack,
   onSave,
-  withActivity,
 }: {
   task: Task;
   canWrite: boolean;
   members: Member[] | undefined;
   myUid: string | undefined;
+  actor: string;
   onBack: () => void;
   onSave: (task: Task) => Promise<void>;
-  withActivity: (task: Task, e: Omit<TaskActivity, "id" | "actor" | "at">) => Task;
 }) {
   const [draft, setDraft] = useState("");
   const [desc, setDesc] = useState(task.description);
@@ -334,15 +303,14 @@ function TaskDetail({
     setDesc(task.description);
   }, [task.description]);
 
+  function change(patch: Parameters<typeof applyTaskChange>[1]) {
+    void onSave(applyTaskChange(task, patch, actor));
+  }
+
   function saveDescription() {
     const next = desc.trim();
     if (next === task.description.trim()) return;
-    void onSave(
-      withActivity({ ...task, description: next }, {
-        kind: "event",
-        verb: task.description.trim() ? "edited the description" : "added a description",
-      }),
-    );
+    change({ description: next });
   }
 
   const type = TYPE_META[task.type];
@@ -356,78 +324,27 @@ function TaskDetail({
     [task.elementId, task.endpointId, task.flowId],
   );
 
-  function setStatus(s: TaskStatus) {
-    if (s === task.status) return;
-    void onSave(
-      withActivity({ ...task, status: s }, {
-        kind: "event",
-        verb: "changed status to",
-        target: STATUS_META[s].label,
-      }),
-    );
-  }
-  function setPriority(p: TaskPriority) {
-    if (p === task.priority) return;
-    void onSave(
-      withActivity({ ...task, priority: p }, {
-        kind: "event",
-        verb: "set priority",
-        badge: PRIORITY_META[p].label,
-      }),
-    );
-  }
-  function setType(t: TaskType) {
-    if (t === task.type) return;
-    void onSave(
-      withActivity({ ...task, type: t }, {
-        kind: "event",
-        verb: "changed type to",
-        target: TYPE_META[t].label,
-      }),
-    );
-  }
   function toggleAssignee(uid: string) {
     const has = task.assignees.includes(uid);
-    const assignees = has
-      ? task.assignees.filter((u) => u !== uid)
-      : [...task.assignees, uid];
-    void onSave(
-      withActivity({ ...task, assignees }, {
-        kind: "event",
-        verb: has ? "unassigned" : "assigned",
-        target: personOf(uid, members, myUid).name,
-      }),
-    );
+    change({
+      assignees: has
+        ? task.assignees.filter((u) => u !== uid)
+        : [...task.assignees, uid],
+    });
   }
   function toggleLabel(name: string) {
     const has = task.labels.includes(name);
-    const labels = has
-      ? task.labels.filter((l) => l !== name)
-      : [...task.labels, name];
-    void onSave(
-      withActivity({ ...task, labels }, {
-        kind: "event",
-        verb: has ? "removed label" : "added label",
-        badge: name,
-      }),
-    );
+    change({
+      labels: has
+        ? task.labels.filter((l) => l !== name)
+        : [...task.labels, name],
+    });
   }
   function addComment() {
     const body = draft.trim();
     if (!body) return;
     setDraft("");
-    void onSave(withActivity(task, { kind: "comment", body }));
-  }
-  function setDueDate(value: string) {
-    const next = value || undefined; // empty input clears the due date
-    if ((next ?? "") === (task.dueDate ?? "")) return;
-    void onSave(
-      withActivity({ ...task, dueDate: next }, {
-        kind: "event",
-        verb: next ? "set due date" : "cleared the due date",
-        target: next ? shortDate(next) : undefined,
-      }),
-    );
+    void onSave(commentOnTask(task, actor, body));
   }
 
   const assignablePeople = (members ?? []).map((m) => m.uid);
@@ -515,6 +432,7 @@ function TaskDetail({
                 key={a.id}
                 entry={a}
                 person={personOf(a.actor, members, myUid)}
+                resolveName={(uid) => personOf(uid, members, myUid).name}
               />
             ))}
 
@@ -575,7 +493,7 @@ function TaskDetail({
                   disabled={!canWrite}
                   className={`tk-choice ${s === task.status ? "active" : ""}`}
                   style={s === task.status ? activeChip(STATUS_META[s].color) : undefined}
-                  onClick={() => setStatus(s)}
+                  onClick={() => change({ status: s })}
                 >
                   <span className="tk-dot" style={{ background: STATUS_META[s].color }} />
                   {STATUS_META[s].label}
@@ -594,7 +512,7 @@ function TaskDetail({
                   disabled={!canWrite}
                   className={`tk-choice ${t === task.type ? "active" : ""}`}
                   style={t === task.type ? activeChip(TYPE_META[t].color) : undefined}
-                  onClick={() => setType(t)}
+                  onClick={() => change({ type: t })}
                 >
                   {TYPE_META[t].label}
                 </button>
@@ -671,7 +589,7 @@ function TaskDetail({
                   disabled={!canWrite}
                   className={`tk-choice ${p === task.priority ? "active" : ""}`}
                   style={p === task.priority ? activeChip(PRIORITY_META[p].color) : undefined}
-                  onClick={() => setPriority(p)}
+                  onClick={() => change({ priority: p })}
                 >
                   {PRIORITY_META[p].label}
                 </button>
@@ -731,7 +649,7 @@ function TaskDetail({
                   type="date"
                   className="tk-date-input"
                   value={dateInputValue(task.dueDate)}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  onChange={(e) => change({ dueDate: e.target.value || undefined })}
                 />
               ) : (
                 <span>{shortDate(task.dueDate)}</span>
@@ -752,7 +670,16 @@ function TaskDetail({
   );
 }
 
-function ActivityRow({ entry, person }: { entry: TaskActivity; person: Person }) {
+function ActivityRow({
+  entry,
+  person,
+  resolveName,
+}: {
+  entry: TaskActivity;
+  person: Person;
+  /** Resolve a uid target (e.g. an assignee) to its display name. */
+  resolveName: (uid: string) => string;
+}) {
   if (entry.kind === "comment") {
     return (
       <div className="tk-event tk-comment">
@@ -767,6 +694,10 @@ function ActivityRow({ entry, person }: { entry: TaskActivity; person: Person })
       </div>
     );
   }
+  // Assignee events store the uid in `target`; resolve it to a name for display.
+  const isPersonTarget = entry.verb === "assigned" || entry.verb === "unassigned";
+  const displayTarget =
+    entry.target && isPersonTarget ? resolveName(entry.target) : entry.target;
   const targetColor = entry.target ? metaColor(entry.target) : undefined;
   const badgeColor = metaColor(entry.badge ?? "") ?? "#bf5a36";
   return (
@@ -774,7 +705,7 @@ function ActivityRow({ entry, person }: { entry: TaskActivity; person: Person })
       <span className="tk-event-dot" style={{ background: person.color }} />
       <div className="tk-event-line">
         <span className="tk-event-actor">{person.name}</span> {entry.verb}
-        {entry.target &&
+        {displayTarget &&
           (targetColor ? (
             <>
               {" "}
@@ -782,11 +713,11 @@ function ActivityRow({ entry, person }: { entry: TaskActivity; person: Person })
                 className="tk-event-tag mono"
                 style={{ color: targetColor, background: tint(targetColor, 0.14) }}
               >
-                {entry.target}
+                {displayTarget}
               </span>
             </>
           ) : (
-            ` ${entry.target}`
+            ` ${displayTarget}`
           ))}
         {entry.badge && (
           <span
