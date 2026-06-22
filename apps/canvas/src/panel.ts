@@ -40,6 +40,7 @@ export function renderPanel(
   pos.append(numRow("Y", el.y, (v) => onChange({ y: v })));
   pos.append(numRow("W", el.width, (v) => onChange({ width: v })));
   pos.append(numRow("H", el.height, (v) => onChange({ height: v })));
+  pos.append(numRow("Rotate", el.rotation ?? 0, (v) => onChange({ rotation: v })));
   root.append(pos);
 
   const styleSec = section("Style");

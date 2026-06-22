@@ -7,6 +7,7 @@ import { SignUpPage } from "./pages/SignUpPage.js";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage.js";
 import { ProjectsPage } from "./pages/ProjectsPage.js";
 import { ProjectPage } from "./pages/ProjectPage.js";
+import { CanvasPage } from "./pages/CanvasPage.js";
 import { AccountPage } from "./pages/AccountPage.js";
 
 /** Gate protected routes: Clerk redirects to /sign-in when there's no session. */
@@ -33,6 +34,16 @@ export default function App() {
 
       {/* Public: gates sign-in itself, then redeems the invite token. */}
       <Route path="/invite/:token" element={<AcceptInvitePage />} />
+
+      {/* Full-screen canvas for a project (no dashboard chrome). */}
+      <Route
+        path="/app/projects/:projectId/canvas"
+        element={
+          <Protected>
+            <CanvasPage />
+          </Protected>
+        }
+      />
 
       {/* The signed-in app lives under /app. */}
       <Route

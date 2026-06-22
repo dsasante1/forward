@@ -14,11 +14,14 @@ Run from the repo root (npm workspaces; Node >= 20, `.nvmrc` pins 22).
 - `npm run build` — build every workspace (`packages/shared` must build before the apps that import it)
 - `npm test` — run all Vitest suites across workspaces
 - `npm run typecheck` — typecheck all workspaces
-- `npm run dev:canvas` — run the web canvas via Vite (offline against the fixture if no env config)
-- `npm run mock` — start the local mock RTDB server (`apps/mock-rtdb`) for end-to-end testing without cloud Firebase
-- `npm run seed:mock` — seed the mock RTDB
-- `npm run setup` — interactive Firebase config writer (creates `.env.local`, `.vscode/settings.json`, `firebase.json`/`.firebaserc`, deploys rules)
+- The web canvas is no longer a standalone app — it is embedded by the dashboard (`apps/dashboard`, route `/app/projects/:projectId/canvas`). Run it via `npm run dev -w apps/dashboard`.
+- `npm run setup` — interactive Firebase config writer (`.vscode/settings.json`, `firebase.json`/`.firebaserc`, deploys rules) for the extension/MCP, which still use the Firebase RTDB
 - `npm run bootstrap` — `install` → `build` → `setup`
+
+Backend server (`apps/server` — NestJS/Prisma/Supabase/Clerk; needs `apps/server/.env`, copy from `.env.example`):
+- `npm run dev -w apps/server` — run the API in watch mode (listens on :8080); `npm run start -w apps/server` runs the built server
+- `npm run prisma:migrate -w apps/server` — apply migrations, or create one after editing `schema.prisma` with `-- --name <change>`; `prisma:deploy` applies committed migrations in CI/prod; `prisma:generate` regenerates the typed client only
+- Migrations are committed under `apps/server/prisma/migrations/`; the dashboard reaches the server via `VITE_API_BASE_URL` (e.g. `http://localhost:8080`)
 
 Per-workspace (use `-w <workspace>`, e.g. `npm test -w packages/shared`):
 - A single test file: `npm test -w packages/shared -- src/schema.test.ts`
@@ -50,14 +53,14 @@ A "project id" is a **namespace within the RTDB tree** (e.g. `project_xyz`), **n
 
 ### The surfaces (`apps/*`)
 
-- **`apps/canvas`** (`forward-canvas`) — Vite + vanilla-TS Figma-lite editor. `config.ts` selects a data source by env, in priority order: `VITE_MOCK_RTDB_URL` → mock (REST poll against local mock-rtdb); else `VITE_FIREBASE_DATABASE_URL` → live (real Firebase SDK); else **null → offline `FixtureSource`** (`public/fixture.json`, zero setup). All three implement the `CanvasSource` interface in `firebase.ts`/`rest-source.ts`. Renders timeline/infra diagrams via `mermaid`.
+- **`apps/canvas`** (`forward-canvas`) — vanilla-TS Figma-lite editor, consumed **only as an embedded library** (no standalone app). It exports `mountCanvas` + `ServerSource` via `forward-canvas/embed` (see `src/embed.ts`); the dashboard's `CanvasPage` mounts it into a Shadow DOM with a Clerk-token-backed `ServerSource`. The single data source is `ServerSource` (the backend REST API via `forward-core/api`); the `CanvasSource` interface lives in `src/source.ts`. Styles are injected from `src/canvas.css` (`?inline`). Renders timeline/infra diagrams via `mermaid`.
 - **`apps/extension`** (`forward-vscode`) — VS Code extension. Reads via **ETag-conditional polling** over the RTDB REST API (`fetchElementsConditional` etc.) and writes via `rtdb-rest`. It is a trusted admin client (authenticates with a privileged token / DB secret that bypasses the rules), so it needs no membership roster entry. Contributes the `forward.*` commands and `forward.*` settings.
 - **`apps/mcp`** (`forward-mcp`) — Model Context Protocol server giving any AI agent full parity with the canvas/extension. The server holds the Firebase credentials; the agent only sees scoped tools. `match.ts` (fuzzy feature→element matching) and `anchor.ts` (deterministic `@adc <id>` source markers) power element resolution. Env: `ADC_FIREBASE_DATABASE_URL`, `ADC_PROJECT_ID`, `ADC_AUTH_TOKEN`. All writes go through `forward-core`, so they appear live on the canvases and in version history.
-- **`apps/mock-rtdb`** — a local stand-in RTDB (`server.mjs`) for offline end-to-end testing.
+- **`apps/dashboard`** (`forward-dashboard`) — React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members, and the host that embeds the canvas.
 
 ### Access control
 
-The locked rules (`apps/canvas/firebase.rules.json`) enforce a **per-project membership ACL**: every project subtree (`design_elements`, `version_timeline`, `infra_nodes`, `infra_edges`, `infra_flows`) is readable/writable only by uids in that project's `project_members` roster. The first authenticated user to open a fresh project claims it as `owner`; others are locked out until an existing member adds their uid (no open self-join). The trust boundary is the database (one team per DB); the roster adds isolation *between projects within* a DB. The offline fixture and mock sources have no auth and skip membership.
+The locked rules (`apps/canvas/firebase.rules.json`) enforce a **per-project membership ACL**: every project subtree (`design_elements`, `version_timeline`, `infra_nodes`, `infra_edges`, `infra_flows`) is readable/writable only by uids in that project's `project_members` roster. The first authenticated user to open a fresh project claims it as `owner`; others are locked out until an existing member adds their uid (no open self-join). The trust boundary is the database (one team per DB); the roster adds isolation *between projects within* a DB.
 
 ## Conventions
 

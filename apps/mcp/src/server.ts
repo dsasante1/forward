@@ -717,13 +717,13 @@ server.registerTool(
     title: "Create a design element",
     description:
       "Draw a new element on the canvas — a frame (container/screen), rectangle (button/card/" +
-      "input), text label, a reusable component, or an instance of one. Designers usually own " +
+      "input), ellipse (circle/oval), text label, a reusable component, or an instance of one. Designers usually own " +
       "this, so prefer documenting existing elements; create when the design is genuinely " +
       "missing the thing you built. Set parentId to nest inside a frame; for an instance set " +
       "type:\"instance\" and componentId to the master component's id.",
     inputSchema: {
       type: DesignElement.shape.type.describe(
-        "frame, rectangle, text, component, or instance.",
+        "frame, rectangle, ellipse, text, component, or instance.",
       ),
       name: DesignElement.shape.name.describe("Display name for the element."),
       x: z.number().describe("Canvas x (top-left)."),
@@ -735,6 +735,10 @@ server.registerTool(
         "Id of the frame to nest inside, or null for top level.",
       ),
       style: Style.optional().describe("Optional fill/stroke/radius/font styling."),
+      rotation: z
+        .number()
+        .optional()
+        .describe("Rotation in degrees clockwise about the element's center (default 0)."),
       componentId: DesignElement.shape.componentId.describe(
         'For type:"instance": the master component element id.',
       ),
@@ -775,6 +779,10 @@ server.registerTool(
       y: z.number().optional().describe("New canvas y."),
       width: z.number().nonnegative().optional().describe("New width."),
       height: z.number().nonnegative().optional().describe("New height."),
+      rotation: z
+        .number()
+        .optional()
+        .describe("New rotation in degrees clockwise about the element's center."),
       text: z.string().optional().describe("New text content."),
       parentId: z
         .string()

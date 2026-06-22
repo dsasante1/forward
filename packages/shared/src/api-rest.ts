@@ -1,5 +1,7 @@
 import {
   ApiBinding,
+  Checkpoint,
+  CheckpointInput,
   DesignElement,
   InfraEdge,
   InfraFlow,
@@ -346,6 +348,51 @@ export async function patchTask(
 
 export async function deleteTask(cfg: ApiConfig, taskId: string): Promise<void> {
   await request(cfg, "DELETE", `/tasks/${encodeURIComponent(taskId)}`);
+}
+
+// --------------------------------------------------------------------------
+// checkpoints — manual, named canvas snapshots
+// --------------------------------------------------------------------------
+
+export async function fetchCheckpoints(cfg: ApiConfig): Promise<Checkpoint[]> {
+  const raw = await get<unknown[]>(cfg, "/checkpoints");
+  return parseAll(raw, Checkpoint);
+}
+
+/**
+ * Create a checkpoint. The client only describes it (title/note/tag); the server
+ * freezes the project's current design + infra into the snapshot, so the result
+ * always reflects the persisted canvas. Returns the saved checkpoint.
+ */
+export async function createCheckpoint(
+  cfg: ApiConfig,
+  input: CheckpointInput,
+): Promise<Checkpoint> {
+  const raw = await request<unknown>(cfg, "POST", "/checkpoints", input);
+  return Checkpoint.parse(raw);
+}
+
+export async function deleteCheckpoint(
+  cfg: ApiConfig,
+  checkpointId: string,
+): Promise<void> {
+  await request(cfg, "DELETE", `/checkpoints/${encodeURIComponent(checkpointId)}`);
+}
+
+/**
+ * Restore a checkpoint: the server transactionally rewinds the project's design
+ * elements + infra graph to the snapshot. The endpoint version history is left
+ * intact (it is an append-only record, not part of the snapshot).
+ */
+export async function restoreCheckpoint(
+  cfg: ApiConfig,
+  checkpointId: string,
+): Promise<void> {
+  await request(
+    cfg,
+    "POST",
+    `/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
+  );
 }
 
 // --------------------------------------------------------------------------

@@ -3,16 +3,18 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./embed": {
+      "types": "./embed.d.ts",
+      "import": "./src/embed.ts"
+    }
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "seed": "node scripts/seed.mjs"
+    "test": "vitest run"
   },
   "dependencies": {
-    "firebase": "^10.12.2",
     "mermaid": "^11.15.0",
     "forward-core": "*"
   },

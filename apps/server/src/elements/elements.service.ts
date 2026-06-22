@@ -49,8 +49,8 @@ export class ElementsService {
   ): Promise<DesignElement> {
     const clean = this.sanitizeElement(element);
     const next: DesignElement = { ...clean, updatedAt: new Date().toISOString() };
-    await this.prisma.withUser(actor, (tx) =>
-      tx.designElement.upsert({
+    await this.prisma.withUser(actor, async (tx) => {
+      await tx.designElement.upsert({
         where: { projectId_id: { projectId, id: next.id } },
         update: { data: next as unknown as Json, updatedAt: new Date() },
         create: {
@@ -59,8 +59,9 @@ export class ElementsService {
           data: next as unknown as Json,
           updatedAt: new Date(),
         },
-      }),
-    );
+      });
+      await this.bumpProject(tx, projectId);
+    });
     await this.emit(projectId, "upsert", [next.id], actor);
     return next;
   }
@@ -84,6 +85,7 @@ export class ElementsService {
         where: { projectId_id: { projectId, id } },
         data: { data: merged as unknown as Json, updatedAt: new Date() },
       });
+      await this.bumpProject(tx, projectId);
       await this.emit(projectId, "upsert", [id], actor);
       return merged;
     });
@@ -112,6 +114,7 @@ export class ElementsService {
       await tx.designElement.deleteMany({
         where: { projectId, id: { in: toDelete } },
       });
+      await this.bumpProject(tx, projectId);
       // The append-only version history is intentionally LEFT INTACT as a record.
       return toDelete;
     });
@@ -139,6 +142,7 @@ export class ElementsService {
         where: { projectId_id: { projectId, id } },
         data: { data: next as unknown as Json, updatedAt: new Date() },
       });
+      await this.bumpProject(tx, projectId);
       await this.appendVersion(tx, projectId, id, actor, {
         version: version.version,
         author: actor,
@@ -179,6 +183,7 @@ export class ElementsService {
         where: { projectId_id: { projectId, id } },
         data: { data: next as unknown as Json, updatedAt: new Date() },
       });
+      await this.bumpProject(tx, projectId);
       await this.appendVersion(tx, projectId, id, actor, {
         version: version.version,
         author: actor,
@@ -219,6 +224,20 @@ export class ElementsService {
   }
 
   // --- internals -----------------------------------------------------------
+
+  /**
+   * Stamp the project as edited so the dashboard's "edited" time reflects canvas
+   * work, not just renames. Done in the same transaction as the element write.
+   */
+  private async bumpProject(
+    tx: Prisma.TransactionClient,
+    projectId: string,
+  ): Promise<void> {
+    await tx.project.update({
+      where: { id: projectId },
+      data: { updatedAt: new Date() },
+    });
+  }
 
   private async requireElement(
     tx: Prisma.TransactionClient | PrismaService,

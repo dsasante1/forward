@@ -13,6 +13,7 @@ function el(
     type,
     name: id,
     parentId,
+    rotation: 0,
     ...rect,
     updatedAt: "2026-05-28T11:45:00Z",
   };

@@ -754,6 +754,9 @@ function elementNode(
   node.style.top = `${py}px`;
   node.style.width = `${pw}px`;
   node.style.height = `${ph}px`;
+  // Rotation is about the element's center (CSS default transform-origin),
+  // matching the web canvas.
+  if (el.rotation) node.style.transform = `rotate(${el.rotation}deg)`;
 
   const s = el.style ?? {};
   if (el.type === "text") {

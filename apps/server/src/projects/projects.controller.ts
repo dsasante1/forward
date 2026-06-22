@@ -7,6 +7,8 @@ import {
   Param,
   Patch,
   Post,
+  Put,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { z } from "zod";
@@ -17,6 +19,8 @@ import { ZodBody } from "../common/zod-validation.pipe.js";
 import { ProjectsService } from "./projects.service.js";
 
 const CreateProject = z.object({ name: z.string().min(1).max(120) });
+const RenameProject = z.object({ name: z.string().min(1).max(120) });
+const SetFavorite = z.object({ favorite: z.boolean() });
 const AddMember = z.object({
   userId: z.string().min(1),
   role: ProjectRole.default("editor"),
@@ -36,10 +40,62 @@ export class ProjectsController {
     return this.projects.create(user.id, body.name);
   }
 
-  /** List the projects the caller belongs to. */
+  /**
+   * List the projects the caller belongs to, enriched for the dashboard
+   * (role, favorite, member preview, edited time). Optional `q` searches by
+   * name and `sort` is `recent` (default) or `name`.
+   */
   @Get("projects")
-  list(@CurrentUser() user: AuthUser) {
-    return this.projects.listForUser(user.id);
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query("q") q?: string,
+    @Query("sort") sort?: string,
+  ) {
+    return this.projects.listForUser(user.id, {
+      q,
+      sort: sort === "name" ? "name" : "recent",
+    });
+  }
+
+  /** Rename a project (owner-only). */
+  @Patch("projects/:projectId")
+  @UseGuards(MembershipGuard)
+  @RequireOwner()
+  rename(
+    @Param("projectId") projectId: string,
+    @Body(new ZodBody(RenameProject)) body: z.infer<typeof RenameProject>,
+  ) {
+    return this.projects.rename(projectId, body.name);
+  }
+
+  /** Delete a project and everything under it (owner-only). */
+  @Delete("projects/:projectId")
+  @UseGuards(MembershipGuard)
+  @RequireOwner()
+  async remove(@Param("projectId") projectId: string) {
+    await this.projects.remove(projectId);
+    return { ok: true };
+  }
+
+  /** Duplicate a project into a new one the caller owns (any member may copy). */
+  @Post("projects/:projectId/duplicate")
+  @UseGuards(MembershipGuard)
+  duplicate(
+    @Param("projectId") projectId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.projects.duplicate(projectId, user.id);
+  }
+
+  /** Set/clear the caller's favorite flag on a project they belong to. */
+  @Put("projects/:projectId/favorite")
+  @UseGuards(MembershipGuard)
+  setFavorite(
+    @Param("projectId") projectId: string,
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodBody(SetFavorite)) body: z.infer<typeof SetFavorite>,
+  ) {
+    return this.projects.setFavorite(projectId, user.id, body.favorite);
   }
 
   // --- roster (project-scoped; MembershipGuard enforces tenancy) ---

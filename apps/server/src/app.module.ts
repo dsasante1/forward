@@ -8,6 +8,7 @@ import { InvitesModule } from "./invites/invites.module.js";
 import { ElementsModule } from "./elements/elements.module.js";
 import { InfraModule } from "./infra/infra.module.js";
 import { TasksModule } from "./tasks/tasks.module.js";
+import { CheckpointsModule } from "./checkpoints/checkpoints.module.js";
 import { HealthController } from "./health.controller.js";
 
 @Module({
@@ -21,6 +22,7 @@ import { HealthController } from "./health.controller.js";
     ElementsModule,
     InfraModule,
     TasksModule,
+    CheckpointsModule,
   ],
   controllers: [HealthController],
 })
