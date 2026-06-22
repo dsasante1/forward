@@ -26,6 +26,13 @@ export interface MountOptions {
   source: ServerSource;
   /** Element id to select + center once it loads (e.g. a docs deep link). */
   focusElementId?: string | null;
+  /** Project id, used only to scope the local (per-project) view theme. */
+  projectId?: string | null;
+  /** Project name, shown as the middle breadcrumb segment (`forward / <name> / canvas`). */
+  projectName?: string | null;
+  /** Invoked by the in-canvas "Back to project" pill; the host navigates. The
+   * pill is shown only when this is provided. */
+  onBack?: () => void;
 }
 
 /** Handle from mountCanvas; `destroy` stops polling and removes global listeners. */

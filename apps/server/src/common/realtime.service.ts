@@ -9,6 +9,7 @@ export type RealtimeResource =
   | "infra"
   | "flows"
   | "tasks"
+  | "checkpoints"
   | "members";
 
 /** Cap on how long a write may wait for the channel to join before giving up. */

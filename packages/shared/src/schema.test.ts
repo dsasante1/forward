@@ -6,6 +6,7 @@ import {
   InfraEdge,
   InfraFlow,
   Task,
+  Checkpoint,
   paths,
 } from "./schema.js";
 
@@ -23,6 +24,21 @@ describe("DesignElement contract", () => {
     expect(el.parentId).toBeNull();
     expect(el.name).toBe("");
     expect(el.apiBinding).toBeUndefined();
+    expect(el.rotation).toBe(0);
+  });
+
+  it("keeps a non-zero rotation when supplied", () => {
+    const el = DesignElement.parse({
+      id: "el_btn_rot",
+      type: "rectangle",
+      x: 10,
+      y: 20,
+      width: 120,
+      height: 40,
+      rotation: 45,
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(el.rotation).toBe(45);
   });
 
   it("accepts an element carrying an optional apiBinding", () => {
@@ -79,6 +95,19 @@ describe("DesignElement contract", () => {
     });
     expect(instance.parentId).toBe("el_frame_1");
     expect(instance.componentId).toBe("el_comp_button");
+  });
+
+  it("accepts an ellipse shape", () => {
+    const el = DesignElement.parse({
+      id: "el_avatar",
+      type: "ellipse",
+      x: 0,
+      y: 0,
+      width: 48,
+      height: 48,
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(el.type).toBe("ellipse");
   });
 
   it("rejects an unknown element type", () => {
@@ -365,6 +394,64 @@ describe("Task layer", () => {
   });
 });
 
+describe("Checkpoint layer", () => {
+  it("parses a checkpoint and applies snapshot/field defaults", () => {
+    const cp = Checkpoint.parse({
+      id: "c1",
+      title: "Checkout v1 layout",
+      snapshot: {},
+      createdAt: "2026-06-22T10:00:00.000Z",
+    });
+    expect(cp.description).toBe("");
+    expect(cp.tag).toBe("checkpoint");
+    expect(cp.changes).toEqual([]);
+    expect(cp.snapshot.elements).toEqual([]);
+    expect(cp.snapshot.infraNodes).toEqual([]);
+  });
+
+  it("keeps a tag, author and per-layer change counts", () => {
+    const cp = Checkpoint.parse({
+      id: "c2",
+      title: "402 decline handling",
+      tag: "milestone",
+      author: "user_maya",
+      changes: [
+        { layer: "API", n: 2 },
+        { layer: "DESIGN", n: 1 },
+      ],
+      snapshot: {},
+      createdAt: "2026-06-22T10:00:00.000Z",
+    });
+    expect(cp.tag).toBe("milestone");
+    expect(cp.author).toBe("user_maya");
+    expect(cp.changes).toHaveLength(2);
+  });
+
+  it("requires a non-empty title and rejects an unknown tag", () => {
+    const base = { id: "c", snapshot: {}, createdAt: "2026-06-22T10:00:00.000Z" };
+    expect(Checkpoint.safeParse({ ...base, title: "" }).success).toBe(false);
+    expect(
+      Checkpoint.safeParse({ ...base, title: "x", tag: "draft" }).success,
+    ).toBe(false);
+  });
+
+  it("accepts a tree carrying checkpoints", () => {
+    const tree = DatabaseTree.parse({
+      checkpoints: {
+        project_xyz: {
+          c1: {
+            id: "c1",
+            title: "Initial canvas",
+            snapshot: {},
+            createdAt: "2026-06-22T10:00:00.000Z",
+          },
+        },
+      },
+    });
+    expect(tree.checkpoints.project_xyz?.c1?.title).toBe("Initial canvas");
+  });
+});
+
 describe("paths", () => {
   it("builds RTDB paths consistently", () => {
     expect(paths.element("p", "e")).toBe("design_elements/p/e");
@@ -378,5 +465,7 @@ describe("paths", () => {
     expect(paths.infraFlow("p", "f")).toBe("infra_flows/p/f");
     expect(paths.tasks("p")).toBe("tasks/p");
     expect(paths.task("p", "t")).toBe("tasks/p/t");
+    expect(paths.checkpoints("p")).toBe("checkpoints/p");
+    expect(paths.checkpoint("p", "c")).toBe("checkpoints/p/c");
   });
 });

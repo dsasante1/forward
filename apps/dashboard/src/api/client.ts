@@ -6,14 +6,34 @@ import type { Task, ProjectRole, DesignElement } from "forward-core";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "");
 
+/** A member preview row carried by the projects list (drives card avatars). */
+export interface ProjectMemberPreview {
+  userId: string;
+  email: string | null;
+  role: ProjectRole;
+}
+
 /** A project as returned by `GET /projects` (the server's projects.service shape). */
 export interface Project {
   id: string;
   name: string;
   ownerId: string;
   createdAt: string;
+  /** Last time the project's content changed — the "edited" stamp. */
+  updatedAt: string;
   /** Present on the list endpoint: the caller's role in this project. */
   role?: ProjectRole;
+  /** Present on the list endpoint: the caller's "star" on this project. */
+  favorite?: boolean;
+  /** Total members; `members` is a capped preview for avatar stacks. */
+  memberCount?: number;
+  members?: ProjectMemberPreview[];
+}
+
+/** Search / sort options for the projects list (server-side). */
+export interface ListProjectsOptions {
+  q?: string;
+  sort?: "recent" | "name";
 }
 
 /** A roster member — exactly the shared client's listMembers row shape. */
@@ -66,11 +86,35 @@ export function useApi() {
   return useMemo(
     () => ({
       // --- account-level (above project scope) ---
-      listProjects: () => accountFetch<Project[]>("/projects"),
+      listProjects: (opts: ListProjectsOptions = {}) => {
+        const params = new URLSearchParams();
+        if (opts.q) params.set("q", opts.q);
+        if (opts.sort) params.set("sort", opts.sort);
+        const qs = params.toString();
+        return accountFetch<Project[]>(`/projects${qs ? `?${qs}` : ""}`);
+      },
       createProject: (name: string) =>
         accountFetch<Project>("/projects", {
           method: "POST",
           body: JSON.stringify({ name }),
+        }),
+      renameProject: (projectId: string, name: string) =>
+        accountFetch<Project>(`/projects/${projectId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ name }),
+        }),
+      deleteProject: (projectId: string) =>
+        accountFetch<{ ok: true }>(`/projects/${projectId}`, {
+          method: "DELETE",
+        }),
+      duplicateProject: (projectId: string) =>
+        accountFetch<Project>(`/projects/${projectId}/duplicate`, {
+          method: "POST",
+        }),
+      setProjectFavorite: (projectId: string, favorite: boolean) =>
+        accountFetch<{ favorite: boolean }>(`/projects/${projectId}/favorite`, {
+          method: "PUT",
+          body: JSON.stringify({ favorite }),
         }),
 
       // --- membership roster (project-scoped, via forward-core/api) ---

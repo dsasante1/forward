@@ -1,4 +1,6 @@
 import {
+  type Checkpoint,
+  type CheckpointTag,
   type CurrentLabel,
   digest,
   type DiffSection,
@@ -26,6 +28,24 @@ export interface TimelineCallbacks {
   onSelect: (elementId: string) => void;
   onClose: () => void;
 }
+
+/**
+ * The manual-checkpoint ("design history") section, rendered above the endpoint
+ * timeline. Supplied only when the source can persist checkpoints; absent on a
+ * read-only source, in which case the section is omitted entirely.
+ */
+export interface CheckpointSection {
+  checkpoints: Checkpoint[];
+  onSave: () => void;
+  onRestore: (id: string) => void;
+  onDelete: (id: string) => void;
+}
+
+const TAG_LABEL: Record<CheckpointTag, string> = {
+  milestone: "MILESTONE",
+  checkpoint: "CHECKPOINT",
+  wip: "WIP",
+};
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -67,11 +87,12 @@ export function renderTimelineView(
   byElement: Record<string, VersionEntry[]>,
   current: Record<string, CurrentLabel>,
   cb: TimelineCallbacks,
+  checkpointSection?: CheckpointSection,
 ): void {
   root.replaceChildren();
 
   const head = div("tl-head");
-  head.append(h("h2", "Endpoint timeline"));
+  head.append(h("h2", "History"));
   const actions = div("tl-head-actions");
   const collapse = iconBtn("⌄", "Collapse panel", "tl-collapse");
   const close = iconBtn("✕", "Close timeline", "tl-close");
@@ -87,7 +108,11 @@ export function renderTimelineView(
     collapse.textContent = hidden ? "›" : "⌄";
   });
 
+  // "Design history" — manual checkpoints — sits above the endpoint timeline.
+  if (checkpointSection) renderCheckpoints(body, checkpointSection);
+
   const events = flattenTimelines(byElement, current);
+  body.append(h("h3", "Endpoint timeline"));
   if (!events.length) {
     body.append(
       h(
@@ -101,6 +126,106 @@ export function renderTimelineView(
 
   renderDigest(body, events);
   renderHistory(body, events, cb);
+}
+
+// --------------------------------------------------------------------------
+// Design history: manual checkpoints (save + restore)
+// --------------------------------------------------------------------------
+function renderCheckpoints(root: HTMLElement, sec: CheckpointSection): void {
+  const wrap = div("tl-checkpoints");
+
+  const save = document.createElement("button");
+  save.className = "tl-save-checkpoint";
+  save.textContent = "Save checkpoint";
+  save.addEventListener("click", sec.onSave);
+  wrap.append(save);
+
+  const head = div("tl-cp-head");
+  head.append(h("h3", "Design history"));
+  head.append(span(`${sec.checkpoints.length} saved`, "tl-cp-count"));
+  wrap.append(head);
+
+  if (!sec.checkpoints.length) {
+    wrap.append(
+      h("p", "No checkpoints yet — save one to snapshot the canvas.", "empty"),
+    );
+    root.append(wrap);
+    return;
+  }
+
+  sec.checkpoints.forEach((cp, i) => {
+    wrap.append(checkpointCard(cp, i === 0, sec));
+  });
+  root.append(wrap);
+}
+
+function checkpointCard(
+  cp: Checkpoint,
+  isCurrent: boolean,
+  sec: CheckpointSection,
+): HTMLElement {
+  const card = div("tl-cp-card");
+  if (isCurrent) card.classList.add("is-current");
+
+  const top = div("tl-cp-top");
+  const tag = span(TAG_LABEL[cp.tag] ?? cp.tag.toUpperCase(), "tl-cp-tag");
+  tag.dataset.tag = cp.tag;
+  top.append(tag);
+  if (isCurrent) top.append(span("CURRENT", "tl-cp-current"));
+  top.append(span(relTime(Date.parse(cp.createdAt)), "tl-cp-when"));
+  card.append(top);
+
+  card.append(h("div", cp.title, "tl-cp-title"));
+  if (cp.description) card.append(h("div", cp.description, "tl-cp-desc"));
+
+  if (cp.changes.length) {
+    const chips = div("tl-cp-chips");
+    for (const c of cp.changes) {
+      const chip = span(`${c.layer} +${c.n}`, "tl-cp-chip");
+      chip.dataset.layer = c.layer;
+      chips.append(chip);
+    }
+    card.append(chips);
+  }
+
+  const foot = div("tl-cp-foot");
+  const who = cp.author ?? "—";
+  const avatar = span(who.slice(0, 1).toUpperCase(), "tl-cp-avatar");
+  foot.append(avatar, span(who, "tl-cp-author"));
+  const acts = div("tl-cp-acts");
+  const restore = document.createElement("button");
+  restore.className = "tl-cp-btn";
+  restore.textContent = "Restore";
+  restore.addEventListener("click", () => sec.onRestore(cp.id));
+  const del = document.createElement("button");
+  del.className = "tl-cp-btn";
+  del.textContent = "Delete";
+  del.addEventListener("click", () => sec.onDelete(cp.id));
+  acts.append(restore, del);
+  foot.append(acts);
+  card.append(foot);
+
+  return card;
+}
+
+/** Compact relative time, mirroring the canvas top-strip stamp. */
+function relTime(ts: number): string {
+  if (Number.isNaN(ts)) return "";
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const hr = Math.round(m / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const d = Math.round(hr / 24);
+  if (d === 1) return "yesterday";
+  if (d < 7) return `${d} days ago`;
+  const w = Math.round(d / 7);
+  if (w < 5) return w === 1 ? "last week" : `${w} weeks ago`;
+  return new Date(ts).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 // --------------------------------------------------------------------------

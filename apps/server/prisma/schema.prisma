@@ -49,6 +49,9 @@ model Project {
   ownerId   String
   owner     User     @relation("ProjectOwner", fields: [ownerId], references: [id])
   createdAt DateTime @default(now())
+  // Last time the project's *content* changed (renamed, or any element/infra/task
+  // edit bumps it) — drives the "edited" stamp on the projects dashboard.
+  updatedAt DateTime @updatedAt
 
   members        ProjectMember[]
   invites        Invite[]
@@ -58,6 +61,7 @@ model Project {
   infraEdges     InfraEdge[]
   infraFlows     InfraFlow[]
   tasks          Task[]
+  checkpoints    Checkpoint[]
 
   @@index([ownerId])
 }
@@ -67,6 +71,9 @@ model ProjectMember {
   projectId String
   userId    String
   role      Role     @default(editor)
+  // Per-user "star" on the projects dashboard. Belongs on the membership because
+  // it is a (user, project) fact — each member pins independently of the others.
+  favorite  Boolean  @default(false)
   addedAt   DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -162,4 +169,17 @@ model Task {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@id([projectId, id])
+}
+
+// A manual, named snapshot of the canvas (pillar 5). `data` is the full
+// forward-core Checkpoint, including the frozen design + infra `snapshot`.
+model Checkpoint {
+  projectId String
+  id        String
+  data      Json // forward-core Checkpoint
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+  @@index([projectId, createdAt])
 }

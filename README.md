@@ -34,13 +34,15 @@ change it there once and both apps stay in sync.
 | Path | What it is |
 |---|---|
 | [packages/shared](packages/shared) | Zod schemas + TS types for the design/binding tree (the data contract) |
+| [apps/server](apps/server) | Central backend API (NestJS · Prisma · Supabase Postgres · Clerk): auth, sign-up, the database, tenancy, and the realtime sync bus |
+| [apps/dashboard](apps/dashboard) | React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members — and the host that embeds the canvas |
 | [apps/extension](apps/extension) | VS Code extension: pick a design element → write API docs (any language/framework) onto it |
-| [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + endpoint timeline |
+| [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + endpoint timeline, embedded by the dashboard |
 | [apps/mcp](apps/mcp) | MCP server: gives **any AI agent** full parity with the canvas — author/document design elements, map the infrastructure graph, read the timeline, and manage project access (the AI-native surface) |
 
 ## Using the canvas editor
 
-Runs offline against [apps/canvas/public/fixture.json](apps/canvas/public/fixture.json) — no Firebase needed to try it.
+The canvas is embedded in the dashboard ([apps/dashboard](apps/dashboard)) at `/app/projects/:projectId/canvas` — open a project's **Documentation** tab → "Open project in canvas".
 
 - **Toolbar:** Move, Frame, Rect, Text; Comp (make selection a component), Inst (place an
   instance), Del. Against a live database, a **+Member** control enrols collaborators by
@@ -107,20 +109,20 @@ Database URL and `projectId` (see [apps/extension/README.md](apps/extension/READ
 
 ### 2. The canvas + tooling — clone and bootstrap
 
-Designers run the web canvas locally against their own database:
+Clone and bootstrap, then run the dashboard (which hosts the canvas):
 
 ```bash
 git clone https://github.com/dsasante1/forward
 cd forward
-npm run bootstrap        # install + build + interactive Firebase setup
-npm run dev:canvas       # run the web canvas locally
+npm run bootstrap            # install + build + interactive Firebase setup
+npm run dev -w apps/dashboard  # run the dashboard (and its embedded canvas)
 ```
 
 `npm run bootstrap` chains `npm install` → `npm run build` → `npm run setup`. The
-[setup script](scripts/setup.mjs) interactively writes your `apps/canvas/.env.local`
-and `.vscode/settings.json`, scaffolds `firebase.json` / `.firebaserc`, and deploys
-the locked security rules. Set the **same** `projectId` here as in the extension so
-both sides share design elements.
+[setup script](scripts/setup.mjs) interactively writes your `.vscode/settings.json`,
+scaffolds `firebase.json` / `.firebaserc`, and deploys the locked security rules for the
+extension/MCP. Set the **same** `projectId` here as in the extension so both sides share
+design elements.
 
 > Two manual steps the setup script can't do for you: enable **Anonymous sign-in**
 > in the Firebase console (so the locked rules admit your canvas), and — only if the
@@ -131,11 +133,36 @@ both sides share design elements.
 
 ```bash
 npm install              # installs all workspaces
-npm run build            # build shared + apps
-npm test                 # run all unit tests (Vitest)
-npm run dev:canvas       # run the web canvas locally (offline off the fixture)
-npm run setup            # (re)configure your Firebase connection
+npm run build            # build shared + apps (packages/shared builds first)
+npm test                 # run all unit tests (Vitest) across workspaces
+npm run typecheck        # typecheck every workspace
+npm run dev -w apps/dashboard  # run the dashboard + embedded canvas (Vite, :5173)
+npm run setup            # (re)configure the extension/MCP Firebase connection
 ```
+
+Per-workspace tests use `-w <workspace>` (e.g. `npm test -w packages/shared`); a single
+file with `-- src/schema.test.ts`, a single test with `-- -t "name fragment"`.
+
+### Backend API + database (`apps/server`)
+
+The dashboard talks to the central server ([apps/server](apps/server) — NestJS · Prisma ·
+Supabase Postgres · Clerk). Point the dashboard at it with `VITE_API_BASE_URL`
+(e.g. `http://localhost:8080`) in `apps/dashboard/.env.local`.
+
+```bash
+cp apps/server/.env.example apps/server/.env   # fill in Supabase + Clerk values
+
+npm run prisma:migrate  -w apps/server         # apply migrations (create/update the schema)
+npm run prisma:generate -w apps/server         # regenerate the typed Prisma client
+npm run dev   -w apps/server                   # run the API in watch mode (:8080)
+# or: npm run start -w apps/server             # run the built server
+```
+
+Migrations live in [apps/server/prisma/migrations](apps/server/prisma/migrations). After
+editing `schema.prisma`, create one with
+`npm run prisma:migrate -w apps/server -- --name <change_name>`; in CI/prod apply the
+committed migrations with `npm run prisma:deploy -w apps/server`. Full backend setup,
+the API surface, and deployment are in [apps/server/README.md](apps/server/README.md).
 
 ## Publishing the extension (maintainers)
 
@@ -182,13 +209,13 @@ readable and writable only by uids listed in that project's `project_members` ro
   roster like any other member.
 
 On the current Firebase path the trust boundary is the **database** (one team per DB); the
-membership roster adds isolation *between projects* within that database. Test-mode (open) rules and the
-offline fixture / mock sources have no auth and skip membership entirely.
+membership roster adds isolation *between projects* within that database. Test-mode (open)
+rules have no auth and skip membership entirely.
 
 ## Status
 
-Working end-to-end: the Figma-lite editor (offline fixture, local mock-rtdb, or a live
-Firebase RTDB), the VS Code documentation bridge (ETag-conditional polling over the RTDB
+Working end-to-end: the Figma-lite editor (embedded in the dashboard, backed by the
+server REST API), the VS Code documentation bridge (ETag-conditional polling over the RTDB
 REST API), the infrastructure overlay, the MCP server, and the project **endpoint
 timeline** (git-graph history + catch-up digest, rendered in both the web canvas and the
 VS Code viewer). The MCP server now reaches **every feature** an AI agent could want —

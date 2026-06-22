@@ -12,9 +12,6 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "dev:canvas": "npm run dev --workspace apps/canvas",
-    "mock": "npm run start --workspace apps/mock-rtdb",
-    "seed:mock": "node apps/canvas/scripts/seed.mjs",
     "setup": "node scripts/setup.mjs",
     "deploy:rules": "firebase deploy --only database",
     "bootstrap": "npm install && npm run build && npm run setup"

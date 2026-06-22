@@ -1,4 +1,6 @@
 import type {
+  Checkpoint,
+  CheckpointInput,
   DesignElement,
   InfraEdge,
   InfraFlow,
@@ -10,7 +12,7 @@ import type {
   CanvasSource,
   ElementSnapshot,
   InfraSnapshot,
-} from "./firebase.js";
+} from "./source.js";
 
 /** Resolves a fresh auth token for each request. Returns null/undefined when the
  * caller isn't signed in. Embedded in the dashboard this is Clerk's `getToken`;
@@ -26,17 +28,18 @@ export type TokenProvider = () => Promise<string | null | undefined>;
  *
  * A token is resolved *per request* (`TokenProvider`) rather than captured once,
  * because tokens are short-lived (~60s) and an embedded canvas outlives any single
- * token. The backend has no change socket yet, so — like the mock RestSource — we
- * poll and only emit when the data actually changed, to avoid clobbering an
- * in-progress edit.
+ * token. The backend has no change socket yet, so we poll and only emit when the
+ * data actually changed, to avoid clobbering an in-progress edit.
  */
 export class ServerSource implements CanvasSource {
   private timer: ReturnType<typeof setInterval> | undefined;
   private infraTimer: ReturnType<typeof setInterval> | undefined;
   private taskTimer: ReturnType<typeof setInterval> | undefined;
+  private checkpointTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
   private lastInfraJson = "";
   private lastTasksJson = "";
+  private lastCheckpointsJson = "";
 
   constructor(
     private readonly baseUrl: string,
@@ -112,6 +115,40 @@ export class ServerSource implements CanvasSource {
     };
   }
 
+  subscribeCheckpoints(
+    onChange: (checkpoints: Checkpoint[]) => void,
+  ): () => void {
+    const tick = async () => {
+      try {
+        const checkpoints = await api.fetchCheckpoints(await this.cfg());
+        const json = JSON.stringify(checkpoints);
+        if (json !== this.lastCheckpointsJson) {
+          this.lastCheckpointsJson = json;
+          onChange(checkpoints);
+        }
+      } catch (err) {
+        console.warn("[server-source] checkpoints poll failed:", err);
+      }
+    };
+    void tick();
+    this.checkpointTimer = setInterval(tick, this.pollMs);
+    return () => {
+      if (this.checkpointTimer) clearInterval(this.checkpointTimer);
+    };
+  }
+
+  async createCheckpoint(input: CheckpointInput): Promise<Checkpoint> {
+    return api.createCheckpoint(await this.cfg(), input);
+  }
+
+  async restoreCheckpoint(checkpointId: string): Promise<void> {
+    await api.restoreCheckpoint(await this.cfg(), checkpointId);
+  }
+
+  async deleteCheckpoint(checkpointId: string): Promise<void> {
+    await api.deleteCheckpoint(await this.cfg(), checkpointId);
+  }
+
   private async fetchAll(): Promise<ElementSnapshot[]> {
     const cfg = await this.cfg();
     const [elements, { timelines }] = await Promise.all([
@@ -167,5 +204,9 @@ export class ServerSource implements CanvasSource {
 
   async deleteTask(taskId: string): Promise<void> {
     await api.deleteTask(await this.cfg(), taskId);
+  }
+
+  async addMember(uid: string): Promise<void> {
+    await api.addMember(await this.cfg(), uid);
   }
 }

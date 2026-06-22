@@ -47,7 +47,11 @@ All routes require `Authorization: Bearer <clerk-session-token>` (except
 
 ```
 POST   /projects                              create (caller becomes owner)
-GET    /projects                              list mine
+GET    /projects?q=&sort=recent|name          list mine (role, favorite, member preview, edited)
+PATCH  /projects/:p                 (owner)    rename { name }
+DELETE /projects/:p                 (owner)    delete project (cascades everything under it)
+POST   /projects/:p/duplicate                 deep-copy elements/infra/tasks into a new project I own
+PUT    /projects/:p/favorite                  star / unstar for me { favorite }
 GET    /projects/:p/members                   roster
 POST   /projects/:p/members        (owner)    add { userId, role }
 DELETE /projects/:p/members/:userId (owner)   remove
@@ -77,13 +81,31 @@ npm install
 npm run build -w packages/shared          # the contract must build first
 cp apps/server/.env.example apps/server/.env   # fill in Supabase + Clerk values
 
-npm run prisma:generate -w apps/server
-npm run prisma:migrate  -w apps/server -- --name init
+npm run prisma:generate -w apps/server    # regenerate the typed client
+npm run prisma:migrate  -w apps/server    # apply existing migrations (creates the DB schema)
 psql "$DIRECT_URL" -f apps/server/prisma/rls.sql   # optional: enable RLS
 
 npm run build -w apps/server
-npm run start -w apps/server              # listens on :8080
+npm run start -w apps/server              # listens on :8080 (or npm run dev for watch mode)
 ```
+
+### Database migrations
+
+The schema lives in [`prisma/schema.prisma`](prisma/schema.prisma); migrations are committed under `prisma/migrations/`.
+
+```bash
+# Create + apply a new migration after editing schema.prisma (dev DB):
+npm run prisma:migrate -w apps/server -- --name <change_name>
+
+# Apply already-committed migrations without generating new ones (CI / prod):
+npm run prisma:deploy  -w apps/server
+
+# Regenerate the typed client only (no DB change — e.g. after pulling schema edits):
+npm run prisma:generate -w apps/server
+```
+
+> Use the Supabase **session** pooler (port 5432) in `DATABASE_URL`/`DIRECT_URL` — the
+> transaction pooler (6543) breaks the `SET LOCAL` calls that drive RLS.
 
 ## Deploy (Cloud Run)
 

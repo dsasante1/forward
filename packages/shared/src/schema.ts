@@ -57,6 +57,7 @@ export type ApiBinding = z.infer<typeof ApiBinding>;
 export const ElementType = z.enum([
   "frame", // a container / screen
   "rectangle", // generic box (buttons, cards, inputs…)
+  "ellipse", // a circle / oval (drawn within its bounding box)
   "text", // a text label
   "component", // a reusable master definition
   "instance", // a placed copy of a component
@@ -91,6 +92,8 @@ export const DesignElement = z.object({
   parentId: z.string().nullable().default(null),
   text: z.string().optional(),
   style: Style.optional(),
+  /** Rotation in degrees, clockwise, about the element's center. */
+  rotation: z.number().default(0),
   /** For type === "instance": the id of the source component element. */
   componentId: z.string().optional(),
   /** Optional API documentation attached by the backend from VS Code. */
@@ -297,6 +300,70 @@ export const Task = z.object({
 export type Task = z.infer<typeof Task>;
 
 // --------------------------------------------------------------------------
+// Checkpoints (pillar 5) — manual, named snapshots of the canvas
+// --------------------------------------------------------------------------
+//
+// Unlike the append-only endpoint `version_timeline` (automatic, per-element doc
+// history), a checkpoint is a deliberate, whole-canvas save a member takes from
+// the editor: a title + note describing *what changed and why*, and a frozen copy
+// of the design + infra graph so it can be restored later. It stands apart from
+// the design elements like the task tracker does — its own project-scoped subtree.
+
+/** How a checkpoint is classified in the History view. */
+export const CheckpointTag = z.enum(["milestone", "checkpoint", "wip"]);
+export type CheckpointTag = z.infer<typeof CheckpointTag>;
+
+/** A per-layer change-count chip shown on a checkpoint card (e.g. DESIGN +8). */
+export const CheckpointChange = z.object({
+  layer: z.enum(["API", "INFRA", "DESIGN", "UML"]),
+  n: z.number().int().nonnegative(),
+});
+export type CheckpointChange = z.infer<typeof CheckpointChange>;
+
+/**
+ * The frozen project state a checkpoint captures. Theme + grid are per-user view
+ * settings (localStorage), not project data, so they are intentionally excluded —
+ * a restore only rewinds the shared design + infra graph.
+ */
+export const CheckpointSnapshot = z.object({
+  elements: z.array(DesignElement).default([]),
+  infraNodes: z.array(InfraNode).default([]),
+  infraEdges: z.array(InfraEdge).default([]),
+  infraFlows: z.array(InfraFlow).default([]),
+});
+export type CheckpointSnapshot = z.infer<typeof CheckpointSnapshot>;
+
+export const Checkpoint = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  /** Free-form Markdown note (same subset as task/apiBinding descriptions). */
+  description: z.string().default(""),
+  tag: CheckpointTag.default("checkpoint"),
+  /** uid of the member who saved it — stamped by the server from the session. */
+  author: z.string().optional(),
+  /** Per-layer change counts, for the card chips. */
+  changes: z.array(CheckpointChange).default([]),
+  /** The frozen design + infra state, replayed on restore. */
+  snapshot: CheckpointSnapshot,
+  /** ISO-8601 timestamp the checkpoint was saved. */
+  createdAt: z.string().datetime(),
+});
+export type Checkpoint = z.infer<typeof Checkpoint>;
+
+/**
+ * What the editor sends to *create* a checkpoint. The server assembles the
+ * snapshot, change counts, author, id and timestamp from the project's current
+ * state, so a checkpoint always reflects the truly-persisted canvas, not whatever
+ * the client happened to have in memory.
+ */
+export const CheckpointInput = z.object({
+  title: z.string().min(1),
+  description: z.string().default(""),
+  tag: CheckpointTag.default("checkpoint"),
+});
+export type CheckpointInput = z.infer<typeof CheckpointInput>;
+
+// --------------------------------------------------------------------------
 // Versioning + config
 // --------------------------------------------------------------------------
 
@@ -450,6 +517,7 @@ export const DatabaseTree = z.object({
   infra_edges: z.record(z.record(InfraEdge)).default({}),
   infra_flows: z.record(z.record(InfraFlow)).default({}),
   tasks: z.record(z.record(Task)).default({}),
+  checkpoints: z.record(z.record(Checkpoint)).default({}),
 });
 export type DatabaseTree = z.infer<typeof DatabaseTree>;
 
@@ -484,4 +552,8 @@ export const paths = {
   // Task tracker — project-scoped, stands apart but links into the other layers.
   tasks: (projectId: string) => `tasks/${projectId}`,
   task: (projectId: string, taskId: string) => `tasks/${projectId}/${taskId}`,
+  // Manual, named canvas snapshots — project-scoped, stands apart like tasks.
+  checkpoints: (projectId: string) => `checkpoints/${projectId}`,
+  checkpoint: (projectId: string, checkpointId: string) =>
+    `checkpoints/${projectId}/${checkpointId}`,
 } as const;
