@@ -50,12 +50,12 @@ export function renderPanel(
   }
   const style = el.style ?? {};
   styleSec.append(
-    textRow("Fill", style.fill ?? "", (v) =>
+    colorRow("Fill", style.fill ?? "", (v) =>
       onChange({ style: { ...style, fill: v } }),
     ),
   );
   styleSec.append(
-    textRow("Stroke", style.stroke ?? "", (v) =>
+    colorRow("Stroke", style.stroke ?? "", (v) =>
       onChange({ style: { ...style, stroke: v } }),
     ),
   );
@@ -66,8 +66,21 @@ export function renderPanel(
   );
   if (el.type === "text") {
     styleSec.append(
-      numRow("Font", style.fontSize ?? 16, (v) =>
+      fontFamilyRow("Font", style.fontFamily ?? "", (v) =>
+        onChange({ style: { ...style, fontFamily: v || undefined } }),
+      ),
+    );
+    styleSec.append(
+      numRow("Size", style.fontSize ?? 16, (v) =>
         onChange({ style: { ...style, fontSize: v } }),
+      ),
+    );
+    styleSec.append(
+      selectRow(
+        "Weight",
+        String(style.fontWeight ?? 400),
+        ["400", "500", "600", "700"],
+        (v) => onChange({ style: { ...style, fontWeight: Number(v) } }),
       ),
     );
   }
@@ -292,12 +305,12 @@ function h(tag: string, content: string, cls = ""): HTMLElement {
   return node;
 }
 
-function row(label: string, input: HTMLInputElement): HTMLElement {
+function row(label: string, control: HTMLElement): HTMLElement {
   const div = document.createElement("div");
   div.className = "row";
   const l = document.createElement("label");
   l.textContent = label;
-  div.append(l, input);
+  div.append(l, control);
   return div;
 }
 
@@ -328,6 +341,91 @@ function textRow(
   input.disabled = readOnly;
   input.addEventListener("change", () => onChange(input.value));
   return row(label, input);
+}
+
+/** Normalize a stored color to the `#rrggbb` a native color input requires;
+ * returns null for empty/unparseable values (e.g. named colors) so the swatch
+ * can fall back without clobbering the text the user typed. */
+function toHexColor(v: string): string | null {
+  const s = v.trim();
+  const six = /^#([0-9a-f]{6})$/i.exec(s);
+  if (six?.[1]) return `#${six[1].toLowerCase()}`;
+  const three = /^#([0-9a-f]{3})$/i.exec(s);
+  if (three?.[1]) {
+    const g = three[1];
+    return `#${g[0]}${g[0]}${g[1]}${g[1]}${g[2]}${g[2]}`.toLowerCase();
+  }
+  return null;
+}
+
+/** A color field: a native swatch picker paired with a hex text input. The text
+ * stays the source of truth (so any CSS color string is still allowed), and the
+ * two stay in sync — picking updates the text, typing a valid hex updates the
+ * swatch. */
+function colorRow(
+  label: string,
+  value: string,
+  onChange: (v: string) => void,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "color-field";
+
+  const swatch = document.createElement("input");
+  swatch.type = "color";
+  swatch.className = "color-swatch";
+  swatch.value = toHexColor(value) ?? "#000000";
+
+  const text = document.createElement("input");
+  text.type = "text";
+  text.className = "color-text";
+  text.value = value;
+
+  swatch.addEventListener("input", () => {
+    text.value = swatch.value;
+    onChange(swatch.value);
+  });
+  text.addEventListener("input", () => {
+    const hex = toHexColor(text.value);
+    if (hex) swatch.value = hex;
+  });
+  text.addEventListener("change", () => onChange(text.value));
+
+  wrap.append(swatch, text);
+  return row(label, wrap);
+}
+
+/** Font families offered for text elements; the empty value is the canvas
+ * default. Values are valid CSS font-family stacks so the canvas can apply them
+ * directly. */
+const FONT_FAMILIES: ReadonlyArray<{ label: string; value: string }> = [
+  // Empty value = the canvas default (--sans, Space Grotesk); labelled with the
+  // real font name so the picker shows what's actually rendered.
+  { label: "Space Grotesk", value: "" },
+  { label: "System Sans", value: "system-ui, sans-serif" },
+  { label: "Serif", value: "Georgia, 'Times New Roman', serif" },
+  { label: "Mono", value: "'SF Mono', ui-monospace, 'Courier New', monospace" },
+  { label: "Inter", value: "Inter, sans-serif" },
+  { label: "Helvetica", value: "Helvetica, Arial, sans-serif" },
+];
+
+/** A font-family picker: each option previews itself in its own typeface. */
+function fontFamilyRow(
+  label: string,
+  value: string,
+  onChange: (v: string) => void,
+): HTMLElement {
+  const select = document.createElement("select");
+  for (const f of FONT_FAMILIES) {
+    const o = document.createElement("option");
+    o.value = f.value;
+    o.textContent = f.label;
+    // Preview each option in its own typeface; the default falls back to --sans.
+    o.style.fontFamily = f.value || "var(--sans)";
+    if (f.value === value) o.selected = true;
+    select.append(o);
+  }
+  select.addEventListener("change", () => onChange(select.value));
+  return row(label, select);
 }
 
 function selectRow(

@@ -72,6 +72,7 @@ export const Style = z.object({
   radius: z.number().nonnegative().optional(),
   fontSize: z.number().positive().optional(),
   fontWeight: z.number().int().optional(),
+  fontFamily: z.string().optional(),
   color: z.string().optional(),
 });
 export type Style = z.infer<typeof Style>;

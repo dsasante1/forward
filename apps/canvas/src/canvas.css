@@ -280,11 +280,36 @@ rect.el-selected, ellipse.el-selected { stroke: var(--accent); stroke-width: 1.5
 rect.el-changed, ellipse.el-changed { stroke: var(--task); stroke-width: 2; }
 rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--accent); }
 .el-label { fill: var(--text); pointer-events: none; }
+/* Transparent click target behind text elements so they stay selectable. */
+.el-text-hit { pointer-events: all; cursor: move; }
 .el-name { fill: #6b6a64; font-family: var(--mono); pointer-events: none; }
 .el-badge { fill: var(--accent); font-size: 10px; font-weight: 700; pointer-events: none; }
-.handle { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; cursor: nwse-resize; }
-.rotate-stem { stroke: var(--accent); stroke-width: 1.5; }
-.rotate-knob { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; cursor: grab; }
+/* Selection chrome. Handles render in world space, so non-scaling-stroke keeps
+ * the 1px lines crisp at any zoom. */
+.handles { pointer-events: none; }
+.handles > * { pointer-events: all; }
+.sel-box {
+  fill: none; stroke: var(--accent); stroke-width: 1; opacity: .9;
+  pointer-events: none; vector-effect: non-scaling-stroke;
+}
+.handle {
+  fill: #fff; stroke: var(--accent); stroke-width: 1.5;
+  vector-effect: non-scaling-stroke; cursor: nwse-resize;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .35));
+}
+.handle:hover { fill: var(--accent); }
+/* Curved-arrow cursor signals the knob/stem can be dragged to rotate the element. */
+.rotate-stem,
+.rotate-knob {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 12a9 9 0 1 1-3-6.7'/%3E%3Cpath d='M21 3v6h-6'/%3E%3C/svg%3E") 12 12, grab;
+}
+.rotate-stem { stroke: var(--accent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.rotate-knob {
+  fill: var(--accent); stroke: #fff; stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .35));
+}
+.rotate-knob:hover { fill: #fff; stroke: var(--accent); }
 .snapline { stroke: var(--accent); stroke-width: 1; }
 
 /* --- infrastructure overlay --- */
@@ -456,6 +481,18 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 .row textarea { resize: vertical; min-height: 56px; }
 .row-stack { flex-direction: column; align-items: stretch; }
 .row-stack label { width: auto; }
+
+/* --- color field: swatch picker + hex text --- */
+.color-field { display: flex; flex: 1; min-width: 0; align-items: center; gap: 8px; }
+.color-field .color-text { flex: 1; min-width: 0; }
+.color-field .color-swatch {
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
+  background: var(--surface-3); border: 1px solid var(--line-2);
+  border-radius: 7px; cursor: pointer;
+}
+.color-field .color-swatch::-webkit-color-swatch-wrapper { padding: 3px; }
+.color-field .color-swatch::-webkit-color-swatch { border: none; border-radius: 4px; }
+.color-field .color-swatch::-moz-color-swatch { border: none; border-radius: 4px; }
 .doc-add, .doc-remove {
   margin-top: 10px; width: 100%; padding: 10px; border-radius: 8px;
   background: var(--surface-3); color: var(--text); border: 1px solid var(--line-3);

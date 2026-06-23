@@ -910,6 +910,18 @@ function drawElement(raw: DesignElement): SVGGElement {
     .join(" ");
 
   if (el.type === "text") {
+    // The glyph itself has pointer-events:none, so back it with a transparent
+    // hit-rect over the element's bounds — otherwise clicks fall through to
+    // whatever is behind and the text can't be selected.
+    const hit = svgEl("rect", {
+      x: String(el.x),
+      y: String(el.y),
+      width: String(el.width),
+      height: String(el.height),
+      fill: "transparent",
+      class: "el-text-hit",
+    });
+    g.append(hit);
     const t = text(
       el.text ?? "Text",
       el.x,
@@ -918,14 +930,16 @@ function drawElement(raw: DesignElement): SVGGElement {
     );
     t.setAttribute("font-size", String(style.fontSize ?? 16));
     t.setAttribute("font-weight", String(style.fontWeight ?? 400));
-    if (style.color) t.setAttribute("fill", style.color);
+    if (style.fontFamily) t.setAttribute("font-family", style.fontFamily);
+    if (style.color) t.style.fill = style.color;
     g.append(t);
   } else {
     const shape = el.type === "ellipse" ? el2ellipse(el, cls, style) : el2rect(el, cls, style);
     g.append(shape);
     if (el.text) {
       const t = text(el.text, el.x + 10, el.y + el.height / 2 + 4, "el-label");
-      if (style.color) t.setAttribute("fill", style.color);
+      if (style.fontFamily) t.setAttribute("font-family", style.fontFamily);
+      if (style.color) t.style.fill = style.color;
       g.append(t);
     }
     const name = text(raw.name || raw.id, el.x, el.y - 6, "el-name");
@@ -959,8 +973,10 @@ function el2rect(
     rx: String(style.radius ?? 0),
     class: cls,
   }) as SVGRectElement;
-  if (style.fill) r.setAttribute("fill", style.fill);
-  if (style.stroke) r.setAttribute("stroke", style.stroke);
+  // Inline style (not a presentation attribute) so a custom color overrides the
+  // .el-rect/.el-selected stylesheet rules, which would otherwise win.
+  if (style.fill) r.style.fill = style.fill;
+  if (style.stroke) r.style.stroke = style.stroke;
   if (style.strokeWidth != null)
     r.setAttribute("stroke-width", String(style.strokeWidth));
   return r;
@@ -979,8 +995,8 @@ function el2ellipse(
     ry: String(el.height / 2),
     class: cls,
   }) as SVGEllipseElement;
-  if (style.fill) e.setAttribute("fill", style.fill);
-  if (style.stroke) e.setAttribute("stroke", style.stroke);
+  if (style.fill) e.style.fill = style.fill;
+  if (style.stroke) e.style.stroke = style.stroke;
   if (style.strokeWidth != null)
     e.setAttribute("stroke-width", String(style.strokeWidth));
   return e;
@@ -992,14 +1008,25 @@ function handles(el: DesignElement): SVGElement[] {
   const cy = r.y + r.height / 2;
   // Wrap the handles in a group rotated with the element so they track the
   // (visually rotated) box corners and top edge.
-  const g = svgEl("g", {}) as SVGGElement;
+  const g = svgEl("g", { class: "handles" }) as SVGGElement;
   if (r.rotation) g.setAttribute("transform", `rotate(${r.rotation} ${cx} ${cy})`);
 
+  // A thin outline around the bounds makes the selection legible even for text
+  // elements (which have no shape of their own to recolor).
+  const outline = svgEl("rect", {
+    x: String(r.x),
+    y: String(r.y),
+    width: String(r.width),
+    height: String(r.height),
+    class: "sel-box",
+  });
+
   const se = svgEl("rect", {
-    x: String(r.x + r.width - 5),
-    y: String(r.y + r.height - 5),
-    width: "10",
-    height: "10",
+    x: String(r.x + r.width - 4),
+    y: String(r.y + r.height - 4),
+    width: "8",
+    height: "8",
+    rx: "2",
     class: "handle",
   });
   se.dataset.handle = "se";
@@ -1009,18 +1036,18 @@ function handles(el: DesignElement): SVGElement[] {
     x1: String(cx),
     y1: String(r.y),
     x2: String(cx),
-    y2: String(r.y - 22),
+    y2: String(r.y - 20),
     class: "rotate-stem",
   });
   const knob = svgEl("circle", {
     cx: String(cx),
-    cy: String(r.y - 28),
-    r: "6",
+    cy: String(r.y - 24),
+    r: "4.5",
     class: "rotate-knob",
   });
   knob.dataset.handle = "rotate";
 
-  g.append(se, stem, knob);
+  g.append(outline, stem, knob, se);
   return [g];
 }
 
@@ -1543,7 +1570,11 @@ on(window, "keydown", (e) => {
     closeSaveModal();
     return;
   }
-  const target = e.target as HTMLElement;
+  // Read the real innermost target via composedPath: the canvas lives in a
+  // Shadow DOM, so events bubbling to window have e.target retargeted to the
+  // shadow host — that would hide the panel's <input> and let Delete/Backspace
+  // delete the selected element while the user is editing X/Y/W/H/Rotate.
+  const target = (e.composedPath()[0] ?? e.target) as HTMLElement;
   if (isTypingTarget(target)) return;
   if (e.key === "Escape") {
     closeContextMenu();
