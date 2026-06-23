@@ -764,6 +764,7 @@ function elementNode(
     if (s.color) node.style.color = s.color;
     if (s.fontSize) node.style.fontSize = `${s.fontSize}px`;
     if (s.fontWeight) node.style.fontWeight = String(s.fontWeight);
+    if (s.fontFamily) node.style.fontFamily = s.fontFamily;
   } else {
     if (s.fill) node.style.background = s.fill;
     if (s.stroke) node.style.borderColor = s.stroke;
