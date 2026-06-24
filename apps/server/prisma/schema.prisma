@@ -57,6 +57,7 @@ model Project {
   invites        Invite[]
   elements       DesignElement[]
   versionEntries VersionEntry[]
+  timelineEvents TimelineEvent[]
   infraNodes     InfraNode[]
   infraEdges     InfraEdge[]
   infraFlows     InfraFlow[]
@@ -127,6 +128,26 @@ model VersionEntry {
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId, elementId])
+  @@index([projectId, ts])
+}
+
+// The unified, project-wide activity feed behind the canvas History timeline.
+// Append-only like VersionEntry (INSERT only — no route mutates it): the element
+// and infra services record one row per create/modify/delete, domain-tagged, so
+// the History view has a real event for every layer. `author` + `ts` are stamped
+// by the server from the authenticated session.
+model TimelineEvent {
+  seq       BigInt   @id @default(autoincrement())
+  projectId String
+  domain    String // 'design' | 'api' | 'infra' | 'uml'
+  action    String // 'created' | 'modified' | 'deleted'
+  targetId  String // element / node / edge / flow id
+  title     String
+  detail    String   @default("")
+  author    String
+  ts        BigInt // epoch ms
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   @@index([projectId, ts])
 }
 

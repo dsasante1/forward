@@ -5,7 +5,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useUser } from "@clerk/clerk-react";
+import { useUser } from "@clerk/react";
 import type { ProjectRole } from "forward-core";
 import { useApi, type Member } from "./client.js";
 import { useAsync } from "./useAsync.js";

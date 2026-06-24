@@ -5,6 +5,7 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  ProjectTimelineEvent,
   Task,
 } from "forward-core";
 import * as api from "forward-core/api";
@@ -40,6 +41,8 @@ export class ServerSource implements CanvasSource {
   private lastInfraJson = "";
   private lastTasksJson = "";
   private lastCheckpointsJson = "";
+  private timelineTimer: ReturnType<typeof setInterval> | undefined;
+  private lastTimelineJson = "";
 
   constructor(
     private readonly baseUrl: string,
@@ -134,6 +137,28 @@ export class ServerSource implements CanvasSource {
     this.checkpointTimer = setInterval(tick, this.pollMs);
     return () => {
       if (this.checkpointTimer) clearInterval(this.checkpointTimer);
+    };
+  }
+
+  subscribeProjectTimeline(
+    onChange: (events: ProjectTimelineEvent[]) => void,
+  ): () => void {
+    const tick = async () => {
+      try {
+        const events = await api.fetchProjectTimeline(await this.cfg());
+        const json = JSON.stringify(events);
+        if (json !== this.lastTimelineJson) {
+          this.lastTimelineJson = json;
+          onChange(events);
+        }
+      } catch (err) {
+        console.warn("[server-source] timeline poll failed:", err);
+      }
+    };
+    void tick();
+    this.timelineTimer = setInterval(tick, this.pollMs);
+    return () => {
+      if (this.timelineTimer) clearInterval(this.timelineTimer);
     };
   }
 

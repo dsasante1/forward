@@ -1,543 +1,347 @@
 import {
+  buildHistoryTimeline,
   type Checkpoint,
-  type CheckpointTag,
-  type CurrentLabel,
-  digest,
-  type DiffSection,
-  flattenTimelines,
-  type TimelineEvent,
-  type VersionAction,
-  type VersionDiff,
-  type VersionEntry,
+  type HistoryRow,
+  type HistorySort,
+  type HistoryView,
+  type ProjectTimelineEvent,
+  type TimelineDomain,
 } from "forward-core";
 
 /**
- * The project endpoint timeline: one overlay panel that turns the per-element
- * `version_timeline` histories into
- *   1. a "catch-up DIGEST" — the net added / modified / deleted tally a frontend
- *      dev acts on after being away, with a one-line net-change summary, and
- *   2. a filterable HISTORY feed — every endpoint event as an expandable card on
- *      a single timeline rail, newest first, that opens to show the structured
- *      documentation diff (request/response field changes + breaking callout).
+ * The project History timeline: a full-cover, domain-grouped activity feed (the
+ * imported "History timeline" design). Every create/modify/delete across the four
+ * layers — Design / API / Infra / UML — lands on one date-rail, filterable by a
+ * view-switcher and sortable newest/oldest. Clicking an event opens a viewer that
+ * shows its detail and, for checkpoints, offers a one-click restore.
  *
- * The data crunching lives in forward-core (flattenTimelines / digest); this
- * module only draws. Clicking a card selects that element on the canvas.
+ * The merging/filtering/sorting is pure and lives in forward-core
+ * (`buildHistoryTimeline`); this module only draws.
  */
 
 export interface TimelineCallbacks {
-  onSelect: (elementId: string) => void;
+  /** Deep-link a design/api event's element on the canvas (closes the History view). */
+  onSelectElement: (elementId: string) => void;
+  /** Rewind the project to a checkpoint (from the event viewer's "Restore"). */
+  onRestore: (checkpointId: string) => void;
+  /** Delete a checkpoint (from the event viewer). Omitted on read-only sources. */
+  onDelete?: (checkpointId: string) => void;
   onClose: () => void;
 }
 
-/**
- * The manual-checkpoint ("design history") section, rendered above the endpoint
- * timeline. Supplied only when the source can persist checkpoints; absent on a
- * read-only source, in which case the section is omitted entirely.
- */
-export interface CheckpointSection {
-  checkpoints: Checkpoint[];
-  onSave: () => void;
-  onRestore: (id: string) => void;
-  onDelete: (id: string) => void;
-}
-
-const TAG_LABEL: Record<CheckpointTag, string> = {
-  milestone: "MILESTONE",
-  checkpoint: "CHECKPOINT",
-  wip: "WIP",
-};
-
 const SVG_NS = "http://www.w3.org/2000/svg";
+const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
 
-const ACTION_LABEL: Record<VersionAction, string> = {
-  created: "added",
-  modified: "modified",
-  deleted: "deleted",
+/** Fixed semantic colour per layer (mirrors the design + the CSS-var defaults). */
+const DOMAIN: Record<TimelineDomain, { label: string; color: string }> = {
+  design: { label: "Design", color: "#7a8190" },
+  api: { label: "API", color: "#d06a40" },
+  infra: { label: "Infra", color: "#5b8fcf" },
+  uml: { label: "UML", color: "#9a7fd0" },
 };
-
-// Baseline choices for the digest ("what changed since…").
-const WINDOWS: Array<{ key: string; label: string; ms: number }> = [
-  { key: "24h", label: "Last 24 hours", ms: 24 * 3600_000 },
-  { key: "7d", label: "Last 7 days", ms: 7 * 24 * 3600_000 },
-  { key: "30d", label: "Last 30 days", ms: 30 * 24 * 3600_000 },
-  { key: "all", label: "All time", ms: Number.POSITIVE_INFINITY },
-];
-
-// History filter tabs (the action each one keeps).
-const FILTERS: Array<{ key: string; label: string; action?: VersionAction }> = [
-  { key: "all", label: "All" },
-  { key: "added", label: "Added", action: "created" },
-  { key: "modified", label: "Modified", action: "modified" },
-  { key: "deleted", label: "Deleted", action: "deleted" },
-];
+// The view-switcher order from the design: Design · Infra · UML · API · Unified.
+const VIEW_ORDER: HistoryView[] = ["design", "infra", "uml", "api", "unified"];
 
 // Module-level UI state — the panel is rebuilt from scratch on every data sync,
-// so these survive re-renders.
-let windowKey = "30d";
-let filterKey = "all";
-const expanded = new Set<string>(); // event keys the user has opened
-const known = new Set<string>(); // event keys already given a default state
+// so these survive re-renders (like the old endpoint-timeline view did).
+let view: HistoryView = "unified";
+let sort: HistorySort = "new";
+let pickId: string | null = null;
 
-function eventKey(e: TimelineEvent): string {
-  return `${e.elementId}:${e.timestamp}`;
-}
+let lastEvents: ProjectTimelineEvent[] = [];
+let lastCheckpoints: Checkpoint[] = [];
+let lastRoot: HTMLElement | null = null;
+let lastCb: TimelineCallbacks | null = null;
 
 export function renderTimelineView(
   root: HTMLElement,
-  byElement: Record<string, VersionEntry[]>,
-  current: Record<string, CurrentLabel>,
+  events: ProjectTimelineEvent[],
+  checkpoints: Checkpoint[],
   cb: TimelineCallbacks,
-  checkpointSection?: CheckpointSection,
 ): void {
+  lastEvents = events;
+  lastCheckpoints = checkpoints;
+  lastRoot = root;
+  lastCb = cb;
+  paint();
+}
+
+/** Re-render from the retained data after a local UI-state change (view/sort/pick). */
+function paint(): void {
+  const root = lastRoot;
+  const cb = lastCb;
+  if (!root || !cb) return;
   root.replaceChildren();
 
-  const head = div("tl-head");
-  head.append(h("h2", "History"));
-  const actions = div("tl-head-actions");
-  const collapse = iconBtn("⌄", "Collapse panel", "tl-collapse");
-  const close = iconBtn("✕", "Close timeline", "tl-close");
+  const tl = buildHistoryTimeline(lastEvents, lastCheckpoints, { view, sort });
+
+  // --- header ------------------------------------------------------------
+  const head = div("tl2-head");
+  const titles = div("tl2-titles");
+  titles.append(h("div", "History timeline", "tl2-title"));
+  const range = fmtRange(tl.range.first, tl.range.last, sort);
+  titles.append(
+    h(
+      "div",
+      `${tl.counts.unified} event${tl.counts.unified === 1 ? "" : "s"}${range ? ` · ${range}` : ""}`,
+      "tl2-sub",
+    ),
+  );
+  head.append(titles);
+
+  const views = div("tl2-views");
+  for (const v of VIEW_ORDER) {
+    const btn = document.createElement("button");
+    btn.className = `tl2-view${v === view ? " active" : ""}`;
+    btn.type = "button";
+    btn.append(span(v === "unified" ? "Unified" : DOMAIN[v].label));
+    btn.append(span(String(tl.counts[v]), "tl2-view-n"));
+    btn.addEventListener("click", () => {
+      view = v;
+      paint();
+    });
+    views.append(btn);
+  }
+  head.append(views);
+
+  const sortBtn = document.createElement("button");
+  sortBtn.className = "tl2-sort";
+  sortBtn.type = "button";
+  sortBtn.append(sortIcon(sort), document.createTextNode(sort === "new" ? "Newest first" : "Oldest first"));
+  sortBtn.addEventListener("click", () => {
+    sort = sort === "new" ? "old" : "new";
+    paint();
+  });
+  head.append(sortBtn);
+  // A close affordance (the History tool also toggles it from the rail).
+  const close = document.createElement("button");
+  close.className = "tl2-sort";
+  close.type = "button";
+  close.title = "Close timeline";
+  close.textContent = "✕";
   close.addEventListener("click", cb.onClose);
-  actions.append(collapse, close);
-  head.append(actions);
+  head.append(close);
   root.append(head);
 
-  const body = div("tl-body");
-  root.append(body);
-  collapse.addEventListener("click", () => {
-    const hidden = body.toggleAttribute("hidden");
-    collapse.textContent = hidden ? "›" : "⌄";
-  });
-
-  // "Design history" — manual checkpoints — sits above the endpoint timeline.
-  if (checkpointSection) renderCheckpoints(body, checkpointSection);
-
-  const events = flattenTimelines(byElement, current);
-  body.append(h("h3", "Endpoint timeline"));
-  if (!events.length) {
-    body.append(
-      h(
-        "p",
-        "No endpoint history yet. Documentation written from VS Code (or by an agent) shows up here.",
-        "empty",
-      ),
-    );
-    return;
+  // --- date rail ---------------------------------------------------------
+  const scroll = div("tl2-scroll");
+  const rail = div("tl2-rail");
+  if (!tl.rows.length) {
+    rail.append(div("tl2-empty empty", "No history in this view yet."));
+  } else {
+    rail.append(div("tl2-rail-line"));
+    for (const r of tl.rows) rail.append(rowEl(r));
   }
+  scroll.append(rail);
+  root.append(scroll);
 
-  renderDigest(body, events);
-  renderHistory(body, events, cb);
+  // --- event viewer overlay ---------------------------------------------
+  const picked = pickId ? tl.rows.find((r) => r.id === pickId) : undefined;
+  if (picked) root.append(viewerEl(picked, tl.rows, cb));
 }
 
 // --------------------------------------------------------------------------
-// Design history: manual checkpoints (save + restore)
+// Rows
 // --------------------------------------------------------------------------
-function renderCheckpoints(root: HTMLElement, sec: CheckpointSection): void {
-  const wrap = div("tl-checkpoints");
+function rowEl(r: HistoryRow): HTMLElement {
+  const color = DOMAIN[r.domain].color;
+  const d = new Date(r.timestamp);
 
-  const save = document.createElement("button");
-  save.className = "tl-save-checkpoint";
-  save.textContent = "Save checkpoint";
-  save.addEventListener("click", sec.onSave);
-  wrap.append(save);
+  const row = div("tl2-row");
+  const date = div("tl2-date");
+  date.append(h("div", String(d.getDate()).padStart(2, "0"), "tl2-day"));
+  date.append(h("div", `${MONTHS[d.getMonth()]} ${d.getFullYear()}`, "tl2-monthyear"));
+  row.append(date);
 
-  const head = div("tl-cp-head");
-  head.append(h("h3", "Design history"));
-  head.append(span(`${sec.checkpoints.length} saved`, "tl-cp-count"));
-  wrap.append(head);
+  const wrap = div("tl2-cardwrap");
+  const dot = div("tl2-dot");
+  dot.style.background = color;
+  wrap.append(dot);
 
-  if (!sec.checkpoints.length) {
-    wrap.append(
-      h("p", "No checkpoints yet — save one to snapshot the canvas.", "empty"),
-    );
-    root.append(wrap);
-    return;
+  const card = div("tl2-card");
+  if (r.id === pickId) {
+    card.classList.add("picked");
+    card.style.color = color; // currentColor → the focus ring
   }
+  card.append(domainChip(r, color));
+  card.append(h("div", r.title, "tl2-card-title"));
+  if (r.detail) card.append(h("div", r.detail, "tl2-card-detail"));
 
-  sec.checkpoints.forEach((cp, i) => {
-    wrap.append(checkpointCard(cp, i === 0, sec));
-  });
-  root.append(wrap);
-}
-
-function checkpointCard(
-  cp: Checkpoint,
-  isCurrent: boolean,
-  sec: CheckpointSection,
-): HTMLElement {
-  const card = div("tl-cp-card");
-  if (isCurrent) card.classList.add("is-current");
-
-  const top = div("tl-cp-top");
-  const tag = span(TAG_LABEL[cp.tag] ?? cp.tag.toUpperCase(), "tl-cp-tag");
-  tag.dataset.tag = cp.tag;
-  top.append(tag);
-  if (isCurrent) top.append(span("CURRENT", "tl-cp-current"));
-  top.append(span(relTime(Date.parse(cp.createdAt)), "tl-cp-when"));
-  card.append(top);
-
-  card.append(h("div", cp.title, "tl-cp-title"));
-  if (cp.description) card.append(h("div", cp.description, "tl-cp-desc"));
-
-  if (cp.changes.length) {
-    const chips = div("tl-cp-chips");
-    for (const c of cp.changes) {
-      const chip = span(`${c.layer} +${c.n}`, "tl-cp-chip");
-      chip.dataset.layer = c.layer;
-      chips.append(chip);
-    }
-    card.append(chips);
-  }
-
-  const foot = div("tl-cp-foot");
-  const who = cp.author ?? "—";
-  const avatar = span(who.slice(0, 1).toUpperCase(), "tl-cp-avatar");
-  foot.append(avatar, span(who, "tl-cp-author"));
-  const acts = div("tl-cp-acts");
-  const restore = document.createElement("button");
-  restore.className = "tl-cp-btn";
-  restore.textContent = "Restore";
-  restore.addEventListener("click", () => sec.onRestore(cp.id));
-  const del = document.createElement("button");
-  del.className = "tl-cp-btn";
-  del.textContent = "Delete";
-  del.addEventListener("click", () => sec.onDelete(cp.id));
-  acts.append(restore, del);
-  foot.append(acts);
+  const foot = div("tl2-foot");
+  const initial = (r.author || "?").charAt(0).toUpperCase();
+  foot.append(span(initial, "tl2-avatar"));
+  foot.append(span(r.author || "unknown", "tl2-author"));
+  const link = div("tl2-view-link");
+  link.style.color = color;
+  link.append(eyeIcon(), document.createTextNode("View"));
+  foot.append(link);
   card.append(foot);
 
-  return card;
-}
-
-/** Compact relative time, mirroring the canvas top-strip stamp. */
-function relTime(ts: number): string {
-  if (Number.isNaN(ts)) return "";
-  const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 45) return "just now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const hr = Math.round(m / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const d = Math.round(hr / 24);
-  if (d === 1) return "yesterday";
-  if (d < 7) return `${d} days ago`;
-  const w = Math.round(d / 7);
-  if (w < 5) return w === 1 ? "last week" : `${w} weeks ago`;
-  return new Date(ts).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
+  card.addEventListener("click", () => {
+    pickId = r.id;
+    paint();
   });
-}
-
-// --------------------------------------------------------------------------
-// Digest: net change since a baseline
-// --------------------------------------------------------------------------
-function renderDigest(root: HTMLElement, events: TimelineEvent[]): void {
-  root.append(h("h3", "Catch-up digest"));
-
-  const since = div("tl-since");
-  since.append(h("label", "Since"));
-  const select = document.createElement("select");
-  for (const w of WINDOWS) {
-    const o = document.createElement("option");
-    o.value = w.key;
-    o.textContent = w.label;
-    if (w.key === windowKey) o.selected = true;
-    select.append(o);
-  }
-  select.addEventListener("change", () => {
-    windowKey = select.value;
-    fill(card);
-  });
-  since.append(select);
-  root.append(since);
-
-  const card = div("tl-digest-card");
-  fill(card);
-  root.append(card);
-
-  function fill(into: HTMLElement): void {
-    into.replaceChildren();
-    const winMs =
-      WINDOWS.find((w) => w.key === windowKey)?.ms ?? Number.POSITIVE_INFINITY;
-    const sinceTs = Number.isFinite(winMs) ? Date.now() - winMs : 0;
-    const d = digest(events, sinceTs);
-    const added = d.toIntegrate.length;
-    const modified = d.toModify.length;
-    const removed = d.toRemove.length;
-    const updates = events.filter((e) => e.timestamp > sinceTs).length;
-
-    const pills = div("tl-pills");
-    pills.append(pill(added, "added", "created"));
-    pills.append(pill(modified, "modified", "modified"));
-    pills.append(pill(removed, "deleted", "deleted"));
-    into.append(pills);
-
-    if (!updates) {
-      into.append(div("tl-netchange empty", "No endpoint changes in this window."));
-      return;
-    }
-    const net = added - removed;
-    const netStr = net >= 0 ? `+${net}` : String(net);
-    const noun = Math.abs(net) === 1 ? "endpoint" : "endpoints";
-    const line = div("tl-netchange");
-    line.append(span("Net change "));
-    line.append(span(`${netStr} ${noun}`, "tl-net-strong"));
-    line.append(span(` across ${updates} update${updates === 1 ? "" : "s"}`));
-    into.append(line);
-  }
-
-  function pill(n: number, label: string, tone: VersionAction): HTMLElement {
-    const p = div(`tl-pill tl-pill-${tone}${n ? "" : " tl-pill-zero"}`);
-    p.append(span("", "tl-dot"));
-    p.append(span(String(n), "tl-pill-n"));
-    p.append(span(label));
-    return p;
-  }
-}
-
-// --------------------------------------------------------------------------
-// History feed
-// --------------------------------------------------------------------------
-function renderHistory(
-  root: HTMLElement,
-  events: TimelineEvent[],
-  cb: TimelineCallbacks,
-): void {
-  const head = div("tl-history-head");
-  head.append(h("h3", "History"));
-  const tabs = div("tl-tabs");
-  for (const f of FILTERS) {
-    const t = document.createElement("button");
-    t.className = `tl-tab${f.key === filterKey ? " active" : ""}`;
-    t.textContent = f.label;
-    t.addEventListener("click", () => {
-      filterKey = f.key;
-      for (const b of tabs.children) b.classList.toggle("active", b === t);
-      fill();
-    });
-    tabs.append(t);
-  }
-  head.append(tabs);
-  root.append(head);
-
-  const list = div("tl-graph");
-  root.append(list);
-  fill();
-
-  function fill(): void {
-    list.replaceChildren();
-    const action = FILTERS.find((f) => f.key === filterKey)?.action;
-    // Newest first, like a git log.
-    const rows = [...events]
-      .reverse()
-      .filter((e) => !action || e.action === action);
-    if (!rows.length) {
-      list.append(div("tl-empty empty", "Nothing in this view."));
-      return;
-    }
-    for (const e of rows) list.append(card(e, cb));
-  }
-}
-
-function card(e: TimelineEvent, cb: TimelineCallbacks): HTMLElement {
-  const key = eventKey(e);
-  if (!known.has(key)) {
-    known.add(key);
-    if (e.action === "modified" && e.diff) expanded.add(key); // open by default
-  }
-
-  const row = div(`tl-row tl-row-${e.action}`);
-  row.append(rail(e.action));
-
-  const cardEl = div("tl-card");
-  const hasDetail = Boolean(e.diff) || Boolean(e.changeLog);
-
-  // --- header line: action / method / title / stat / expander -----------
-  const headLine = div("tl-card-head");
-  headLine.append(span(ACTION_LABEL[e.action].toUpperCase(), `tl-action tl-action-${e.action}`));
-  if (e.method) headLine.append(span(e.method, `tl-method tl-method-${e.method}`));
-  headLine.append(span(e.title, "tl-title"));
-  const right = div("tl-card-head-right");
-  if (e.diff && (e.diff.added || e.diff.removed)) right.append(stat(e.diff));
-  right.append(magnitude(e.action));
-  if (hasDetail) {
-    const chev = span("⌄", "tl-chevron");
-    right.append(chev);
-  }
-  headLine.append(right);
-  cardEl.append(headLine);
-
-  // --- version transition / path / changelog / author -------------------
-  if (e.previousVersion || e.version) {
-    const ver = div("tl-version");
-    if (e.previousVersion && e.previousVersion !== e.version) {
-      ver.append(span(e.previousVersion, "tl-ver-old"));
-      ver.append(span(" → ", "tl-ver-arrow"));
-    }
-    ver.append(span(e.version, "tl-ver-new"));
-    cardEl.append(ver);
-  }
-  if (e.path) cardEl.append(div("tl-path", e.path));
-  if (e.changeLog) cardEl.append(div("tl-log", e.changeLog));
-  cardEl.append(author(e));
-
-  // --- expandable detail (the diff) -------------------------------------
-  if (hasDetail) {
-    const detail = renderDetail(e, cb);
-    if (!expanded.has(key)) detail.hidden = true;
-    else cardEl.classList.add("open");
-    cardEl.append(detail);
-
-    const toggle = (): void => {
-      const open = detail.hidden;
-      detail.hidden = !open;
-      cardEl.classList.toggle("open", open);
-      if (open) expanded.add(key);
-      else expanded.delete(key);
-    };
-    // The whole header toggles; the card body still selects the element.
-    headLine.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      toggle();
-    });
-  }
-
-  cardEl.addEventListener("click", () => cb.onSelect(e.elementId));
-  row.append(cardEl);
+  wrap.append(card);
+  row.append(wrap);
   return row;
 }
 
-function renderDetail(e: TimelineEvent, cb: TimelineCallbacks): HTMLElement {
-  const detail = div("tl-detail");
-  const diff = e.diff;
+function domainChip(r: HistoryRow, color: string): HTMLElement {
+  const chip = span(
+    r.kind === "checkpoint" ? "CHECKPOINT" : DOMAIN[r.domain].label.toUpperCase(),
+    "tl2-chip",
+  );
+  chip.style.color = color;
+  chip.style.background = rgba(color, 0.16);
+  return chip;
+}
 
-  if (diff?.sections.length) {
-    for (const section of diff.sections) detail.append(diffSection(section));
-  } else if (e.changeLog) {
-    // No structured diff — surface the change-log prose as the detail.
-    detail.append(div("tl-detail-note", e.changeLog));
-  }
+// --------------------------------------------------------------------------
+// Event viewer
+// --------------------------------------------------------------------------
+function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTMLElement {
+  const color = DOMAIN[r.domain].color;
+  const idx = rows.findIndex((x) => x.id === r.id);
+  const d = new Date(r.timestamp);
 
-  if (diff?.breaking) {
-    const box = div("tl-breaking");
-    box.append(span("⚠", "tl-breaking-icon"));
-    box.append(div("tl-breaking-text", diff.breaking));
-    detail.append(box);
-  }
+  const viewer = div("tl2-viewer");
 
-  const bar = div("tl-detail-actions");
-  if (diff) {
-    const copy = textBtn("⧉ Copy diff");
-    copy.addEventListener("click", (ev) => {
-      ev.stopPropagation();
-      void navigator.clipboard?.writeText(diffToText(e));
-      copy.textContent = "✓ Copied";
-      window.setTimeout(() => {
-        copy.textContent = "⧉ Copy diff";
-      }, 1200);
-    });
-    bar.append(copy);
-  }
-  const full = textBtn("◷ Full history");
-  full.addEventListener("click", (ev) => {
-    ev.stopPropagation();
-    cb.onSelect(e.elementId);
+  const head = div("tl2-viewer-head");
+  const back = document.createElement("button");
+  back.className = "tl2-back";
+  back.type = "button";
+  back.append(span("←"), document.createTextNode("Timeline"));
+  back.addEventListener("click", () => {
+    pickId = null;
+    paint();
   });
-  bar.append(full);
-  detail.append(bar);
+  head.append(back);
+  head.append(domainChip(r, color));
 
-  return detail;
-}
+  const titles = div("tl2-viewer-titles");
+  titles.append(h("div", r.title, "tl2-viewer-title"));
+  titles.append(
+    h(
+      "div",
+      `${MONTHS[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()} · ${r.author || "unknown"}`,
+      "tl2-viewer-stamp",
+    ),
+  );
+  head.append(titles);
 
-function diffSection(section: DiffSection): HTMLElement {
-  const wrap = div("tl-diff-section");
-  wrap.append(div("tl-diff-label", section.label));
-  const table = div("tl-diff-table");
-  for (const r of section.rows) {
-    const rowEl = div(`tl-diff-row tl-diff-${r.op}`);
-    for (const c of r.cols) rowEl.append(span(c, "tl-diff-cell"));
-    table.append(rowEl);
-  }
-  wrap.append(table);
-  return wrap;
-}
-
-// --------------------------------------------------------------------------
-// Small pieces
-// --------------------------------------------------------------------------
-
-/** A single ring node on the timeline rail, coloured by the event's action. */
-function rail(action: VersionAction): HTMLElement {
-  const r = div("tl-rail");
-  const node = document.createElementNS(SVG_NS, "svg");
-  node.setAttribute("class", `tl-node tl-node-${action}`);
-  node.setAttribute("viewBox", "0 0 16 16");
-  const outer = document.createElementNS(SVG_NS, "circle");
-  outer.setAttribute("cx", "8");
-  outer.setAttribute("cy", "8");
-  outer.setAttribute("r", "6");
-  outer.setAttribute("class", "tl-node-ring");
-  const inner = document.createElementNS(SVG_NS, "circle");
-  inner.setAttribute("cx", "8");
-  inner.setAttribute("cy", "8");
-  inner.setAttribute("r", "2.5");
-  inner.setAttribute("class", "tl-node-core");
-  node.append(outer, inner);
-  r.append(node);
-  return r;
-}
-
-/** The "+2 −1" diff-stat badge. */
-function stat(diff: VersionDiff): HTMLElement {
-  const s = div("tl-stat");
-  if (diff.added) s.append(span(`+${diff.added}`, "tl-stat-add"));
-  if (diff.removed) s.append(span(`−${diff.removed}`, "tl-stat-del"));
-  return s;
-}
-
-/** A small five-cell strip tinting the row by its action (decorative). */
-function magnitude(action: VersionAction): HTMLElement {
-  const m = div(`tl-mag tl-mag-${action}`);
-  for (let i = 0; i < 5; i++) m.append(span("", "tl-mag-cell"));
-  return m;
-}
-
-/** Author row: avatar initial + name · commit · time. */
-function author(e: TimelineEvent): HTMLElement {
-  const a = div("tl-author");
-  const initial = (e.author || "?").charAt(0).toUpperCase();
-  a.append(span(initial, "tl-avatar"));
-  const parts = div("tl-author-parts");
-  if (e.author) parts.append(span(e.author, "tl-author-name"));
-  if (e.commitHash) parts.append(span(e.commitHash, "tl-commit"));
-  parts.append(span(fmtTime(e.timestamp), "tl-time"));
-  a.append(parts);
-  return a;
-}
-
-function diffToText(e: TimelineEvent): string {
-  const lines: string[] = [`${ACTION_LABEL[e.action].toUpperCase()} ${e.method ?? ""} ${e.title}`.trim()];
-  if (e.path) lines.push(e.path);
-  if (e.previousVersion) lines.push(`${e.previousVersion} -> ${e.version}`);
-  for (const s of e.diff?.sections ?? []) {
-    lines.push("", s.label);
-    for (const r of s.rows) {
-      const mark = r.op === "added" ? "+" : r.op === "removed" ? "-" : " ";
-      lines.push(`${mark} ${r.cols.join("  ")}`);
+  const acts = div("tl2-viewer-acts");
+  const step = (delta: number): void => {
+    const ni = idx + delta;
+    if (ni < 0 || ni >= rows.length) return;
+    const target = rows[ni];
+    if (!target) return;
+    pickId = target.id;
+    paint();
+  };
+  acts.append(stepBtn("↑", () => step(-1)));
+  acts.append(stepBtn("↓", () => step(1)));
+  if (r.kind === "checkpoint" && r.checkpointId) {
+    const restore = document.createElement("button");
+    restore.className = "tl2-restore";
+    restore.type = "button";
+    restore.textContent = "Restore this version";
+    const id = r.checkpointId;
+    restore.addEventListener("click", () => cb.onRestore(id));
+    acts.append(restore);
+    if (cb.onDelete) {
+      const del = document.createElement("button");
+      del.className = "tl2-step";
+      del.type = "button";
+      del.title = "Delete checkpoint";
+      del.style.width = "auto";
+      del.style.padding = "0 12px";
+      del.textContent = "Delete";
+      const onDelete = cb.onDelete;
+      del.addEventListener("click", () => {
+        pickId = null;
+        onDelete(id);
+      });
+      acts.append(del);
     }
+  } else if (r.targetId) {
+    const open = document.createElement("button");
+    open.className = "tl2-restore";
+    open.type = "button";
+    open.textContent = "Open on canvas";
+    const id = r.targetId;
+    open.addEventListener("click", () => {
+      pickId = null;
+      cb.onSelectElement(id);
+    });
+    acts.append(open);
   }
-  if (e.diff?.breaking) lines.push("", `BREAKING: ${e.diff.breaking}`);
-  return lines.join("\n");
+  head.append(acts);
+  viewer.append(head);
+
+  // The honest "snapshot": the real recorded event — domain, title, detail.
+  // (We don't fabricate a reconstructed drawing; the data we hold is the change.)
+  const stage = div("tl2-stage");
+  const card = div("tl2-stage-card");
+  const dchip = domainChip(r, color);
+  card.append(dchip);
+  card.append(h("div", r.title, "tl2-stage-title"));
+  card.append(
+    h("div", r.detail || "No further detail recorded for this change.", "tl2-stage-detail"),
+  );
+  stage.append(card);
+  viewer.append(stage);
+  return viewer;
 }
 
-function fmtTime(ts: number): string {
-  return new Date(ts).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function stepBtn(glyph: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "tl2-step";
+  b.type = "button";
+  b.textContent = glyph;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// --------------------------------------------------------------------------
+// Helpers
+// --------------------------------------------------------------------------
+function fmtRange(first?: number, last?: number, order: HistorySort = "new"): string {
+  if (first === undefined || last === undefined) return "";
+  const lo = `${MONTHS[new Date(first).getMonth()]} ${new Date(first).getFullYear()}`;
+  const hi = `${MONTHS[new Date(last).getMonth()]} ${new Date(last).getFullYear()}`;
+  if (lo === hi) return lo;
+  // Read in the direction the list is sorted (newest-first shows hi → lo).
+  return order === "new" ? `${hi} → ${lo}` : `${lo} → ${hi}`;
+}
+
+/** Hex (#rrggbb) → rgba() string, for the translucent chip backgrounds. */
+function rgba(hex: string, a: number): string {
+  const n = Number.parseInt(hex.replace("#", ""), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
+
+function svg(paths: string[], size = 14): SVGElement {
+  const el = document.createElementNS(SVG_NS, "svg");
+  el.setAttribute("viewBox", "0 0 24 24");
+  el.setAttribute("width", String(size));
+  el.setAttribute("height", String(size));
+  el.setAttribute("fill", "none");
+  el.setAttribute("stroke", "currentColor");
+  el.setAttribute("stroke-width", "1.7");
+  el.setAttribute("stroke-linecap", "round");
+  el.setAttribute("stroke-linejoin", "round");
+  for (const d of paths) {
+    const p = document.createElementNS(SVG_NS, "path");
+    p.setAttribute("d", d);
+    el.append(p);
+  }
+  return el;
+}
+function eyeIcon(): SVGElement {
+  return svg(["M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z", "M12 14.8a2.8 2.8 0 1 0 0-5.6 2.8 2.8 0 0 0 0 5.6z"], 13);
+}
+function sortIcon(s: HistorySort): SVGElement {
+  return s === "new" ? svg(["M12 5v14", "M6 13l6 6 6-6"]) : svg(["M12 19V5", "M6 11l6-6 6 6"]);
 }
 
 // ---- tiny DOM builders ----------------------------------------------------
@@ -558,17 +362,4 @@ function span(content: string, cls = ""): HTMLSpanElement {
   if (cls) s.className = cls;
   if (content) s.textContent = content;
   return s;
-}
-function iconBtn(label: string, title: string, cls: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.className = cls;
-  b.title = title;
-  b.textContent = label;
-  return b;
-}
-function textBtn(label: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.className = "tl-btn";
-  b.textContent = label;
-  return b;
 }

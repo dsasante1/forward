@@ -448,6 +448,39 @@ export const VersionEntry = z.object({
 });
 export type VersionEntry = z.infer<typeof VersionEntry>;
 
+/**
+ * Which of the four data layers a project-timeline event belongs to, driving the
+ * History view's Design / API / Infra / UML grouping + per-domain colouring.
+ * `design`/`api` come from design-element + binding changes, `infra` from the
+ * node/edge graph, `uml` from the narrated flows.
+ */
+export const TimelineDomain = z.enum(["design", "api", "infra", "uml"]);
+export type TimelineDomain = z.infer<typeof TimelineDomain>;
+
+/**
+ * One entry in the unified, project-wide activity feed the History timeline reads
+ * — every create/modify/delete across the four layers, domain-tagged and stamped
+ * by the server with `author` + `timestamp`. Unlike the per-element
+ * `version_timeline` (API doc history only), this captures design, infra and flow
+ * changes too, so the History view has a real event for each domain. `seq` is the
+ * server's monotonic insert order, used as a stable id for selection/paging.
+ */
+export const ProjectTimelineEvent = z.object({
+  seq: z.number().int(),
+  domain: TimelineDomain,
+  action: VersionAction.default("modified"),
+  /** The element / node / edge / flow id this event is about. */
+  targetId: z.string(),
+  /** Human label — the element/node/flow name, or the endpoint for `api`. */
+  title: z.string().default(""),
+  /** One-line context (e.g. "Linked payments-db to checkout-svc"). */
+  detail: z.string().default(""),
+  author: z.string().default(""),
+  /** Epoch ms the change landed. */
+  timestamp: z.number().int(),
+});
+export type ProjectTimelineEvent = z.infer<typeof ProjectTimelineEvent>;
+
 export const UserConfig = z.object({
   repositoryUrl: z.string().url().optional(),
   projectName: z.string().min(1),

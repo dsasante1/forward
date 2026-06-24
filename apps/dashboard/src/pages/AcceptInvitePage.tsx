@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { RedirectToSignIn, SignedIn, SignedOut } from "@clerk/clerk-react";
+import { RedirectToSignIn, Show } from "@clerk/react";
 import { useApi } from "../api/client.js";
 
 /**
@@ -13,10 +13,10 @@ export function AcceptInvitePage() {
   const { token } = useParams<{ token: string }>();
   return (
     <div className="auth-screen">
-      <SignedOut>
+      <Show when="signed-out">
         <RedirectToSignIn />
-      </SignedOut>
-      <SignedIn>{token ? <Redeem token={token} /> : <p className="error">Missing invite token.</p>}</SignedIn>
+      </Show>
+      <Show when="signed-in">{token ? <Redeem token={token} /> : <p className="error">Missing invite token.</p>}</Show>
     </div>
   );
 }

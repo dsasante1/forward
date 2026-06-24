@@ -1,5 +1,8 @@
 import type {
+  Checkpoint,
   HttpMethod,
+  ProjectTimelineEvent,
+  TimelineDomain,
   VersionAction,
   VersionDiff,
   VersionEntry,
@@ -205,4 +208,118 @@ export function digest(chrono: TimelineEvent[], sinceTs: number): Digest {
     // absent before AND not live now (created+deleted in window) => no-op
   }
   return out;
+}
+
+// --------------------------------------------------------------------------
+// History timeline: the unified, domain-grouped activity feed (canvas History)
+// --------------------------------------------------------------------------
+
+/** The view-switcher selections: a single domain, or everything merged. */
+export type HistoryView = TimelineDomain | "unified";
+export type HistorySort = "new" | "old";
+
+/** One rendered row of the History date-rail — an activity event or a checkpoint. */
+export interface HistoryRow {
+  /** Stable id for selection/paging (`e<seq>` for events, `c<id>` for checkpoints). */
+  id: string;
+  kind: "event" | "checkpoint";
+  domain: TimelineDomain;
+  action: VersionAction;
+  title: string;
+  detail: string;
+  author: string;
+  /** Epoch ms. */
+  timestamp: number;
+  /** The element/node/flow id (event rows) so the viewer can deep-link the canvas. */
+  targetId?: string;
+  /** Present on checkpoint rows so the event viewer can offer "Restore". */
+  checkpointId?: string;
+}
+
+/** Per-domain counts for the view-switcher chips (`unified` = grand total). */
+export type HistoryCounts = Record<HistoryView, number>;
+
+export interface HistoryTimeline {
+  rows: HistoryRow[]; // filtered to the active view + sorted
+  counts: HistoryCounts; // computed over ALL rows, regardless of the active view
+  /** Oldest + newest timestamps across the filtered rows (for the range label). */
+  range: { first?: number; last?: number };
+}
+
+/** A checkpoint's dominant layer → timeline domain (the layer it changed most). */
+function checkpointDomain(cp: Checkpoint): TimelineDomain {
+  const top = [...cp.changes].sort((a, b) => b.n - a.n)[0]?.layer;
+  if (top === "API") return "api";
+  if (top === "INFRA") return "infra";
+  if (top === "UML") return "uml";
+  return "design";
+}
+
+/**
+ * Merge the project activity feed with the manual checkpoints into one
+ * chronological, domain-filterable row list for the History view. Pure: the
+ * canvas owns colours/markup, this owns selection/sorting/counting so it can be
+ * unit-tested. Checkpoints become rows too (tagged by their dominant layer) so
+ * restore stays reachable from the same timeline.
+ */
+export function buildHistoryTimeline(
+  events: ProjectTimelineEvent[],
+  checkpoints: Checkpoint[],
+  opts: { view: HistoryView; sort: HistorySort },
+): HistoryTimeline {
+  const rows: HistoryRow[] = [
+    ...events.map(
+      (e): HistoryRow => ({
+        id: `e${e.seq}`,
+        kind: "event",
+        domain: e.domain,
+        action: e.action,
+        title: e.title,
+        detail: e.detail,
+        author: e.author,
+        timestamp: e.timestamp,
+        targetId: e.targetId,
+      }),
+    ),
+    ...checkpoints.map(
+      (c): HistoryRow => ({
+        id: `c${c.id}`,
+        kind: "checkpoint",
+        domain: checkpointDomain(c),
+        action: "created",
+        title: c.title,
+        detail: c.description,
+        author: c.author ?? "",
+        timestamp: Date.parse(c.createdAt) || 0,
+        checkpointId: c.id,
+      }),
+    ),
+  ];
+
+  const counts: HistoryCounts = {
+    unified: rows.length,
+    design: 0,
+    api: 0,
+    infra: 0,
+    uml: 0,
+  };
+  for (const r of rows) counts[r.domain]++;
+
+  const filtered = (
+    opts.view === "unified" ? rows : rows.filter((r) => r.domain === opts.view)
+  ).sort((a, b) =>
+    opts.sort === "new"
+      ? b.timestamp - a.timestamp
+      : a.timestamp - b.timestamp,
+  );
+
+  const stamps = filtered.map((r) => r.timestamp);
+  return {
+    rows: filtered,
+    counts,
+    range: {
+      first: stamps.length ? Math.min(...stamps) : undefined,
+      last: stamps.length ? Math.max(...stamps) : undefined,
+    },
+  };
 }

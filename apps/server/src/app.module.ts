@@ -9,6 +9,7 @@ import { ElementsModule } from "./elements/elements.module.js";
 import { InfraModule } from "./infra/infra.module.js";
 import { TasksModule } from "./tasks/tasks.module.js";
 import { CheckpointsModule } from "./checkpoints/checkpoints.module.js";
+import { TimelineModule } from "./timeline/timeline.module.js";
 import { HealthController } from "./health.controller.js";
 
 @Module({
@@ -23,6 +24,7 @@ import { HealthController } from "./health.controller.js";
     InfraModule,
     TasksModule,
     CheckpointsModule,
+    TimelineModule,
   ],
   controllers: [HealthController],
 })

@@ -2,7 +2,6 @@ import {
   type Checkpoint,
   type CheckpointInput,
   type CheckpointTag,
-  type CurrentLabel,
   DesignElement,
   type ElementType,
   type InfraEdge,
@@ -10,8 +9,8 @@ import {
   type InfraFlowStep,
   type InfraKind,
   type InfraNode,
+  type ProjectTimelineEvent,
   type Task,
-  type VersionEntry,
   applyTaskChange,
   flowToMermaid,
   newTask,
@@ -34,8 +33,17 @@ const SVG_NS = "http://www.w3.org/2000/svg";
  * its styles (and generic selectors like `code`/`table`/`.row`) stay isolated
  * from any host page (e.g. the dashboard). */
 const SKELETON = `
-<div class="fwd-canvas-root">
+<div class="fwd-canvas-root layers-open">
   <nav id="toolbar"></nav>
+  <aside id="layers">
+    <div class="fwd-layers-head">
+      <svg class="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
+      <span class="fwd-layers-title">Layers</span>
+      <span class="fwd-layers-count" id="layersCount"></span>
+    </div>
+    <div class="fwd-layers-divider"></div>
+    <div class="fwd-layers-body" id="layersBody"></div>
+  </aside>
   <div class="fwd-center">
     <div class="fwd-topstrip">
       <div class="fwd-crumb" id="crumb">
@@ -106,8 +114,15 @@ let ctxMenuEl!: HTMLElement;
 let saveModalEl!: HTMLElement;
 let savedLabelEl: HTMLElement | null = null;
 let saveBtnEl: HTMLButtonElement | null = null;
+let canvasRootEl: HTMLElement | null = null;
+let layersBodyEl: HTMLElement | null = null;
+let layersCountEl: HTMLElement | null = null;
 let focusElementId: string | null = null;
 let focusApplied = false;
+/** Is the left Layers sidebar (DESIGN TREE) open? Defaults open, per the design. */
+let layersOpen = true;
+/** Ids the user has hidden via the layer eye toggle — view-only, not persisted. */
+const hiddenIds = new Set<string>();
 
 /** Teardown callbacks (unsubscribes + window listener removers) run by destroy(). */
 const disposers: Array<() => void> = [];
@@ -153,12 +168,19 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   saveModalEl = uiRoot.querySelector("#savemodal") as HTMLElement;
   savedLabelEl = uiRoot.querySelector("#savedLabel") as HTMLElement | null;
   saveBtnEl = uiRoot.querySelector("#saveCheckpoint") as HTMLButtonElement | null;
+  canvasRootEl = uiRoot.querySelector(".fwd-canvas-root") as HTMLElement | null;
+  layersBodyEl = uiRoot.querySelector("#layersBody") as HTMLElement | null;
+  layersCountEl = uiRoot.querySelector("#layersCount") as HTMLElement | null;
+  // Reset view-only layer state on (re)mount so a reused container starts clean.
+  layersOpen = true;
+  hiddenIds.clear();
 
   setBreadcrumb(opts.projectName ?? null);
   wireBackPill(opts.onBack);
 
   applyTheme(); // push the loaded (or default) theme before the first paint
   buildToolbar();
+  renderLayers(); // populate the (initially empty) DESIGN TREE before data loads
   wireZoomControls();
   wireSaveButton();
   bindPointer();
@@ -272,6 +294,9 @@ const TASK_ACTOR = "canvas";
 // Manual canvas checkpoints (pillar 5), newest first — populated only when the
 // source can persist them (otherwise the Save button + History cards stay hidden).
 let checkpoints: Checkpoint[] = [];
+// The unified, domain-tagged activity feed behind the History timeline (design /
+// api / infra / uml events); populated only when the source serves it.
+let projectTimeline: ProjectTimelineEvent[] = [];
 // Draft kept while the save-checkpoint modal is open, so re-renders don't lose it.
 let saveDraft: { title: string; description: string; tag: CheckpointTag } = {
   title: "",
@@ -354,6 +379,13 @@ function subscribeAll(): void {
     if (showTimeline) renderTimelinePanel(); // refresh History cards if open
   });
   if (unsubCheckpoints) disposers.push(unsubCheckpoints);
+
+  // The unified activity feed behind the History timeline (design/api/infra/uml).
+  const unsubTimeline = source.subscribeProjectTimeline?.((next) => {
+    projectTimeline = next;
+    if (showTimeline) renderTimelinePanel();
+  });
+  if (unsubTimeline) disposers.push(unsubTimeline);
 }
 
 // ========================================================================
@@ -382,6 +414,16 @@ function buildToolbar(): void {
   // Move/select button — select is the default mode, and shapes are inserted via
   // the right-click "Add element" menu or their keyboard shortcuts (drawing then
   // auto-returns to select), so the rail never grows with the shape catalog.
+  // Layers sits at the top of the rail (above a divider), separate from the
+  // panel tools — it toggles the left DESIGN TREE sidebar rather than a drawer.
+  const layersBtn = iconButton(layersIcon(), "Layers", toggleLayers);
+  layersBtn.dataset.toggle = "layers";
+  layersBtn.classList.toggle("active", layersOpen);
+  toolbar.append(layersBtn);
+  const sep = document.createElement("div");
+  sep.className = "sep";
+  toolbar.append(sep);
+
   const docsBtn = iconButton(docsIcon(), "Docs", toggleDocs);
   docsBtn.dataset.toggle = "docs";
   docsBtn.classList.toggle("active", showDocs);
@@ -515,10 +557,14 @@ function render(): void {
   // Design layer in its own group so the infra overlay can dim it as a unit.
   const design = svgEl("g", {}) as SVGGElement;
   if (showInfra) design.setAttribute("opacity", "0.35");
-  for (const el of ordered()) design.append(drawElement(el));
+  for (const el of ordered()) {
+    if (isHidden(el)) continue; // hidden via the layers eye toggle (or a hidden ancestor)
+    design.append(drawElement(el));
+  }
   if (selectedId) {
     const sel = elements.get(selectedId);
-    if (sel) design.append(...handles(sel));
+    // Don't draw selection handles over a hidden element (nothing is painted there).
+    if (sel && !isHidden(sel)) design.append(...handles(sel));
   }
   for (const x of guides.v) design.append(line(x, 0, x, 4000));
   for (const y of guides.h) design.append(line(0, y, 4000, y));
@@ -545,6 +591,7 @@ function render(): void {
   renderSelectionPanel();
   renderTimelinePanel();
   renderTasksPanel();
+  renderLayers();
 }
 
 // ========================================================================
@@ -866,17 +913,30 @@ async function completeLink(fromId: string, toId: string): Promise<void> {
 }
 
 /** Parents before children so nested elements draw on top. */
+/** Nesting depth of an element (0 = top-level), by walking its parent chain. */
+function depthOf(el: DesignElement): number {
+  let d = 0;
+  let p = el.parentId;
+  while (p) {
+    d++;
+    p = elements.get(p)?.parentId ?? null;
+  }
+  return d;
+}
+
 function ordered(): DesignElement[] {
-  const depth = (el: DesignElement): number => {
-    let d = 0;
-    let p = el.parentId;
-    while (p) {
-      d++;
-      p = elements.get(p)?.parentId ?? null;
-    }
-    return d;
-  };
-  return [...elements.values()].sort((a, b) => depth(a) - depth(b));
+  return [...elements.values()].sort((a, b) => depthOf(a) - depthOf(b));
+}
+
+/** Is `el` hidden — either itself, or because an ancestor frame is hidden? */
+function isHidden(el: DesignElement): boolean {
+  if (hiddenIds.has(el.id)) return true;
+  let p = el.parentId;
+  while (p) {
+    if (hiddenIds.has(p)) return true;
+    p = elements.get(p)?.parentId ?? null;
+  }
+  return false;
 }
 
 /** Resolve display props, following an instance to its master component. */
@@ -1671,11 +1731,109 @@ function select(id: string | null): void {
   render();
 }
 
+// ========================================================================
+// Layers sidebar (the "DESIGN TREE")
+// ========================================================================
+
+/** The tree-row glyph for each element type, reusing the rail/menu icons. */
+function layerTypeIcon(type: ElementType): SVGElement {
+  switch (type) {
+    case "frame":
+      return frameIcon();
+    case "ellipse":
+      return ellipseIcon();
+    case "text":
+      return textIcon();
+    case "component":
+      return compIcon();
+    case "instance":
+      return instIcon();
+    default:
+      return rectIcon();
+  }
+}
+
+/** Show or hide the left Layers sidebar, reflowing the grid to match. */
+function toggleLayers(): void {
+  layersOpen = !layersOpen;
+  canvasRootEl?.classList.toggle("layers-open", layersOpen);
+  toolbar
+    .querySelector('[data-toggle="layers"]')
+    ?.classList.toggle("active", layersOpen);
+  renderLayers();
+}
+
+/** Hide/show a single element on the canvas (view-only, not persisted). */
+function toggleHidden(id: string): void {
+  if (hiddenIds.has(id)) hiddenIds.delete(id);
+  else hiddenIds.add(id);
+  render(); // re-paints the canvas (render() also calls renderLayers())
+}
+
+/** Rebuild the DESIGN TREE rows from the current elements + selection. */
+function renderLayers(): void {
+  if (!layersBodyEl) return;
+  // Drop hidden ids whose element is gone (delete / restore / poll), so the set
+  // never leaks stale ids across the various element-removal paths.
+  for (const id of hiddenIds) if (!elements.has(id)) hiddenIds.delete(id);
+  if (layersCountEl) layersCountEl.textContent = `${elements.size}`;
+  layersBodyEl.replaceChildren();
+  const label = document.createElement("div");
+  label.className = "fwd-tree-label";
+  label.textContent = "DESIGN TREE";
+  layersBodyEl.append(label);
+
+  for (const el of ordered()) {
+    const row = document.createElement("div");
+    row.className = "fwd-layer-row";
+    if (el.id === selectedId) row.classList.add("selected");
+    if (hiddenIds.has(el.id)) row.classList.add("hidden");
+
+    const indent = document.createElement("span");
+    indent.className = "fwd-layer-indent";
+    indent.style.width = `${depthOf(el) * 14}px`;
+    row.append(indent);
+
+    row.append(layerTypeIcon(el.type));
+
+    const name = document.createElement("span");
+    name.className = "fwd-layer-name";
+    name.textContent = el.name;
+    row.append(name);
+
+    if (el.apiBinding) {
+      const dot = document.createElement("span");
+      dot.className = "fwd-layer-dot";
+      row.append(dot);
+    }
+
+    const eye = document.createElement("button");
+    eye.className = "fwd-layer-eye";
+    eye.type = "button";
+    eye.title = hiddenIds.has(el.id) ? "Show" : "Hide";
+    eye.append(hiddenIds.has(el.id) ? eyeOffIcon() : eyeIcon());
+    eye.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleHidden(el.id);
+    });
+    row.append(eye);
+
+    row.addEventListener("click", () => select(el.id));
+    row.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      select(el.id);
+      openElementMenu(el.id, el.x, el.y, e.clientX, e.clientY);
+    });
+    layersBodyEl.append(row);
+  }
+}
+
 function deleteSelected(): void {
   if (!selectedId) return;
   const id = selectedId;
   for (const cid of [id, ...descendants(id, elements.values())]) {
     elements.delete(cid);
+    hiddenIds.delete(cid); // don't leak a stale hidden id
     void source.deleteElement(cid);
   }
   select(null);
@@ -1839,41 +1997,28 @@ function renderTimelinePanel(): void {
   historyEl.hidden = !showTimeline;
   if (!showTimeline) return;
 
-  const byElement: Record<string, VersionEntry[]> = {};
-  for (const [id, tl] of timelines) if (tl.length) byElement[id] = tl;
-  // Current binding labels, for live endpoints whose old entries predate the
-  // per-entry endpoint snapshots.
-  const current: Record<string, CurrentLabel> = {};
-  for (const el of elements.values()) {
-    const b = el.apiBinding;
-    if (!b) continue;
-    current[el.id] = {
-      title: b.title,
-      ...(b.method ? { method: b.method } : {}),
-      ...(b.endpoint ? { path: b.endpoint } : {}),
-    };
-  }
-  renderTimelineView(
-    historyEl,
-    byElement,
-    current,
-    {
-      onSelect: (id) => {
-        if (elements.has(id)) select(id);
-      },
-      onClose: toggleTimeline,
+  // The History timeline merges the server activity feed (design/api/infra/uml)
+  // with the manual checkpoints, grouped by domain on a date-rail. Selecting an
+  // event deep-links its element on the canvas; restoring rewinds a checkpoint.
+  renderTimelineView(historyEl, projectTimeline, checkpoints, {
+    onSelectElement: (id) => {
+      if (elements.has(id)) {
+        select(id);
+        toggleTimeline(); // leave the History view to reveal the canvas selection
+      }
     },
-    // The "Design history" (checkpoints) section sits above the endpoint
-    // timeline; present only when the source can persist checkpoints.
-    source.createCheckpoint
+    onRestore: (id) => {
+      void restoreCheckpoint(id);
+    },
+    ...(source.deleteCheckpoint
       ? {
-          checkpoints,
-          onSave: openSaveModal,
-          onRestore: restoreCheckpoint,
-          onDelete: deleteCheckpoint,
+          onDelete: (id: string) => {
+            void deleteCheckpoint(id);
+          },
         }
-      : undefined,
-  );
+      : {}),
+    onClose: toggleTimeline,
+  });
 }
 
 // ========================================================================
@@ -2910,6 +3055,21 @@ function circle(cx: number, cy: number, r: number): SVGElement {
 }
 function rect(x: number, y: number, w: number, h: number, r = 2): SVGElement {
   return svgEl("rect", { x: `${x}`, y: `${y}`, width: `${w}`, height: `${h}`, rx: `${r}` });
+}
+// Layers: a stacked-diamond (sheets) glyph, matching the imported design.
+function layersIcon(): SVGElement {
+  return lineIcon([path("M12 3l9 5-9 5-9-5z"), path("M3 13l9 5 9-5")]);
+}
+// Eye (visible) / eye-with-slash (hidden), for the layer-row visibility toggle.
+function eyeIcon(): SVGElement {
+  return lineIcon([path("M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z"), circle(12, 12, 2.8)]);
+}
+function eyeOffIcon(): SVGElement {
+  return lineIcon([
+    path("M9.6 5.2A9.7 9.7 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 3.9"),
+    path("M6.2 6.2A17 17 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 3.9-.8"),
+    line(3, 3, 21, 21),
+  ]);
 }
 // Frame: a crop/frame grid.
 function frameIcon(): SVGElement {

@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
-import type { VersionEntry } from "./schema.js";
+import type {
+  Checkpoint,
+  ProjectTimelineEvent,
+  VersionEntry,
+} from "./schema.js";
 import {
   actionOf,
+  buildHistoryTimeline,
   computeLanes,
   digest,
   flattenTimelines,
@@ -154,5 +159,74 @@ describe("digest", () => {
   it("ignores endpoints with no events after the baseline", () => {
     const d = digest([ev({ elementId: "old", timestamp: 10, action: "created" })], 25);
     expect(d.toIntegrate.concat(d.toModify, d.toRemove)).toHaveLength(0);
+  });
+});
+
+describe("buildHistoryTimeline", () => {
+  function pe(part: Partial<ProjectTimelineEvent> & { seq: number }): ProjectTimelineEvent {
+    return {
+      domain: "design",
+      action: "modified",
+      targetId: "el-1",
+      title: "t",
+      detail: "",
+      author: "maya",
+      timestamp: part.seq * 1000,
+      ...part,
+    };
+  }
+  function cp(part: Partial<Checkpoint> & { id: string }): Checkpoint {
+    return {
+      title: "Checkpoint",
+      description: "",
+      tag: "checkpoint",
+      changes: [],
+      snapshot: { elements: [], infraNodes: [], infraEdges: [], infraFlows: [] },
+      createdAt: new Date(5000).toISOString(),
+      ...part,
+    };
+  }
+
+  const events: ProjectTimelineEvent[] = [
+    pe({ seq: 1, domain: "design" }),
+    pe({ seq: 2, domain: "api" }),
+    pe({ seq: 3, domain: "infra" }),
+    pe({ seq: 4, domain: "uml" }),
+    pe({ seq: 5, domain: "design" }),
+  ];
+
+  it("counts per domain with unified as the grand total", () => {
+    const tl = buildHistoryTimeline(events, [], { view: "unified", sort: "new" });
+    expect(tl.counts).toMatchObject({ unified: 5, design: 2, api: 1, infra: 1, uml: 1 });
+    expect(tl.rows).toHaveLength(5);
+  });
+
+  it("filters to a single domain but keeps counts global", () => {
+    const tl = buildHistoryTimeline(events, [], { view: "design", sort: "new" });
+    expect(tl.rows.every((r) => r.domain === "design")).toBe(true);
+    expect(tl.rows).toHaveLength(2);
+    expect(tl.counts.unified).toBe(5); // counts ignore the active filter
+  });
+
+  it("sorts newest-first or oldest-first", () => {
+    const newest = buildHistoryTimeline(events, [], { view: "unified", sort: "new" });
+    expect(newest.rows[0]?.timestamp).toBeGreaterThan(newest.rows.at(-1)!.timestamp);
+    const oldest = buildHistoryTimeline(events, [], { view: "unified", sort: "old" });
+    expect(oldest.rows[0]?.timestamp).toBeLessThan(oldest.rows.at(-1)!.timestamp);
+  });
+
+  it("folds checkpoints in (tagged by dominant layer) with a restore handle", () => {
+    const tl = buildHistoryTimeline([], [cp({ id: "c1", changes: [{ layer: "INFRA", n: 3 }] })], {
+      view: "unified",
+      sort: "new",
+    });
+    expect(tl.rows).toHaveLength(1);
+    expect(tl.rows[0]).toMatchObject({ kind: "checkpoint", domain: "infra", checkpointId: "c1" });
+    // and it surfaces under the infra view, not design
+    const infra = buildHistoryTimeline([], [cp({ id: "c1", changes: [{ layer: "INFRA", n: 3 }] })], {
+      view: "infra",
+      sort: "new",
+    });
+    expect(infra.rows).toHaveLength(1);
   });
 });

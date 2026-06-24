@@ -8,6 +8,7 @@ import {
 } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
+import { TimelineService } from "../timeline/timeline.service.js";
 import { sanitizeFields } from "../common/sanitize.js";
 
 type Json = Prisma.InputJsonValue;
@@ -26,6 +27,7 @@ export class ElementsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    private readonly timeline: TimelineService,
   ) {}
 
   async list(projectId: string, actor: string): Promise<DesignElement[]> {
@@ -50,6 +52,10 @@ export class ElementsService {
     const clean = this.sanitizeElement(element);
     const next: DesignElement = { ...clean, updatedAt: new Date().toISOString() };
     await this.prisma.withUser(actor, async (tx) => {
+      const prior = await tx.designElement.findUnique({
+        where: { projectId_id: { projectId, id: next.id } },
+        select: { id: true },
+      });
       await tx.designElement.upsert({
         where: { projectId_id: { projectId, id: next.id } },
         update: { data: next as unknown as Json, updatedAt: new Date() },
@@ -61,6 +67,13 @@ export class ElementsService {
         },
       });
       await this.bumpProject(tx, projectId);
+      await this.timeline.record(tx, projectId, actor, {
+        domain: "design",
+        action: prior ? "modified" : "created",
+        targetId: next.id,
+        title: next.name || next.id,
+        detail: `${prior ? "Updated" : "Added"} ${next.type} "${next.name || next.id}"`,
+      });
     });
     await this.emit(projectId, "upsert", [next.id], actor);
     return next;
@@ -86,6 +99,13 @@ export class ElementsService {
         data: { data: merged as unknown as Json, updatedAt: new Date() },
       });
       await this.bumpProject(tx, projectId);
+      await this.timeline.record(tx, projectId, actor, {
+        domain: "design",
+        action: "modified",
+        targetId: id,
+        title: merged.name || id,
+        detail: `Updated ${merged.type} "${merged.name || id}"`,
+      });
       await this.emit(projectId, "upsert", [id], actor);
       return merged;
     });
@@ -99,6 +119,12 @@ export class ElementsService {
     actor: string,
   ): Promise<string[]> {
     const ids = await this.prisma.withUser(actor, async (tx) => {
+      const root = await tx.designElement.findUnique({
+        where: { projectId_id: { projectId, id } },
+        select: { data: true },
+      });
+      const rootName =
+        (root?.data as { name?: string } | undefined)?.name || id;
       let toDelete = [id];
       if (cascade) {
         const all = await tx.designElement.findMany({
@@ -116,6 +142,16 @@ export class ElementsService {
       });
       await this.bumpProject(tx, projectId);
       // The append-only version history is intentionally LEFT INTACT as a record.
+      await this.timeline.record(tx, projectId, actor, {
+        domain: "design",
+        action: "deleted",
+        targetId: id,
+        title: rootName,
+        detail:
+          toDelete.length > 1
+            ? `Removed "${rootName}" and ${toDelete.length - 1} child element(s)`
+            : `Removed "${rootName}"`,
+      });
       return toDelete;
     });
     await this.emit(projectId, "delete", ids, actor);
@@ -154,6 +190,17 @@ export class ElementsService {
           ...(clean.endpoint ? { path: clean.endpoint } : {}),
         },
       });
+      await this.timeline.record(tx, projectId, actor, {
+        domain: "api",
+        action: version.action,
+        targetId: id,
+        title: clean.method
+          ? `${clean.method} ${clean.endpoint ?? clean.title}`
+          : clean.title,
+        detail:
+          version.changeLog ||
+          `${version.action === "created" ? "Documented" : "Updated"} ${clean.title}`,
+      });
     });
     await this.emit(projectId, "upsert", [id], actor);
     await this.realtime.publish(projectId, {
@@ -190,6 +237,13 @@ export class ElementsService {
         action: "deleted",
         changeLog: version.changeLog,
         ...(version.title ? { endpoint: { title: version.title } } : {}),
+      });
+      await this.timeline.record(tx, projectId, actor, {
+        domain: "api",
+        action: "deleted",
+        targetId: id,
+        title: version.title ?? id,
+        detail: version.changeLog || `Removed documentation from ${version.title ?? id}`,
       });
     });
     await this.emit(projectId, "upsert", [id], actor);

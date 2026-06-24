@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import { SignedIn, SignedOut, RedirectToSignIn } from "@clerk/clerk-react";
+import { Show, RedirectToSignIn } from "@clerk/react";
 import { Layout } from "./components/Layout.js";
 import { LandingPage } from "./pages/LandingPage.js";
 import { SignInPage } from "./pages/SignInPage.js";
@@ -14,10 +14,10 @@ import { AccountPage } from "./pages/AccountPage.js";
 function Protected({ children }: { children: React.ReactNode }) {
   return (
     <>
-      <SignedIn>{children}</SignedIn>
-      <SignedOut>
+      <Show when="signed-in">{children}</Show>
+      <Show when="signed-out">
         <RedirectToSignIn />
-      </SignedOut>
+      </Show>
     </>
   );
 }

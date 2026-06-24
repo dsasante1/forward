@@ -8,6 +8,7 @@ import {
   InfraNode,
   ProjectInvite,
   ProjectRole,
+  ProjectTimelineEvent,
   Task,
   VersionEntry,
 } from "./schema.js";
@@ -357,6 +358,17 @@ export async function deleteTask(cfg: ApiConfig, taskId: string): Promise<void> 
 export async function fetchCheckpoints(cfg: ApiConfig): Promise<Checkpoint[]> {
   const raw = await get<unknown[]>(cfg, "/checkpoints");
   return parseAll(raw, Checkpoint);
+}
+
+/**
+ * The project's unified activity feed (design / api / infra / uml events) for the
+ * History timeline. Server-ordered newest-first; the client groups + filters it.
+ */
+export async function fetchProjectTimeline(
+  cfg: ApiConfig,
+): Promise<ProjectTimelineEvent[]> {
+  const raw = await get<unknown[]>(cfg, "/timeline");
+  return parseAll(raw, ProjectTimelineEvent);
 }
 
 /**

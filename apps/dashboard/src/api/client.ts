@@ -1,4 +1,4 @@
-import { useAuth } from "@clerk/clerk-react";
+import { useAuth } from "@clerk/react";
 import { useCallback, useMemo } from "react";
 import * as api from "forward-core/api";
 import type { InviteSummary } from "forward-core/api";

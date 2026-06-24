@@ -1,5 +1,5 @@
 import { Link, Outlet } from "react-router-dom";
-import { OrganizationSwitcher, UserButton } from "@clerk/clerk-react";
+import { OrganizationSwitcher, UserButton } from "@clerk/react";
 
 /** App chrome for every signed-in route: brand, org switcher, account menu. */
 export function Layout() {
