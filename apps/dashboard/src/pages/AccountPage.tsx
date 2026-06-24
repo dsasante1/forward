@@ -1,4 +1,4 @@
-import { UserProfile, OrganizationProfile } from "@clerk/clerk-react";
+import { UserProfile, OrganizationProfile } from "@clerk/react";
 
 /**
  * Account + organization management.

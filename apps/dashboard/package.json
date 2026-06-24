@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@clerk/clerk-react": "^5.20.0",
+    "@clerk/react": "^6.11.0",
     "@supabase/supabase-js": "^2.108.2",
     "forward-canvas": "*",
     "forward-core": "*",

@@ -13,6 +13,7 @@
 
 ALTER TABLE "DesignElement"  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "VersionEntry"   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "TimelineEvent"  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "InfraNode"      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "InfraEdge"      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "InfraFlow"      ENABLE ROW LEVEL SECURITY;
@@ -43,6 +44,12 @@ CREATE POLICY tenant_isolation ON "Task"
 CREATE POLICY tenant_read ON "VersionEntry"
   FOR SELECT USING (app_is_member("projectId"));
 CREATE POLICY tenant_insert ON "VersionEntry"
+  FOR INSERT WITH CHECK (app_is_member("projectId"));
+
+-- The unified activity feed is likewise member-readable + INSERT-only.
+CREATE POLICY tenant_read ON "TimelineEvent"
+  FOR SELECT USING (app_is_member("projectId"));
+CREATE POLICY tenant_insert ON "TimelineEvent"
   FOR INSERT WITH CHECK (app_is_member("projectId"));
 
 CREATE POLICY member_self ON "ProjectMember"

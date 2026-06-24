@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { SignedIn, SignedOut } from "@clerk/clerk-react";
+import { Show } from "@clerk/react";
 import "../landing.css";
 
 /**
@@ -34,19 +34,19 @@ export function LandingPage() {
           <a className="l-nav-link l-nav-hide" href="#pricing">
             Pricing
           </a>
-          <SignedOut>
+          <Show when="signed-out">
             <Link className="l-nav-link" to="/sign-in">
               Sign in
             </Link>
             <Link className="l-btn l-btn-dark" to="/sign-up">
               Start free
             </Link>
-          </SignedOut>
-          <SignedIn>
+          </Show>
+          <Show when="signed-in">
             <Link className="l-btn l-btn-dark" to="/app">
               Open app
             </Link>
-          </SignedIn>
+          </Show>
         </div>
       </nav>
 
@@ -61,16 +61,16 @@ export function LandingPage() {
           against it, in one project.
         </p>
         <div className="l-hero-cta">
-          <SignedOut>
+          <Show when="signed-out">
             <Link className="l-btn l-btn-lg l-btn-dark" to="/sign-up">
               Create your workspace <span className="l-arrow">→</span>
             </Link>
-          </SignedOut>
-          <SignedIn>
+          </Show>
+          <Show when="signed-in">
             <Link className="l-btn l-btn-lg l-btn-dark" to="/app">
               Go to your workspace <span className="l-arrow">→</span>
             </Link>
-          </SignedIn>
+          </Show>
           <a className="l-btn l-btn-lg l-btn-outline" href="#surfaces">
             See how it works
           </a>
@@ -646,16 +646,16 @@ export function LandingPage() {
               documentation and the work into one living picture.
             </p>
             <div className="l-cta-actions">
-              <SignedOut>
+              <Show when="signed-out">
                 <Link className="l-btn l-btn-lg l-btn-accent" to="/sign-up">
                   Start free <span className="l-arrow">→</span>
                 </Link>
-              </SignedOut>
-              <SignedIn>
+              </Show>
+              <Show when="signed-in">
                 <Link className="l-btn l-btn-lg l-btn-accent" to="/app">
                   Open your workspace <span className="l-arrow">→</span>
                 </Link>
-              </SignedIn>
+              </Show>
               <a className="l-btn l-btn-lg l-btn-ghost-light" href="#start">
                 Talk to us
               </a>

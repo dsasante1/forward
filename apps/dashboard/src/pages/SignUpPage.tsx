@@ -1,4 +1,4 @@
-import { SignUp } from "@clerk/clerk-react";
+import { SignUp } from "@clerk/react";
 
 /** Signup + email verification, owned entirely by Clerk's <SignUp/>. */
 export function SignUpPage() {

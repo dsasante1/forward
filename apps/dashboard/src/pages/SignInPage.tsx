@@ -1,4 +1,4 @@
-import { SignIn } from "@clerk/clerk-react";
+import { SignIn } from "@clerk/react";
 
 /**
  * Login + "forgot password" + MFA are all handled inside Clerk's <SignIn/>.

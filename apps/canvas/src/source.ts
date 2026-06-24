@@ -5,6 +5,7 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  ProjectTimelineEvent,
   Task,
   VersionEntry,
 } from "forward-core";
@@ -59,6 +60,13 @@ export interface CanvasSource {
   deleteTask?(taskId: string): Promise<void>;
   /** Subscribe to the project's manual checkpoints (pillar 5); newest first. */
   subscribeCheckpoints?(onChange: (checkpoints: Checkpoint[]) => void): () => void;
+  /**
+   * Subscribe to the project's unified activity feed (design / api / infra / uml
+   * events) behind the History timeline; fires on every change, newest first.
+   */
+  subscribeProjectTimeline?(
+    onChange: (events: ProjectTimelineEvent[]) => void,
+  ): () => void;
   /** Save a new checkpoint; the server freezes the current canvas into it. */
   createCheckpoint?(input: CheckpointInput): Promise<Checkpoint>;
   /** Rewind the project's design + infra to a checkpoint's snapshot. */
