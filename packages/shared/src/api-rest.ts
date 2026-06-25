@@ -3,6 +3,8 @@ import {
   Checkpoint,
   CheckpointInput,
   DesignElement,
+  Entity,
+  EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraNode,
@@ -15,12 +17,13 @@ import {
 // Type-only imports (erased at runtime → no coupling to the Firebase client) so
 // the surfaces see the exact same VersionInput / poll-state shapes either way.
 import type {
+  EntityPollState,
   InfraPollState,
   ProjectTimelines,
   VersionInput,
 } from "./rtdb-rest.js";
 
-export type { InfraPollState, ProjectTimelines, VersionInput };
+export type { EntityPollState, InfraPollState, ProjectTimelines, VersionInput };
 
 /**
  * The closed-source API client — the centralized replacement for `rtdb-rest.ts`.
@@ -262,6 +265,8 @@ interface InfraResponse {
   nodes: unknown[];
   edges: unknown[];
   flows: unknown[];
+  entities: unknown[];
+  relations: unknown[];
 }
 
 export async function fetchInfra(
@@ -313,6 +318,64 @@ export async function deleteInfraFlow(
   flowId: string,
 ): Promise<void> {
   await request(cfg, "DELETE", `/infra/flows/${encodeURIComponent(flowId)}`);
+}
+
+// --------------------------------------------------------------------------
+// entity (ER / data model) layer
+// --------------------------------------------------------------------------
+
+/** Read the ER model — served alongside the infra graph on the same `/infra` GET. */
+export async function fetchEntities(
+  cfg: ApiConfig,
+): Promise<{ entities: Entity[]; relations: EntityRelation[] }> {
+  const body = await get<InfraResponse>(cfg, "/infra");
+  return {
+    entities: parseAll(body?.entities ?? [], Entity),
+    relations: parseAll(body?.relations ?? [], EntityRelation),
+  };
+}
+
+export async function saveEntity(
+  cfg: ApiConfig,
+  entity: Entity,
+): Promise<void> {
+  await request(
+    cfg,
+    "PUT",
+    `/infra/entities/${encodeURIComponent(entity.id)}`,
+    entity,
+  );
+}
+
+export async function saveEntityRelation(
+  cfg: ApiConfig,
+  relation: EntityRelation,
+): Promise<void> {
+  await request(
+    cfg,
+    "PUT",
+    `/infra/relations/${encodeURIComponent(relation.id)}`,
+    relation,
+  );
+}
+
+/** Delete an entity; the server cascades the relations that referenced it. */
+export async function deleteEntity(
+  cfg: ApiConfig,
+  entityId: string,
+): Promise<void> {
+  await request(cfg, "DELETE", `/infra/entities/${encodeURIComponent(entityId)}`);
+}
+
+export async function deleteEntityRelation(
+  cfg: ApiConfig,
+  relationId: string,
+): Promise<void> {
+  await request(
+    cfg,
+    "DELETE",
+    `/infra/relations/${encodeURIComponent(relationId)}`,
+  );
 }
 
 // --------------------------------------------------------------------------
@@ -446,6 +509,19 @@ export async function fetchInfraConditional(
     nodes: parseAll(body?.nodes ?? [], InfraNode),
     edges: parseAll(body?.edges ?? [], InfraEdge),
     flows: parseAll(body?.flows ?? [], InfraFlow),
+    changed: true,
+  };
+}
+
+export async function fetchEntitiesConditional(
+  cfg: ApiConfig,
+  prev: EntityPollState,
+): Promise<EntityPollState & { changed: boolean }> {
+  const body = await get<InfraResponse>(cfg, "/infra");
+  return {
+    ...prev,
+    entities: parseAll(body?.entities ?? [], Entity),
+    relations: parseAll(body?.relations ?? [], EntityRelation),
     changed: true,
   };
 }

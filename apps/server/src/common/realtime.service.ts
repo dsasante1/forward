@@ -8,6 +8,7 @@ export type RealtimeResource =
   | "timeline"
   | "infra"
   | "flows"
+  | "entities"
   | "tasks"
   | "checkpoints"
   | "members";

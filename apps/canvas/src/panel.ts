@@ -1,9 +1,14 @@
 import {
   type ApiBinding,
   type DesignElement,
+  type Entity,
+  type EntityField,
+  EntityKey,
+  type EntityRelation,
   HttpMethod,
   InfraKind,
   type InfraNode,
+  RelationCardinality,
   type VersionEntry,
 } from "forward-core";
 
@@ -195,6 +200,285 @@ export function renderInfraPanel(
     remove.addEventListener("click", opts.onRemoveNode);
     root.append(remove);
   }
+}
+
+/** Callbacks + state the ER (data-model) drawer needs from the editor. */
+export interface EntityPanelHandlers {
+  /** Source can persist entities (otherwise the drawer is read-only). */
+  canEdit: boolean;
+  /** Source can persist relations. */
+  canRelate: boolean;
+  /** Relate tool armed (waiting for two entity clicks). */
+  relating: boolean;
+  /** The currently selected entity, if any. */
+  entity: Entity | undefined;
+  /** The currently selected relation, if any. */
+  relation: EntityRelation | undefined;
+  /** Resolve an entity id to its display name (for the relation editor). */
+  entityName(id: string): string;
+  onAddEntity(): void;
+  onToggleRelate(): void;
+  onChangeEntity(patch: Partial<Entity>): void;
+  onRemoveEntity(): void;
+  onChangeRelation(patch: Partial<EntityRelation>): void;
+  onRemoveRelation(): void;
+}
+
+/** Human labels for the crow's-foot multiplicities (the enum values are terse). */
+const CARDINALITY_LABELS: Record<EntityRelation["fromCardinality"], string> = {
+  "zero-or-one": "Zero or one (0..1)",
+  "exactly-one": "Exactly one (1)",
+  "zero-or-many": "Zero or many (*)",
+  "one-or-many": "One or many (1..*)",
+};
+
+/**
+ * The right-hand drawer for ER (data-model) mode — the data-model analogue of
+ * `renderInfraPanel`. Top: add-entity / relate actions. Below: an editor for the
+ * selected entity (name, its fields, notes) or the selected relation (endpoints,
+ * per-end cardinality, verb, identifying). Mirrors the other drawers' builders.
+ */
+export function renderEntityPanel(
+  root: HTMLElement,
+  opts: EntityPanelHandlers,
+): void {
+  root.replaceChildren();
+  root.append(h("h2", "Data model"));
+  root.append(
+    h("p", "Add entities, relate them, and drag to arrange the ER diagram.", "empty"),
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "infra-actions";
+  if (opts.canEdit) {
+    const add = document.createElement("button");
+    add.className = "doc-add";
+    add.textContent = "+ Add entity";
+    add.addEventListener("click", opts.onAddEntity);
+    actions.append(add);
+  }
+  if (opts.canRelate) {
+    const relate = document.createElement("button");
+    relate.className = opts.relating ? "doc-add active" : "doc-add";
+    relate.textContent = opts.relating
+      ? "Relating… click two entities (Esc to cancel)"
+      : "Relate entities";
+    relate.addEventListener("click", opts.onToggleRelate);
+    actions.append(relate);
+  }
+  root.append(actions);
+
+  if (opts.relation) {
+    renderRelationEditor(root, opts);
+    return;
+  }
+  if (opts.entity) {
+    renderEntityEditor(root, opts);
+    return;
+  }
+  root.append(
+    h("p", "Select an entity or relation to edit, or add one above.", "empty"),
+  );
+}
+
+/** Editor for the selected entity: name, its fields (add/remove/edit), notes. */
+function renderEntityEditor(root: HTMLElement, opts: EntityPanelHandlers): void {
+  const entity = opts.entity;
+  if (!entity) return;
+  const ro = !opts.canEdit;
+
+  root.append(h("h2", entity.name || entity.id));
+  root.append(h("p", `${entity.fields.length} field${entity.fields.length === 1 ? "" : "s"}`, "empty"));
+
+  const sec = section("Entity");
+  sec.append(textRow("Name", entity.name, (v) => opts.onChangeEntity({ name: v }), ro));
+  sec.append(
+    textareaRow(
+      "Notes",
+      entity.description,
+      (v) => opts.onChangeEntity({ description: v }),
+      4,
+      "What this table holds, invariants…",
+      ro,
+    ),
+  );
+  root.append(sec);
+
+  // --- fields editor ---
+  const fieldsSec = section("Fields");
+  entity.fields.forEach((field, i) => {
+    fieldsSec.append(fieldRow(field, ro, (next) => {
+      const fields = entity.fields.map((f, j) => (j === i ? next : f));
+      opts.onChangeEntity({ fields });
+    }, () => {
+      const fields = entity.fields.filter((_, j) => j !== i);
+      opts.onChangeEntity({ fields });
+    }));
+  });
+  if (!entity.fields.length) {
+    fieldsSec.append(h("p", "No fields yet.", "empty"));
+  }
+  if (opts.canEdit) {
+    const add = document.createElement("button");
+    add.className = "doc-add";
+    add.textContent = "+ Add field";
+    add.addEventListener("click", () => {
+      const fields: EntityField[] = [
+        ...entity.fields,
+        { name: "field", type: "", keys: [] },
+      ];
+      opts.onChangeEntity({ fields });
+    });
+    fieldsSec.append(add);
+  }
+  root.append(fieldsSec);
+
+  if (opts.canEdit) {
+    const remove = document.createElement("button");
+    remove.className = "doc-remove";
+    remove.textContent = "Remove entity";
+    remove.addEventListener("click", opts.onRemoveEntity);
+    root.append(remove);
+  }
+}
+
+/** One editable field row: name, type, PK/FK/UK keys, note, and a remove button. */
+function fieldRow(
+  field: EntityField,
+  readOnly: boolean,
+  onChange: (next: EntityField) => void,
+  onRemove: () => void,
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "entity-field-row";
+
+  const name = document.createElement("input");
+  name.type = "text";
+  name.value = field.name;
+  name.placeholder = "name";
+  name.disabled = readOnly;
+  name.addEventListener("change", () => onChange({ ...field, name: name.value }));
+
+  const type = document.createElement("input");
+  type.type = "text";
+  type.value = field.type;
+  type.placeholder = "type";
+  type.disabled = readOnly;
+  type.addEventListener("change", () => onChange({ ...field, type: type.value }));
+
+  const top = document.createElement("div");
+  top.className = "entity-field-top";
+  top.append(name, type);
+  if (!readOnly) {
+    const del = document.createElement("button");
+    del.className = "entity-field-del";
+    del.title = "Remove field";
+    del.textContent = "✕";
+    del.addEventListener("click", onRemove);
+    top.append(del);
+  }
+  wrap.append(top);
+
+  // Key roles as a small set of toggles, validated by construction.
+  const keys = document.createElement("div");
+  keys.className = "entity-field-keys";
+  for (const k of EntityKey.options) {
+    const lab = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = field.keys.includes(k);
+    cb.disabled = readOnly;
+    cb.addEventListener("change", () => {
+      const set = new Set(field.keys);
+      if (cb.checked) set.add(k);
+      else set.delete(k);
+      onChange({ ...field, keys: EntityKey.options.filter((o) => set.has(o)) });
+    });
+    lab.append(cb, document.createTextNode(k));
+    keys.append(lab);
+  }
+  wrap.append(keys);
+
+  const note = document.createElement("input");
+  note.type = "text";
+  note.className = "entity-field-note";
+  note.value = field.note ?? "";
+  note.placeholder = "note (optional)";
+  note.disabled = readOnly;
+  note.addEventListener("change", () =>
+    onChange({ ...field, note: note.value || undefined }),
+  );
+  wrap.append(note);
+  return wrap;
+}
+
+/** Editor for the selected relation: endpoints, per-end cardinality, verb, line. */
+function renderRelationEditor(root: HTMLElement, opts: EntityPanelHandlers): void {
+  const r = opts.relation;
+  if (!r) return;
+  const ro = !opts.canRelate;
+
+  root.append(h("h2", "Relation"));
+  root.append(
+    h("p", `${opts.entityName(r.from)} → ${opts.entityName(r.to)}`, "empty"),
+  );
+
+  const sec = section("Relation");
+  sec.append(
+    selectRow(
+      `From (${opts.entityName(r.from)})`,
+      r.fromCardinality,
+      RelationCardinality.options,
+      (v) => opts.onChangeRelation({ fromCardinality: v as EntityRelation["fromCardinality"] }),
+      ro,
+      (v) => CARDINALITY_LABELS[v as EntityRelation["fromCardinality"]],
+    ),
+  );
+  sec.append(
+    selectRow(
+      `To (${opts.entityName(r.to)})`,
+      r.toCardinality,
+      RelationCardinality.options,
+      (v) => opts.onChangeRelation({ toCardinality: v as EntityRelation["toCardinality"] }),
+      ro,
+      (v) => CARDINALITY_LABELS[v as EntityRelation["toCardinality"]],
+    ),
+  );
+  sec.append(
+    textRow("Verb", r.label ?? "", (v) => opts.onChangeRelation({ label: v || undefined }), ro),
+  );
+  sec.append(
+    checkboxRow(
+      "Identifying (solid line)",
+      r.identifying,
+      (v) => opts.onChangeRelation({ identifying: v }),
+      ro,
+    ),
+  );
+  root.append(sec);
+
+  if (opts.canRelate) {
+    const remove = document.createElement("button");
+    remove.className = "doc-remove";
+    remove.textContent = "Remove relation";
+    remove.addEventListener("click", opts.onRemoveRelation);
+    root.append(remove);
+  }
+}
+
+/** A labelled checkbox row, matching the other row builders. */
+function checkboxRow(
+  label: string,
+  value: boolean,
+  onChange: (v: boolean) => void,
+  readOnly = false,
+): HTMLElement {
+  const cb = document.createElement("input");
+  cb.type = "checkbox";
+  cb.checked = value;
+  cb.disabled = readOnly;
+  cb.addEventListener("change", () => onChange(cb.checked));
+  return row(label, cb);
 }
 
 /** A collapsible panel section: a <details> with the title as its <summary>. */
@@ -434,13 +718,14 @@ function selectRow(
   options: readonly string[],
   onChange: (v: string) => void,
   readOnly = false,
+  optionLabel?: (v: string) => string,
 ): HTMLElement {
   const select = document.createElement("select");
   select.disabled = readOnly;
   for (const opt of options) {
     const o = document.createElement("option");
     o.value = opt;
-    o.textContent = opt || "—";
+    o.textContent = optionLabel ? optionLabel(opt) : opt || "—";
     if (opt === value) o.selected = true;
     select.append(o);
   }

@@ -4,6 +4,8 @@ import {
   type CheckpointTag,
   DesignElement,
   type ElementType,
+  type Entity,
+  type EntityRelation,
   type InfraEdge,
   type InfraFlow,
   type InfraFlowStep,
@@ -11,13 +13,16 @@ import {
   type InfraNode,
   type ProjectTimelineEvent,
   type Task,
+  type InfraView,
   applyTaskChange,
+  entityToMermaid,
   flowToMermaid,
+  infraViewToMermaid,
   newTask,
 } from "forward-core";
 import type { CanvasSource, ElementSnapshot } from "./source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
-import { renderInfraPanel, renderPanel } from "./panel.js";
+import { renderEntityPanel, renderInfraPanel, renderPanel } from "./panel.js";
 import { renderTimelineView } from "./timeline-view.js";
 import { renderTasksView } from "./tasks-view.js";
 import {
@@ -262,10 +267,18 @@ const lastSeen = new Map<string, string>();
 const infraNodes = new Map<string, InfraNode>();
 let infraEdges: InfraEdge[] = [];
 const infraFlows = new Map<string, InfraFlow>();
+const entities = new Map<string, Entity>(); // ER (data-model) layer
+let entityRelations: EntityRelation[] = [];
 let selectedFlowId: string | null = null; // flow chosen in the UML view (null = component diagram)
+let selectedUmlView: InfraView | null = "architecture"; // component-diagram lens; null when a flow/ER is shown
+let selectedUmlEr = false; // is the ER diagram the chosen UML render?
 let selectedInfraId: string | null = null; // infra node selected for editing/deletion
 let linkMode = false; // Link tool armed: clicks pick two nodes to connect
 let linkSourceId: string | null = null; // first node picked while linking
+let selectedEntityId: string | null = null; // ER entity selected for editing/deletion
+let selectedRelationId: string | null = null; // ER relation selected for editing/deletion
+let entityLinkMode = false; // Relate tool armed: clicks pick two entities to relate
+let entityLinkSourceId: string | null = null; // first entity picked while relating
 let umlOpen = false; // is the rendered-UML view showing?
 let umlEdit = false; // is the UML flow editor (right column) open?
 let tool: Tool = "select";
@@ -273,6 +286,7 @@ let selectedId: string | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
 let showDocs = true; // show/hide the minimized API indicators on documented elements
 let showInfra = false; // show/hide the infrastructure diagram overlay
+let showEntities = false; // show/hide the ER (data-model) diagram overlay
 let showTimeline = false; // show/hide the project endpoint-timeline panel
 let showTasks = false; // show/hide the project task-tracker panel
 let showTheme = false; // show/hide the theme editor drawer
@@ -313,6 +327,9 @@ let panY = 0;
 // or moving — the design beneath it.
 let infraPanX = 0;
 let infraPanY = 0;
+// The ER overlay rides on its own translation too, like the infra overlay.
+let entityPanX = 0;
+let entityPanY = 0;
 const ZOOM_MIN = 0.2;
 const ZOOM_MAX = 4;
 const ZOOM_STEP = 1.2;
@@ -324,7 +341,9 @@ type Gesture =
   | { kind: "create"; type: ElementType; startX: number; startY: number; id: string }
   | { kind: "pan"; startX: number; startY: number; origPanX: number; origPanY: number; moved: boolean }
   | { kind: "infra-pan"; startX: number; startY: number; origX: number; origY: number }
-  | { kind: "infra-move"; id: string; startX: number; startY: number; origX: number; origY: number; moved: boolean };
+  | { kind: "infra-move"; id: string; startX: number; startY: number; origX: number; origY: number; moved: boolean }
+  | { kind: "entity-pan"; startX: number; startY: number; origX: number; origY: number }
+  | { kind: "entity-move"; id: string; startX: number; startY: number; origX: number; origY: number; moved: boolean };
 let gesture: Gesture | null = null;
 let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 
@@ -364,6 +383,24 @@ function subscribeAll(): void {
       if (umlOpen) void renderUmlPanel(); // keep an open diagram in sync with new data
     }),
   );
+  // ER / data-model graph (pillar 3c) — read-only render in the UML panel; only
+  // sources that expose it (ServerSource) drive this, others simply never fire.
+  const unsubEntities = source.subscribeEntities?.((snapshot) => {
+    entities.clear();
+    for (const e of snapshot.entities) entities.set(e.id, e);
+    entityRelations = snapshot.relations;
+    // Drop a stale selection if its entity/relation was deleted upstream.
+    if (selectedEntityId && !entities.has(selectedEntityId)) selectedEntityId = null;
+    if (
+      selectedRelationId &&
+      !entityRelations.some((r) => r.id === selectedRelationId)
+    ) {
+      selectedRelationId = null;
+    }
+    if (showEntities) render(); // keep the overlay live
+    if (umlOpen) void renderUmlPanel(); // keep an open ER diagram in sync
+  });
+  if (unsubEntities) disposers.push(unsubEntities);
   // Tasks (pillar 4) — present only on sources that can persist them; the panel
   // toggle is gated on saveTask, so a read-only source simply never shows it.
   const unsubTasks = source.subscribeTasks?.((next) => {
@@ -432,6 +469,12 @@ function buildToolbar(): void {
   infraBtn.dataset.toggle = "infra";
   infraBtn.classList.toggle("active", showInfra);
   toolbar.append(infraBtn);
+  const entityBtn = iconButton(entityIcon(), "Data", toggleEntities);
+  entityBtn.dataset.toggle = "entities";
+  entityBtn.classList.toggle("active", showEntities);
+  toolbar.append(entityBtn);
+  // Like infra, the ER editing tools (add entity / relate / entity editor) live
+  // in the right drawer — see renderEntityPanel — not the toolbar.
   // The infra editing tools (add node / link / node editor) live in the right
   // drawer — see renderInfraPanel — not the toolbar, so they don't read as
   // general element-creation tools.
@@ -485,6 +528,9 @@ async function addMember(): Promise<void> {
 /** Show or hide the project's infrastructure diagram overlay. */
 function toggleInfra(): void {
   showInfra = !showInfra;
+  // Infra and the ER overlay both take over the canvas + drawer, so only one is
+  // shown at a time — opening infra closes entities.
+  if (showInfra && showEntities) toggleEntities();
   toolbar
     .querySelector('[data-toggle="infra"]')
     ?.classList.toggle("active", showInfra);
@@ -492,6 +538,21 @@ function toggleInfra(): void {
     selectedFlowId = null; // hiding the overlay clears the highlight
     selectedInfraId = null;
     if (linkMode) cancelLink();
+  }
+  render();
+}
+
+/** Show or hide the project's ER (data-model) diagram overlay. */
+function toggleEntities(): void {
+  showEntities = !showEntities;
+  if (showEntities && showInfra) toggleInfra(); // mutually exclusive with infra
+  toolbar
+    .querySelector('[data-toggle="entities"]')
+    ?.classList.toggle("active", showEntities);
+  if (!showEntities) {
+    selectedEntityId = null;
+    selectedRelationId = null;
+    if (entityLinkMode) cancelEntityLink();
   }
   render();
 }
@@ -554,9 +615,9 @@ function render(): void {
     transform: `translate(${panX} ${panY}) scale(${zoom})`,
   }) as SVGGElement;
 
-  // Design layer in its own group so the infra overlay can dim it as a unit.
+  // Design layer in its own group so an overlay can dim it as a unit.
   const design = svgEl("g", {}) as SVGGElement;
-  if (showInfra) design.setAttribute("opacity", "0.35");
+  if (showInfra || showEntities) design.setAttribute("opacity", "0.35");
   for (const el of ordered()) {
     if (isHidden(el)) continue; // hidden via the layers eye toggle (or a hidden ancestor)
     design.append(drawElement(el));
@@ -575,6 +636,12 @@ function render(): void {
     // Independent translation: the overlay drags around without touching design.
     infra.setAttribute("transform", `translate(${infraPanX} ${infraPanY})`);
     vp.append(infra);
+  }
+
+  if (showEntities) {
+    const er = drawEntityLayer();
+    er.setAttribute("transform", `translate(${entityPanX} ${entityPanY})`);
+    vp.append(er);
   }
 
   // Focus-mode doc leader: the selected (or hovered) element draws one leader
@@ -910,6 +977,326 @@ async function completeLink(fromId: string, toId: string): Promise<void> {
   } catch (err) {
     notify(`Couldn't add edge: ${(err as Error).message}`);
   }
+}
+
+// ========================================================================
+// ER (data-model) overlay (pillar 3c) — entities + crow's-foot relations.
+// A standalone graph like the infra overlay; renders the same model the UML
+// panel's `entityToMermaid` exports. Gated on the source's optional entity
+// writers, so a read-only source shows it but can't edit.
+// ========================================================================
+
+const ENTITY_ACCENT = "#8b6fd6"; // single accent colour for the data layer
+const ENTITY_HEADER_H = 28; // name band height
+const ENTITY_ROW_H = 16; // per-field row height
+
+/** Box height that fits a header plus one row per field (kept in `height`). */
+function entityHeight(fieldCount: number): number {
+  return ENTITY_HEADER_H + Math.max(1, fieldCount) * ENTITY_ROW_H + 8;
+}
+
+/** Crow's-foot multiplicity as a short label drawn at a relation end. */
+function cardinalityShort(c: EntityRelation["fromCardinality"]): string {
+  switch (c) {
+    case "zero-or-one":
+      return "0..1";
+    case "exactly-one":
+      return "1";
+    case "zero-or-many":
+      return "*";
+    case "one-or-many":
+      return "1..*";
+  }
+}
+
+/** The point on a box's border along the ray from its centre toward (tx,ty). */
+function boxBorderPoint(
+  b: { x: number; y: number; width: number; height: number },
+  tx: number,
+  ty: number,
+): { x: number; y: number } {
+  const cx = b.x + b.width / 2;
+  const cy = b.y + b.height / 2;
+  const dx = tx - cx;
+  const dy = ty - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const sx = dx !== 0 ? b.width / 2 / Math.abs(dx) : Infinity;
+  const sy = dy !== 0 ? b.height / 2 / Math.abs(dy) : Infinity;
+  const s = Math.min(sx, sy);
+  return { x: cx + dx * s, y: cy + dy * s };
+}
+
+function drawEntityLayer(): SVGGElement {
+  const g = svgEl("g", { class: "entity-layer" }) as SVGGElement;
+  // Relations first so the boxes paint on top of the connectors.
+  for (const r of entityRelations) g.append(...drawRelation(r));
+  // Bigger boxes first so smaller ones paint on top (matches the infra overlay).
+  const ordered = [...entities.values()].sort(
+    (p, q) => q.width * q.height - p.width * p.height,
+  );
+  for (const e of ordered) g.append(drawEntityBox(e));
+  return g;
+}
+
+function drawRelation(r: EntityRelation): SVGElement[] {
+  const a = entities.get(r.from);
+  const b = entities.get(r.to);
+  if (!a || !b) return []; // skip dangling, mirroring entityToMermaid
+  const acx = a.x + a.width / 2;
+  const acy = a.y + a.height / 2;
+  const bcx = b.x + b.width / 2;
+  const bcy = b.y + b.height / 2;
+  const start = boxBorderPoint(a, bcx, bcy);
+  const end = boxBorderPoint(b, acx, acy);
+  const selected = r.id === selectedRelationId;
+
+  const l = line(start.x, start.y, end.x, end.y);
+  l.setAttribute(
+    "class",
+    `${r.identifying ? "entity-rel" : "entity-rel entity-rel-dashed"}${selected ? " entity-rel-selected" : ""}`,
+  );
+  // A fat transparent line makes the thin relation easy to click/select.
+  const hit = line(start.x, start.y, end.x, end.y);
+  hit.setAttribute("class", "entity-rel-hit");
+  hit.dataset.relationId = r.id;
+
+  const out: SVGElement[] = [l, hit];
+  // Cardinality just inside each endpoint; the relation verb at the midpoint.
+  out.push(
+    text(cardinalityShort(r.fromCardinality), start.x, start.y - 4, "entity-card"),
+  );
+  out.push(
+    text(cardinalityShort(r.toCardinality), end.x, end.y - 4, "entity-card"),
+  );
+  if (r.label) {
+    out.push(
+      text(r.label, (start.x + end.x) / 2, (start.y + end.y) / 2 - 3, "entity-rel-label"),
+    );
+  }
+  return out;
+}
+
+function drawEntityBox(e: Entity): SVGGElement {
+  const g = svgEl("g", {}) as SVGGElement;
+  g.dataset.entityId = e.id; // hit-test target for on-canvas ER editing
+  if (e.id === selectedEntityId || e.id === entityLinkSourceId) {
+    g.classList.add("entity-selected");
+  }
+  const box = svgEl("rect", {
+    x: String(e.x),
+    y: String(e.y),
+    width: String(e.width),
+    height: String(e.height),
+    rx: "8",
+    class: "entity-box",
+  });
+  box.setAttribute("stroke", ENTITY_ACCENT);
+  g.append(box);
+
+  // Header band in the accent colour with the entity name.
+  const header = svgEl("rect", {
+    x: String(e.x),
+    y: String(e.y),
+    width: String(e.width),
+    height: String(ENTITY_HEADER_H),
+    rx: "8",
+    class: "entity-header",
+  });
+  header.setAttribute("fill", ENTITY_ACCENT);
+  g.append(header, text(e.name, e.x + 10, e.y + 19, "entity-name"));
+
+  // One row per field: "name: type [KEYS]".
+  e.fields.forEach((f, i) => {
+    const y = e.y + ENTITY_HEADER_H + (i + 1) * ENTITY_ROW_H - 3;
+    const keys = f.keys.length ? `  [${f.keys.join(",")}]` : "";
+    const type = f.type ? `: ${f.type}` : "";
+    g.append(text(`${f.name}${type}${keys}`, e.x + 10, y, "entity-field"));
+  });
+  return g;
+}
+
+/** Select an entity for editing (design/infra/entity selection are exclusive). */
+function selectEntity(id: string | null): void {
+  selectedEntityId = id;
+  if (id) {
+    selectedId = null;
+    selectedRelationId = null;
+  }
+  render();
+}
+
+/** Select a relation for editing its cardinality/label. */
+function selectRelation(id: string | null): void {
+  selectedRelationId = id;
+  if (id) {
+    selectedId = null;
+    selectedEntityId = null;
+  }
+  render();
+}
+
+/** Add an entity at the centre of the current viewport and persist it. */
+async function addEntityOnCanvas(): Promise<void> {
+  if (!source.saveEntity) {
+    notify("This data source is read-only for the data model.");
+    return;
+  }
+  if (!showEntities) toggleEntities();
+  const name = window.prompt("New entity (table/model) name:")?.trim();
+  if (!name) return;
+  const box = svg.getBoundingClientRect();
+  const cx = (box.width / 2 - panX) / zoom - entityPanX;
+  const cy = (box.height / 2 - panY) / zoom - entityPanY;
+  const width = 180;
+  const entity: Entity = {
+    id: `entity_${Date.now().toString(36)}`,
+    name,
+    fields: [{ name: "id", type: "uuid", keys: ["PK"] }],
+    description: "",
+    x: Math.round(cx - width / 2),
+    y: Math.round(cy - 40),
+    width,
+    height: entityHeight(1),
+    parentId: null,
+    updatedAt: new Date().toISOString(),
+  };
+  try {
+    await source.saveEntity(entity);
+    selectEntity(entity.id);
+    notify(`Added "${name}". Drag to move; Relate to connect; Del to remove.`);
+  } catch (err) {
+    notify(`Couldn't add entity: ${(err as Error).message}`);
+  }
+}
+
+/** Delete the selected entity (and its relations) after confirmation. */
+async function deleteSelectedEntity(): Promise<void> {
+  const id = selectedEntityId;
+  if (!id || !source.deleteEntity) return;
+  const e = entities.get(id);
+  if (!window.confirm(`Remove entity "${e?.name ?? id}" and its relations?`)) {
+    return;
+  }
+  selectedEntityId = null;
+  try {
+    await source.deleteEntity(id);
+    notify("Entity removed.");
+  } catch (err) {
+    notify(`Couldn't remove entity: ${(err as Error).message}`);
+  }
+  render();
+}
+
+/** Delete the selected relation after confirmation. */
+async function deleteSelectedRelation(): Promise<void> {
+  const id = selectedRelationId;
+  if (!id || !source.deleteEntityRelation) return;
+  if (!window.confirm("Remove this relation?")) return;
+  selectedRelationId = null;
+  try {
+    await source.deleteEntityRelation(id);
+    notify("Relation removed.");
+  } catch (err) {
+    notify(`Couldn't remove relation: ${(err as Error).message}`);
+  }
+  render();
+}
+
+/** Toggle the Relate tool: click two entities to relate them. */
+function toggleEntityLink(): void {
+  if (entityLinkMode) {
+    cancelEntityLink();
+    return;
+  }
+  if (!source.saveEntityRelation) {
+    notify("This data source is read-only for the data model.");
+    return;
+  }
+  if (!showEntities) toggleEntities();
+  if (entities.size < 2) {
+    notify("Add at least two entities before relating.");
+    return;
+  }
+  entityLinkMode = true;
+  entityLinkSourceId = null;
+  render();
+}
+
+/** Leave relate mode and clear any in-progress source pick. */
+function cancelEntityLink(): void {
+  entityLinkMode = false;
+  entityLinkSourceId = null;
+  render();
+}
+
+/** An entity was clicked while the Relate tool is armed. */
+function onEntityLinkPick(id: string): void {
+  if (!entityLinkSourceId) {
+    entityLinkSourceId = id;
+    const e = entities.get(id);
+    notify(`Relate from "${e?.name ?? id}" — now click the target entity.`);
+    render();
+    return;
+  }
+  void completeEntityRelation(entityLinkSourceId, id);
+}
+
+/** Create the relation between the two picked entities, then leave relate mode. */
+async function completeEntityRelation(fromId: string, toId: string): Promise<void> {
+  if (fromId === toId) {
+    notify("Pick a different target entity.");
+    return;
+  }
+  const label = window.prompt('Relationship verb (e.g. "places"), optional:', "");
+  if (label === null) {
+    cancelEntityLink();
+    return; // cancelled
+  }
+  const relation: EntityRelation = {
+    id: `rel_${Date.now().toString(36)}`,
+    from: fromId,
+    to: toId,
+    fromCardinality: "exactly-one",
+    toCardinality: "zero-or-many",
+    ...(label.trim() ? { label: label.trim() } : {}),
+    identifying: true,
+    updatedAt: new Date().toISOString(),
+  };
+  cancelEntityLink();
+  if (!source.saveEntityRelation) return;
+  try {
+    await source.saveEntityRelation(relation);
+    selectRelation(relation.id);
+    notify("Relation added.");
+  } catch (err) {
+    notify(`Couldn't add relation: ${(err as Error).message}`);
+  }
+}
+
+/** Apply an edit from the drawer to the selected entity and persist it. The
+ * box height is kept in step with the field count so relations attach cleanly. */
+function updateEntity(patch: Partial<Entity>): void {
+  const id = selectedEntityId;
+  if (!id || !source.saveEntity) return;
+  const e = entities.get(id);
+  if (!e) return;
+  const updated: Entity = { ...e, ...patch, updatedAt: now() };
+  if (patch.fields) updated.height = entityHeight(patch.fields.length);
+  entities.set(id, updated);
+  void source.saveEntity(updated);
+  render();
+}
+
+/** Apply an edit from the drawer to the selected relation and persist it. */
+function updateRelation(patch: Partial<EntityRelation>): void {
+  const id = selectedRelationId;
+  if (!id || !source.saveEntityRelation) return;
+  const r = entityRelations.find((x) => x.id === id);
+  if (!r) return;
+  const updated: EntityRelation = { ...r, ...patch, updatedAt: now() };
+  entityRelations = entityRelations.map((x) => (x.id === id ? updated : x));
+  void source.saveEntityRelation(updated);
+  render();
 }
 
 /** Parents before children so nested elements draw on top. */
@@ -1285,6 +1672,53 @@ svg.addEventListener("pointerdown", (e) => {
     return;
   }
 
+  // An entity box is the ER editor's hit target: in relate mode it's an endpoint
+  // to connect; otherwise it's selected and dragged.
+  const entityEl = (e.target as Element).closest("[data-entity-id]");
+  if (showEntities && entityEl instanceof SVGElement && entityEl.dataset.entityId) {
+    const id = entityEl.dataset.entityId;
+    if (entityLinkMode) {
+      onEntityLinkPick(id);
+      return;
+    }
+    selectEntity(id);
+    const en = entities.get(id);
+    if (en && source.saveEntity) {
+      gesture = {
+        kind: "entity-move",
+        id,
+        startX: pt.x,
+        startY: pt.y,
+        origX: en.x,
+        origY: en.y,
+        moved: false,
+      };
+      svg.setPointerCapture(e.pointerId);
+    }
+    return;
+  }
+
+  // Clicking a relation line (its fat transparent hit area) selects it.
+  const relEl = (e.target as Element).closest("[data-relation-id]");
+  if (showEntities && relEl instanceof SVGElement && relEl.dataset.relationId) {
+    if (!entityLinkMode) selectRelation(relEl.dataset.relationId);
+    return;
+  }
+
+  // Grabbing the ER overlay elsewhere drags it on its own translation.
+  if (showEntities && (e.target as Element).closest(".entity-layer")) {
+    gesture = {
+      kind: "entity-pan",
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: entityPanX,
+      origY: entityPanY,
+    };
+    svg.classList.add("panning");
+    svg.setPointerCapture(e.pointerId);
+    return;
+  }
+
   // Empty space: start a pan. A click with no movement deselects on pointerup.
   gesture = {
     kind: "pan",
@@ -1328,6 +1762,25 @@ svg.addEventListener("pointermove", (e) => {
     const ny = gesture.origY + (cur.y - gesture.startY);
     if (nx !== n.x || ny !== n.y) gesture.moved = true;
     infraNodes.set(gesture.id, { ...n, x: nx, y: ny });
+    render();
+    return;
+  }
+
+  if (gesture.kind === "entity-pan") {
+    entityPanX = gesture.origX + (e.clientX - gesture.startX) / zoom;
+    entityPanY = gesture.origY + (e.clientY - gesture.startY) / zoom;
+    render();
+    return;
+  }
+
+  if (gesture.kind === "entity-move") {
+    const cur = toCanvas(e);
+    const en = entities.get(gesture.id);
+    if (!en) return;
+    const nx = gesture.origX + (cur.x - gesture.startX);
+    const ny = gesture.origY + (cur.y - gesture.startY);
+    if (nx !== en.x || ny !== en.y) gesture.moved = true;
+    entities.set(gesture.id, { ...en, x: nx, y: ny });
     render();
     return;
   }
@@ -1382,14 +1835,17 @@ svg.addEventListener("pointerup", () => {
     if (!gesture.moved) {
       // A plain click on empty space deselects (and cancels an in-flight link).
       if (linkMode) cancelLink();
+      if (entityLinkMode) cancelEntityLink();
       selectInfra(null);
+      selectEntity(null);
+      selectRelation(null);
       select(null);
     }
     gesture = null;
     return;
   }
 
-  if (gesture.kind === "infra-pan") {
+  if (gesture.kind === "infra-pan" || gesture.kind === "entity-pan") {
     svg.classList.remove("panning");
     gesture = null;
     return;
@@ -1405,6 +1861,22 @@ svg.addEventListener("pointerup", () => {
           ...n,
           x: Math.round(n.x),
           y: Math.round(n.y),
+          updatedAt: new Date().toISOString(),
+        });
+    }
+    return;
+  }
+
+  if (gesture.kind === "entity-move") {
+    const { id, moved } = gesture;
+    gesture = null;
+    if (moved && source.saveEntity) {
+      const en = entities.get(id);
+      if (en)
+        void source.saveEntity({
+          ...en,
+          x: Math.round(en.x),
+          y: Math.round(en.y),
           updatedAt: new Date().toISOString(),
         });
     }
@@ -1639,11 +2111,16 @@ on(window, "keydown", (e) => {
   if (e.key === "Escape") {
     closeContextMenu();
     if (linkMode) cancelLink();
+    if (entityLinkMode) cancelEntityLink();
     return;
   }
   if (e.key === "Delete" || e.key === "Backspace") {
     if (selectedInfraId) {
       void deleteSelectedInfra();
+    } else if (selectedEntityId) {
+      void deleteSelectedEntity();
+    } else if (selectedRelationId) {
+      void deleteSelectedRelation();
     } else if (selectedId) {
       deleteSelected();
     }
@@ -1902,6 +2379,27 @@ function renderSelectionPanel(): void {
       onToggleLink: toggleLink,
       onChangeNode: updateInfraNode,
       onRemoveNode: () => void deleteSelectedInfra(),
+    });
+    return;
+  }
+  // ER mode takes over the drawer too — the data-model analogue: add-entity /
+  // relate tools, plus an editor for the selected entity (its fields) or relation.
+  if (showEntities) {
+    renderEntityPanel(panel, {
+      canEdit: Boolean(source.saveEntity),
+      canRelate: Boolean(source.saveEntityRelation),
+      relating: entityLinkMode,
+      entity: selectedEntityId ? entities.get(selectedEntityId) : undefined,
+      relation: selectedRelationId
+        ? entityRelations.find((r) => r.id === selectedRelationId)
+        : undefined,
+      entityName: (id) => entities.get(id)?.name ?? id,
+      onAddEntity: () => void addEntityOnCanvas(),
+      onToggleRelate: toggleEntityLink,
+      onChangeEntity: updateEntity,
+      onRemoveEntity: () => void deleteSelectedEntity(),
+      onChangeRelation: updateRelation,
+      onRemoveRelation: () => void deleteSelectedRelation(),
     });
     return;
   }
@@ -2456,15 +2954,32 @@ async function renderUmlPanel(): Promise<void> {
     return;
   }
 
-  // Drop a stale selection so the dropdown + render stay consistent.
+  // Drop a stale flow selection so the dropdown + render stay consistent.
   if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
-  // The architecture/component view already lives in the Infra overlay, so the
-  // UML view only renders sequence diagrams — default to the first flow.
-  if (!selectedFlowId) selectedFlowId = infraFlows.keys().next().value ?? null;
+  // The picker shows three families: the structural component diagram in three
+  // kind-filtered views (architecture / infrastructure / modules), the ER /
+  // data-model diagram, and the behavioural sequence diagram per flow. Exactly
+  // one of selectedUmlView / selectedUmlEr / selectedFlowId drives the render;
+  // default to the architecture view.
+  if (!selectedFlowId && !selectedUmlView && !selectedUmlEr) {
+    selectedUmlView = "architecture";
+  }
   const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
-  const mermaidSrc = flow ? flowToMermaid(flow, infraNodes) : null;
+  const allNodes = [...infraNodes.values()];
+  const mermaidSrc = selectedUmlEr
+    ? entities.size
+      ? entityToMermaid([...entities.values()], entityRelations)
+      : null
+    : selectedUmlView
+      ? infraNodes.size
+        ? infraViewToMermaid(allNodes, infraEdges, selectedUmlView)
+        : null
+      : flow
+        ? flowToMermaid(flow, infraNodes)
+        : null;
   const canEditFlows = Boolean(source.saveInfraFlow);
-  if (!canEditFlows) umlEdit = false; // read-only source: no editor
+  // The flow editor only applies to a selected sequence flow, never a view/ER.
+  if (!canEditFlows || selectedUmlView || selectedUmlEr) umlEdit = false;
 
   // Backdrop: clicking outside the card closes the view.
   umlPanelEl.replaceChildren();
@@ -2482,23 +2997,68 @@ async function renderUmlPanel(): Promise<void> {
 
   const select = document.createElement("select");
   select.className = "uml-select";
+
+  // Component-diagram views — the structural graph through three kind-filtered
+  // lenses. Values are prefixed "view:" to tell them from "flow:" flow ids.
+  const VIEW_LABELS: Record<InfraView, string> = {
+    architecture: "Architecture — component diagram",
+    infrastructure: "Infrastructure — dependency diagram",
+    modules: "Modules — dependency graph",
+  };
+  const viewGroup = document.createElement("optgroup");
+  viewGroup.label = "Component diagram";
+  for (const v of Object.keys(VIEW_LABELS) as InfraView[]) {
+    const o = document.createElement("option");
+    o.value = `view:${v}`;
+    o.textContent = VIEW_LABELS[v];
+    if (selectedUmlView === v) o.selected = true;
+    viewGroup.append(o);
+  }
+  select.append(viewGroup);
+
+  // ER / data-model diagram — a single structural data view.
+  const erGroup = document.createElement("optgroup");
+  erGroup.label = "Data model";
+  const erOpt = document.createElement("option");
+  erOpt.value = "er:";
+  erOpt.textContent = "Entities — ER diagram";
+  if (selectedUmlEr) erOpt.selected = true;
+  erGroup.append(erOpt);
+  select.append(erGroup);
+
+  // Sequence diagrams — one per narrated flow.
+  const flowGroup = document.createElement("optgroup");
+  flowGroup.label = "Sequence diagram";
   if (infraFlows.size === 0) {
     const none = document.createElement("option");
     none.textContent = "No sequence flows defined";
     none.disabled = true;
-    none.selected = true;
-    select.append(none);
-    select.disabled = true;
+    flowGroup.append(none);
   }
   for (const f of infraFlows.values()) {
     const o = document.createElement("option");
-    o.value = f.id;
+    o.value = `flow:${f.id}`;
     o.textContent = `${f.name} — sequence diagram`;
     if (f.id === selectedFlowId) o.selected = true;
-    select.append(o);
+    flowGroup.append(o);
   }
+  select.append(flowGroup);
+
   select.addEventListener("change", () => {
-    selectedFlowId = select.value || null;
+    const val = select.value;
+    if (val.startsWith("view:")) {
+      selectedUmlView = val.slice(5) as InfraView;
+      selectedFlowId = null;
+      selectedUmlEr = false;
+    } else if (val.startsWith("flow:")) {
+      selectedFlowId = val.slice(5);
+      selectedUmlView = null;
+      selectedUmlEr = false;
+    } else if (val === "er:") {
+      selectedUmlEr = true;
+      selectedUmlView = null;
+      selectedFlowId = null;
+    }
     void renderUmlPanel();
   });
   head.append(select);
@@ -2571,15 +3131,14 @@ async function renderUmlPanel(): Promise<void> {
   umlPanelEl.append(card);
 
   if (!mermaidSrc) {
-    body.append(
-      hEl(
-        "p",
-        canEditFlows
+    const message = selectedUmlEr
+      ? "No entities yet — add entities to the data model (e.g. from VS Code or an AI agent) to see this diagram."
+      : selectedUmlView
+        ? "No infrastructure nodes yet — add boxes to the infrastructure graph to see this diagram."
+        : canEditFlows
           ? 'No sequence flows yet — click "+ New flow" to author one.'
-          : "No sequence flows to render. Add a flow to the infrastructure graph.",
-        "uml-empty",
-      ),
-    );
+          : "No sequence flows to render. Add a flow to the infrastructure graph.";
+    body.append(hEl("p", message, "uml-empty"));
     return;
   }
 
@@ -3133,6 +3692,15 @@ function infraIcon(): SVGElement {
     svgEl("rect", { x: "15", y: "16", width: "6", height: "6", rx: "1.2" }),
     path("M12 8v4"),
     path("M6 16v-2.5a1.5 1.5 0 0 1 1.5-1.5h9A1.5 1.5 0 0 1 18 13.5V16"),
+  ]);
+}
+// Data: a stacked-table / database glyph for the ER (data-model) overlay.
+function entityIcon(): SVGElement {
+  return lineIcon([
+    svgEl("rect", { x: "4", y: "3", width: "16", height: "18", rx: "2" }),
+    line(4, 9, 20, 9),
+    line(4, 15, 20, 15),
+    line(12, 9, 12, 21),
   ]);
 }
 // UML: two component boxes joined by a dependency arrow.

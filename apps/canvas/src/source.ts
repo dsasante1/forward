@@ -2,6 +2,8 @@ import type {
   Checkpoint,
   CheckpointInput,
   DesignElement,
+  Entity,
+  EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraNode,
@@ -31,6 +33,16 @@ export interface InfraSnapshot {
   flows: InfraFlow[];
 }
 
+/**
+ * The project's ER / data-model graph (the structural data view) — standalone
+ * entities + the crow's-foot relations between them. Separate from both the
+ * design elements and the infrastructure graph; renders to a Mermaid `erDiagram`.
+ */
+export interface EntitySnapshot {
+  entities: Entity[];
+  relations: EntityRelation[];
+}
+
 export interface CanvasSource {
   /** Subscribe to all elements in the project; fires on every change. */
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
@@ -50,6 +62,16 @@ export interface CanvasSource {
   saveInfraFlow?(flow: InfraFlow): Promise<void>;
   /** Remove one narrated flow (nodes/edges it walked are left intact). */
   deleteInfraFlow?(flowId: string): Promise<void>;
+  /** Subscribe to the ER / data-model graph (pillar 3c); fires on every change. */
+  subscribeEntities?(onChange: (snapshot: EntitySnapshot) => void): () => void;
+  /** Create or update one entity. */
+  saveEntity?(entity: Entity): Promise<void>;
+  /** Remove one entity along with any relations that referenced it. */
+  deleteEntity?(entityId: string): Promise<void>;
+  /** Create or update one entity relation. */
+  saveEntityRelation?(relation: EntityRelation): Promise<void>;
+  /** Remove one entity relation (the entities it joined are left intact). */
+  deleteEntityRelation?(relationId: string): Promise<void>;
   /** Enrol another uid into the project's member roster (membership-gated hosts). */
   addMember?(uid: string): Promise<void>;
   /** Subscribe to the project's tasks (pillar 4); fires on every change. */

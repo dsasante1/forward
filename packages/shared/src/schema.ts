@@ -208,6 +208,92 @@ export const InfraFlow = z.object({
 export type InfraFlow = z.infer<typeof InfraFlow>;
 
 // --------------------------------------------------------------------------
+// Entity layer (the ER / data model — the structural data view)
+// --------------------------------------------------------------------------
+//
+// A separate, project-scoped graph — like the infrastructure layer but for the
+// DATA model rather than the runtime components. An `Entity` is a table/model;
+// an `EntityRelation` is a crow's-foot association between two of them. It is its
+// own standalone graph (it does NOT reference design elements or infra nodes) and
+// serialises to a Mermaid `erDiagram` for export/print — the one UML grammar the
+// infra serializers don't cover. Geometry mirrors InfraNode/DesignElement so the
+// same canvas pan/zoom/geometry helpers apply unchanged.
+
+/** A key role an entity field can carry — PK (primary), FK (foreign), UK (unique). */
+export const EntityKey = z.enum(["PK", "FK", "UK"]);
+export type EntityKey = z.infer<typeof EntityKey>;
+
+/** One attribute (column/field) of an entity. */
+export const EntityField = z.object({
+  name: z.string().min(1),
+  /** Free-form data type, e.g. "uuid", "varchar", "int". */
+  type: z.string().default(""),
+  /** Zero or more key roles; an empty array is a plain attribute. */
+  keys: z.array(EntityKey).default([]),
+  /** Optional comment, rendered in quotes after the attribute. */
+  note: z.string().optional(),
+});
+export type EntityField = z.infer<typeof EntityField>;
+
+/**
+ * One box in the ER diagram — a table/model with its attributes. Project-scoped
+ * and standalone (does NOT reference a design element or infra node). Geometry
+ * mirrors InfraNode so the existing geometry helpers apply; `parentId` nests it
+ * inside a "group"-style container if one is ever added to this layer.
+ */
+export const Entity = z.object({
+  id: z.string().min(1),
+  /** Entity/table name, e.g. "Invoice", "VehicleOwnerProfile". */
+  name: z.string().min(1),
+  fields: z.array(EntityField).default([]),
+  /** Free-form Markdown notes (same subset as apiBinding/description). */
+  description: z.string().default(""),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative().default(180),
+  height: z.number().nonnegative().default(120),
+  parentId: z.string().nullable().default(null),
+  updatedAt: z.string().datetime(),
+});
+export type Entity = z.infer<typeof Entity>;
+
+/**
+ * The multiplicity at one end of a relation, in crow's-foot terms. Maps to the
+ * mirrored Mermaid glyphs (`|o`/`||`/`}o`/`}|` on the left, mirrored on the
+ * right) in the ER serializer.
+ */
+export const RelationCardinality = z.enum([
+  "zero-or-one",
+  "exactly-one",
+  "zero-or-many",
+  "one-or-many",
+]);
+export type RelationCardinality = z.infer<typeof RelationCardinality>;
+
+/**
+ * A directed association between two entities. `from`/`to` are Entity ids; each
+ * end carries its own cardinality. `identifying` picks the line style (solid when
+ * the child cannot exist without the parent, dashed otherwise), mirroring the
+ * UML/crow's-foot convention. Relations touching a missing entity are skipped on
+ * render — the same "skip dangling" rule the infra serializers use.
+ */
+export const EntityRelation = z.object({
+  id: z.string().min(1),
+  /** Source entity id. */
+  from: z.string().min(1),
+  /** Target entity id. */
+  to: z.string().min(1),
+  fromCardinality: RelationCardinality.default("exactly-one"),
+  toCardinality: RelationCardinality.default("zero-or-many"),
+  /** The relationship verb, e.g. "places", "holds", "billed". */
+  label: z.string().optional(),
+  /** Solid (identifying) vs dashed (non-identifying) line. */
+  identifying: z.boolean().default(true),
+  updatedAt: z.string().datetime(),
+});
+export type EntityRelation = z.infer<typeof EntityRelation>;
+
+// --------------------------------------------------------------------------
 // Task layer (the work tracker — pillar 4)
 // --------------------------------------------------------------------------
 
@@ -550,6 +636,8 @@ export const DatabaseTree = z.object({
   infra_nodes: z.record(z.record(InfraNode)).default({}),
   infra_edges: z.record(z.record(InfraEdge)).default({}),
   infra_flows: z.record(z.record(InfraFlow)).default({}),
+  entities: z.record(z.record(Entity)).default({}),
+  entity_relations: z.record(z.record(EntityRelation)).default({}),
   tasks: z.record(z.record(Task)).default({}),
   checkpoints: z.record(z.record(Checkpoint)).default({}),
 });
@@ -583,6 +671,13 @@ export const paths = {
   infraFlows: (projectId: string) => `infra_flows/${projectId}`,
   infraFlow: (projectId: string, flowId: string) =>
     `infra_flows/${projectId}/${flowId}`,
+  // ER / data model — project-scoped, separate graph of entities + relations.
+  entities: (projectId: string) => `entities/${projectId}`,
+  entity: (projectId: string, entityId: string) =>
+    `entities/${projectId}/${entityId}`,
+  entityRelations: (projectId: string) => `entity_relations/${projectId}`,
+  entityRelation: (projectId: string, relationId: string) =>
+    `entity_relations/${projectId}/${relationId}`,
   // Task tracker — project-scoped, stands apart but links into the other layers.
   tasks: (projectId: string) => `tasks/${projectId}`,
   task: (projectId: string, taskId: string) => `tasks/${projectId}/${taskId}`,

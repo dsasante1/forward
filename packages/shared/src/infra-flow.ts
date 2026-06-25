@@ -1,4 +1,10 @@
-import type { InfraEdge, InfraNode, InfraFlow, InfraStepKind } from "./schema.js";
+import type {
+  InfraEdge,
+  InfraNode,
+  InfraFlow,
+  InfraStepKind,
+  InfraKind,
+} from "./schema.js";
 
 /**
  * The export/print renderers for the infrastructure layer, both in UML via
@@ -157,4 +163,93 @@ export function infraToComponentMermaid(
   }
 
   return lines.join("\n");
+}
+
+/**
+ * The named lenses over the single infra graph. One model, several framings —
+ * each view is just a set of node kinds to keep, so the same nodes + edges render
+ * as a different diagram:
+ *
+ *   • `architecture`   — the whole system at a glance (every kind). The §1
+ *     high-level architecture diagram.
+ *   • `infrastructure` — the runtime/DevOps substrate and the stores/queues/SaaS
+ *     it wires to, dropping the app's internal frontend/service boxes. The §2
+ *     infrastructure dependency diagram.
+ *   • `modules`        — only the internal code units (the app servers and
+ *     services), i.e. the module/dependency graph. The §4 dependency graph.
+ *
+ * `group` is in every view: it's a structural container, kept only while it still
+ * has a surviving child (see `filterInfraGraph`).
+ */
+export type InfraView = "architecture" | "infrastructure" | "modules";
+
+export const INFRA_VIEW_KINDS: Record<InfraView, InfraKind[]> = {
+  architecture: [
+    "frontend",
+    "backend",
+    "database",
+    "cache",
+    "queue",
+    "service",
+    "devops",
+    "external",
+    "group",
+  ],
+  infrastructure: [
+    "backend",
+    "database",
+    "cache",
+    "queue",
+    "devops",
+    "external",
+    "group",
+  ],
+  modules: ["backend", "service", "group"],
+};
+
+/**
+ * Project the full infra graph down to a single `InfraView`: keep nodes whose
+ * kind is in the view, then drop any `group` container the filter left empty (no
+ * surviving non-group child) — matching `infraToComponentMermaid`, which renders
+ * a childless group as a plain box rather than an empty subsystem. Edges are kept
+ * only when both ends survive. Pure, non-mutating; returns fresh arrays.
+ */
+export function filterInfraGraph(
+  nodes: InfraNode[],
+  edges: InfraEdge[],
+  view: InfraView,
+): { nodes: InfraNode[]; edges: InfraEdge[] } {
+  const kinds = new Set(INFRA_VIEW_KINDS[view]);
+  const byKind = nodes.filter((n) => kinds.has(n.kind));
+  const survived = new Set(byKind.map((n) => n.id));
+
+  const kept = byKind.filter((n) => {
+    if (n.kind !== "group") return true;
+    // Keep the group only if a non-group child of it survived the kind filter.
+    return nodes.some(
+      (c) =>
+        c.parentId === n.id &&
+        c.id !== n.id &&
+        c.kind !== "group" &&
+        survived.has(c.id),
+    );
+  });
+
+  const ids = new Set(kept.map((n) => n.id));
+  const keptEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  return { nodes: kept, edges: keptEdges };
+}
+
+/**
+ * Convenience: filter the infra graph to a view and serialise it to the UML
+ * component diagram in one step — the §1/§2/§4 diagrams as three framings of one
+ * model. Equivalent to `infraToComponentMermaid(filterInfraGraph(...))`.
+ */
+export function infraViewToMermaid(
+  nodes: InfraNode[],
+  edges: InfraEdge[],
+  view: InfraView,
+): string {
+  const f = filterInfraGraph(nodes, edges, view);
+  return infraToComponentMermaid(f.nodes, f.edges);
 }

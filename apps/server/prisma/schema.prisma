@@ -61,6 +61,8 @@ model Project {
   infraNodes     InfraNode[]
   infraEdges     InfraEdge[]
   infraFlows     InfraFlow[]
+  entities         Entity[]
+  entityRelations  EntityRelation[]
   tasks          Task[]
   checkpoints    Checkpoint[]
 
@@ -175,6 +177,30 @@ model InfraFlow {
   projectId String
   id        String
   data      Json // forward-core InfraFlow
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+// An ER-diagram entity (table/model + its fields). Standalone data-model layer,
+// separate from the infra graph. Full shape validated by forward-core `Entity`.
+model Entity {
+  projectId String
+  id        String
+  data      Json // forward-core Entity
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+// A crow's-foot association between two entities. Validated by forward-core
+// `EntityRelation`.
+model EntityRelation {
+  projectId String
+  id        String
+  data      Json // forward-core EntityRelation
   updatedAt DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
