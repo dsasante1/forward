@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { flowToMermaid, infraToComponentMermaid } from "./infra-flow.js";
+import {
+  flowToMermaid,
+  infraToComponentMermaid,
+  filterInfraGraph,
+  infraViewToMermaid,
+} from "./infra-flow.js";
 import { InfraEdge, InfraFlow, InfraNode } from "./schema.js";
 
 function node(
@@ -165,5 +170,75 @@ describe("infraToComponentMermaid (UML component diagram)", () => {
       [edge("e1", "api", "ghost", "calls")],
     );
     expect(out).not.toContain("calls");
+  });
+});
+
+describe("filterInfraGraph (kind-based views of one graph)", () => {
+  // One shared graph; each view is a different lens over it.
+  const nodes = [
+    node("web", "Web App", "frontend"),
+    node("api", "API Server", "backend"),
+    node("svc", "Auth Service", "service"),
+    node("pg", "PostgreSQL", "database"),
+    node("redis", "Redis", "cache"),
+    node("gha", "GitHub Actions", "devops"),
+    node("sg", "SendGrid", "external"),
+  ];
+  const edges = [
+    edge("e1", "web", "api", "HTTP"),
+    edge("e2", "api", "svc", "calls"),
+    edge("e3", "api", "pg", "reads/writes"),
+    edge("e4", "api", "redis", "caches"),
+    edge("e5", "gha", "api", "deploys"),
+    edge("e6", "api", "sg", "sends"),
+  ];
+
+  it("architecture keeps every node", () => {
+    const out = filterInfraGraph(nodes, edges, "architecture");
+    expect(out.nodes).toHaveLength(7);
+    expect(out.edges).toHaveLength(6);
+  });
+
+  it("infrastructure drops frontend + service, keeping the runtime substrate", () => {
+    const out = filterInfraGraph(nodes, edges, "infrastructure");
+    const ids = out.nodes.map((n) => n.id).sort();
+    expect(ids).toEqual(["api", "gha", "pg", "redis", "sg"]);
+    // The web->api and api->svc edges drop with their endpoints; gha->api stays.
+    expect(out.edges.map((e) => e.id).sort()).toEqual(["e3", "e4", "e5", "e6"]);
+  });
+
+  it("modules keeps only the internal code units", () => {
+    const out = filterInfraGraph(nodes, edges, "modules");
+    expect(out.nodes.map((n) => n.id).sort()).toEqual(["api", "svc"]);
+    expect(out.edges.map((e) => e.id)).toEqual(["e2"]);
+  });
+
+  it("drops a group container left empty by the filter", () => {
+    const grouped = [
+      node("ci", "CI/CD", "group"),
+      node("gha", "GitHub Actions", "devops", { parentId: "ci" }),
+      node("api", "API Server", "backend"),
+    ];
+    // `modules` keeps `group` and `backend` but not `devops`, so the CI group is
+    // left childless and must be dropped (not rendered as an empty subsystem).
+    const out = filterInfraGraph(grouped, [], "modules");
+    expect(out.nodes.map((n) => n.id)).toEqual(["api"]);
+  });
+
+  it("keeps a group whose child survives the filter", () => {
+    const grouped = [
+      node("data", "Data", "group"),
+      node("pg", "PostgreSQL", "database", { parentId: "data" }),
+    ];
+    const out = filterInfraGraph(grouped, [], "infrastructure");
+    expect(out.nodes.map((n) => n.id).sort()).toEqual(["data", "pg"]);
+  });
+
+  it("infraViewToMermaid filters then serialises to a component diagram", () => {
+    const out = infraViewToMermaid(nodes, edges, "modules");
+    expect(out).toContain("flowchart LR");
+    expect(out).toContain("API Server");
+    expect(out).toContain("Auth Service");
+    expect(out).not.toContain("PostgreSQL");
   });
 });

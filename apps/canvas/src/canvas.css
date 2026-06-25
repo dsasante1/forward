@@ -387,6 +387,38 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 }
 .flow-step-num-bg { fill: var(--bg); stroke: var(--accent); stroke-width: 1.5; }
 
+/* --- ER (data-model) overlay --- */
+.entity-box { fill: #171922; stroke-width: 1.2; cursor: grab; }
+.entity-header { stroke: none; }
+.entity-name { fill: #fff; font-size: 12px; font-weight: 700; pointer-events: none; }
+.entity-field { fill: var(--text); font-size: 11px; pointer-events: none; }
+.entity-selected .entity-box {
+  stroke: var(--accent); stroke-width: 1.8;
+  filter: drop-shadow(0 0 4px rgba(208, 106, 64, .5));
+}
+.entity-rel { stroke: #6f63a8; stroke-width: 1.5; }
+.entity-rel-dashed { stroke-dasharray: 5 4; }
+.entity-rel-selected { stroke: var(--accent); stroke-width: 2.2; }
+.entity-rel-hit { stroke: transparent; stroke-width: 12; cursor: pointer; }
+.entity-rel-label { fill: var(--muted); font-size: 10px; text-anchor: middle; pointer-events: none; }
+.entity-card { fill: #b3a9e0; font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+
+/* ER drawer: the per-field editor rows */
+.entity-field-row {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: 6px 0; border-bottom: 1px solid var(--line);
+}
+.entity-field-top { display: flex; gap: 4px; align-items: center; }
+.entity-field-top input { flex: 1; min-width: 0; }
+.entity-field-del {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; padding: 2px 6px; font-size: 12px;
+}
+.entity-field-del:hover { color: var(--accent); }
+.entity-field-keys { display: flex; gap: 10px; font-size: 11px; color: var(--muted); }
+.entity-field-keys label { display: inline-flex; gap: 3px; align-items: center; cursor: pointer; }
+.entity-field-note { width: 100%; }
+
 /* --- rendered UML view (full-stage backdrop + centered card) --- */
 #umlpanel {
   position: absolute; inset: 0; z-index: 30;

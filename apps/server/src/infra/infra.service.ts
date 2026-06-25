@@ -1,6 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { InfraEdge, InfraFlow, InfraNode } from "forward-core";
+import {
+  Entity,
+  EntityRelation,
+  InfraEdge,
+  InfraFlow,
+  InfraNode,
+} from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
 import { TimelineService } from "../timeline/timeline.service.js";
@@ -23,15 +29,22 @@ export class InfraService {
 
   async fetch(projectId: string, actor: string) {
     return this.prisma.withUser(actor, async (tx) => {
-      const [nodes, edges, flows] = await Promise.all([
+      const [nodes, edges, flows, entities, relations] = await Promise.all([
         tx.infraNode.findMany({ where: { projectId }, select: { data: true } }),
         tx.infraEdge.findMany({ where: { projectId }, select: { data: true } }),
         tx.infraFlow.findMany({ where: { projectId }, select: { data: true } }),
+        tx.entity.findMany({ where: { projectId }, select: { data: true } }),
+        tx.entityRelation.findMany({
+          where: { projectId },
+          select: { data: true },
+        }),
       ]);
       return {
         nodes: parseAll(nodes, InfraNode),
         edges: parseAll(edges, InfraEdge),
         flows: parseAll(flows, InfraFlow),
+        entities: parseAll(entities, Entity),
+        relations: parseAll(relations, EntityRelation),
       };
     });
   }
@@ -148,12 +161,96 @@ export class InfraService {
     });
   }
 
+  // --- entity (ER / data model) layer --------------------------------------
+
+  async saveEntity(projectId: string, entity: Entity, actor: string) {
+    const next: Entity = {
+      ...sanitizeFields(entity, ["name", "description"]),
+      updatedAt: new Date().toISOString(),
+    };
+    const existed = await this.exists(projectId, "entity", next.id, actor);
+    await this.upsert(projectId, "entity", next.id, next, actor);
+    await this.emit(projectId, "entities", "upsert", [next.id], actor);
+    await this.timeline.add(projectId, actor, {
+      domain: "uml",
+      action: existed ? "modified" : "created",
+      targetId: next.id,
+      title: next.name,
+      detail: `${existed ? "Updated" : "Added"} entity "${next.name}" (${next.fields.length} fields)`,
+    });
+    return next;
+  }
+
+  async deleteEntity(projectId: string, entityId: string, actor: string) {
+    const name = await this.nameOf(projectId, "entity", entityId, actor);
+    await this.prisma.withUser(actor, async (tx) => {
+      await tx.entity.deleteMany({ where: { projectId, id: entityId } });
+      // Drop relations touching the entity so none dangle.
+      const relations = parseAll(
+        await tx.entityRelation.findMany({
+          where: { projectId },
+          select: { data: true },
+        }),
+        EntityRelation,
+      );
+      const dangling = relations
+        .filter((r) => r.from === entityId || r.to === entityId)
+        .map((r) => r.id);
+      if (dangling.length) {
+        await tx.entityRelation.deleteMany({
+          where: { projectId, id: { in: dangling } },
+        });
+      }
+    });
+    await this.emit(projectId, "entities", "delete", [entityId], actor);
+    await this.timeline.add(projectId, actor, {
+      domain: "uml",
+      action: "deleted",
+      targetId: entityId,
+      title: name ?? entityId,
+      detail: `Removed entity "${name ?? entityId}"`,
+    });
+  }
+
+  async saveRelation(projectId: string, relation: EntityRelation, actor: string) {
+    const next: EntityRelation = {
+      ...sanitizeFields(relation, ["label"]),
+      updatedAt: new Date().toISOString(),
+    };
+    const existed = await this.exists(projectId, "entityRelation", next.id, actor);
+    await this.upsert(projectId, "entityRelation", next.id, next, actor);
+    await this.emit(projectId, "entities", "upsert", [next.id], actor);
+    const relLabel = next.label || `${next.from} → ${next.to}`;
+    await this.timeline.add(projectId, actor, {
+      domain: "uml",
+      action: existed ? "modified" : "created",
+      targetId: next.id,
+      title: relLabel,
+      detail: `${existed ? "Updated" : "Related"} ${next.from} → ${next.to}`,
+    });
+    return next;
+  }
+
+  async deleteRelation(projectId: string, relationId: string, actor: string) {
+    await this.prisma.withUser(actor, (tx) =>
+      tx.entityRelation.deleteMany({ where: { projectId, id: relationId } }),
+    );
+    await this.emit(projectId, "entities", "delete", [relationId], actor);
+    await this.timeline.add(projectId, actor, {
+      domain: "uml",
+      action: "deleted",
+      targetId: relationId,
+      title: "relation",
+      detail: "Removed a relation",
+    });
+  }
+
   // --- internals -----------------------------------------------------------
 
   /** Does a row with this id already exist? (drives created-vs-modified events) */
   private async exists(
     projectId: string,
-    model: "infraNode" | "infraEdge" | "infraFlow",
+    model: "infraNode" | "infraEdge" | "infraFlow" | "entity" | "entityRelation",
     id: string,
     actor: string,
   ): Promise<boolean> {
@@ -172,10 +269,10 @@ export class InfraService {
     });
   }
 
-  /** The display name (label/name) of a node or flow, for delete-event titles. */
+  /** The display name (label/name) of a node, flow or entity, for delete titles. */
   private async nameOf(
     projectId: string,
-    model: "infraNode" | "infraFlow",
+    model: "infraNode" | "infraFlow" | "entity",
     id: string,
     actor: string,
   ): Promise<string | null> {
@@ -197,13 +294,13 @@ export class InfraService {
 
   private async upsert(
     projectId: string,
-    model: "infraNode" | "infraEdge" | "infraFlow",
+    model: "infraNode" | "infraEdge" | "infraFlow" | "entity" | "entityRelation",
     id: string,
     data: unknown,
     actor: string,
   ): Promise<void> {
-    // The three infra delegates share the same composite key + columns, so a
-    // minimal structural type lets one helper serve all three.
+    // These delegates share the same composite key + columns, so a minimal
+    // structural type lets one helper serve all of them.
     type UpsertDelegate = {
       upsert(args: {
         where: { projectId_id: { projectId: string; id: string } };
@@ -222,7 +319,7 @@ export class InfraService {
 
   private async emit(
     projectId: string,
-    resource: "infra" | "flows",
+    resource: "infra" | "flows" | "entities",
     op: "upsert" | "delete",
     ids: string[],
     actor: string,

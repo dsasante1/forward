@@ -7,7 +7,13 @@ import {
   Put,
   UseGuards,
 } from "@nestjs/common";
-import { InfraEdge, InfraFlow, InfraNode } from "forward-core";
+import {
+  Entity,
+  EntityRelation,
+  InfraEdge,
+  InfraFlow,
+  InfraNode,
+} from "forward-core";
 import { CurrentUser, type AuthUser } from "../auth/current-user.decorator.js";
 import { MembershipGuard } from "../common/membership.guard.js";
 import { ZodBody } from "../common/zod-validation.pipe.js";
@@ -81,6 +87,48 @@ export class InfraController {
     @CurrentUser() user: AuthUser,
   ) {
     await this.infra.deleteFlow(projectId, id, user.id);
+    return { ok: true };
+  }
+
+  // --- entity (ER / data model) layer --------------------------------------
+
+  @Put("entities/:id")
+  saveEntity(
+    @Param("projectId") projectId: string,
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodBody(Entity)) body: Entity,
+  ) {
+    return this.infra.saveEntity(projectId, { ...body, id }, user.id);
+  }
+
+  @Delete("entities/:id")
+  async deleteEntity(
+    @Param("projectId") projectId: string,
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.infra.deleteEntity(projectId, id, user.id);
+    return { ok: true };
+  }
+
+  @Put("relations/:id")
+  saveRelation(
+    @Param("projectId") projectId: string,
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodBody(EntityRelation)) body: EntityRelation,
+  ) {
+    return this.infra.saveRelation(projectId, { ...body, id }, user.id);
+  }
+
+  @Delete("relations/:id")
+  async deleteRelation(
+    @Param("projectId") projectId: string,
+    @Param("id") id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    await this.infra.deleteRelation(projectId, id, user.id);
     return { ok: true };
   }
 }

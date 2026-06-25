@@ -1,6 +1,8 @@
 import {
   ApiBinding,
   DesignElement,
+  Entity,
+  EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraNode,
@@ -529,6 +531,143 @@ export async function deleteInfraFlow(
   flowId: string,
 ): Promise<void> {
   await del(url(cfg, paths.infraFlow(cfg.projectId, flowId)));
+}
+
+// --------------------------------------------------------------------------
+// Entity layer (the ER / data model — a standalone graph like the infra graph)
+// --------------------------------------------------------------------------
+
+/**
+ * Read the project's ER model (entities + relations). Both subtrees may arrive as
+ * a literal array or a push-keyed object, so normalize on read; rows that don't
+ * satisfy the schema are skipped rather than failing the whole read — mirroring
+ * `fetchInfra`.
+ */
+export async function fetchEntities(
+  cfg: FirebaseConfig,
+): Promise<{ entities: Entity[]; relations: EntityRelation[] }> {
+  const [entRes, relRes] = await Promise.all([
+    fetch(url(cfg, paths.entities(cfg.projectId))),
+    fetch(url(cfg, paths.entityRelations(cfg.projectId))),
+  ]);
+  if (!entRes.ok) throw new Error(`Firebase read failed: ${entRes.status}`);
+  if (!relRes.ok) throw new Error(`Firebase read failed: ${relRes.status}`);
+
+  const entities: Entity[] = [];
+  for (const value of normalizeList(await entRes.json())) {
+    const parsed = Entity.safeParse(value);
+    if (parsed.success) entities.push(parsed.data);
+  }
+  const relations: EntityRelation[] = [];
+  for (const value of normalizeList(await relRes.json())) {
+    const parsed = EntityRelation.safeParse(value);
+    if (parsed.success) relations.push(parsed.data);
+  }
+  return { entities, relations };
+}
+
+/** ETags + last-parsed model the entity poller carries between ticks. */
+export interface EntityPollState {
+  entityEtag?: string;
+  relationEtag?: string;
+  entities: Entity[];
+  relations: EntityRelation[];
+}
+
+/**
+ * Poller-facing read of the ER model. Conditionally fetches the entities and
+ * relations subtrees in parallel, falling back to the previous value for whichever
+ * side is unchanged (304). `changed` is true when either side moved, so the caller
+ * only re-renders when it actually differs — mirroring `fetchInfraConditional`.
+ */
+export async function fetchEntitiesConditional(
+  cfg: FirebaseConfig,
+  prev: EntityPollState,
+): Promise<EntityPollState & { changed: boolean }> {
+  const [entR, relR] = await Promise.all([
+    getJsonConditional(url(cfg, paths.entities(cfg.projectId)), prev.entityEtag),
+    getJsonConditional(
+      url(cfg, paths.entityRelations(cfg.projectId)),
+      prev.relationEtag,
+    ),
+  ]);
+
+  let entities = prev.entities;
+  let entityEtag = prev.entityEtag;
+  if (entR) {
+    entityEtag = entR.etag;
+    entities = [];
+    for (const value of normalizeList(entR.body)) {
+      const parsed = Entity.safeParse(value);
+      if (parsed.success) entities.push(parsed.data);
+    }
+  }
+
+  let relations = prev.relations;
+  let relationEtag = prev.relationEtag;
+  if (relR) {
+    relationEtag = relR.etag;
+    relations = [];
+    for (const value of normalizeList(relR.body)) {
+      const parsed = EntityRelation.safeParse(value);
+      if (parsed.success) relations.push(parsed.data);
+    }
+  }
+
+  return {
+    entityEtag,
+    relationEtag,
+    entities,
+    relations,
+    changed: Boolean(entR) || Boolean(relR),
+  };
+}
+
+/** Create or update one entity (stamps `updatedAt`). */
+export async function saveEntity(
+  cfg: FirebaseConfig,
+  entity: Entity,
+): Promise<void> {
+  const body = Entity.parse({ ...entity, updatedAt: new Date().toISOString() });
+  await put(url(cfg, paths.entity(cfg.projectId, body.id)), body);
+}
+
+/** Create or update one entity relation (stamps `updatedAt`). */
+export async function saveEntityRelation(
+  cfg: FirebaseConfig,
+  relation: EntityRelation,
+): Promise<void> {
+  const body = EntityRelation.parse({
+    ...relation,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(url(cfg, paths.entityRelation(cfg.projectId, body.id)), body);
+}
+
+/**
+ * Remove an entity and any relations touching it, so the ER diagram never keeps a
+ * dangling association to an entity that no longer exists — mirroring
+ * `deleteInfraNode`.
+ */
+export async function deleteEntity(
+  cfg: FirebaseConfig,
+  entityId: string,
+): Promise<void> {
+  await del(url(cfg, paths.entity(cfg.projectId, entityId)));
+  const { relations } = await fetchEntities(cfg);
+  await Promise.all(
+    relations
+      .filter((r) => r.from === entityId || r.to === entityId)
+      .map((r) => del(url(cfg, paths.entityRelation(cfg.projectId, r.id)))),
+  );
+}
+
+/** Remove one entity relation. */
+export async function deleteEntityRelation(
+  cfg: FirebaseConfig,
+  relationId: string,
+): Promise<void> {
+  await del(url(cfg, paths.entityRelation(cfg.projectId, relationId)));
 }
 
 // --------------------------------------------------------------------------

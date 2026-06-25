@@ -4,6 +4,8 @@ import { z } from "zod";
 import {
   ApiBinding,
   DesignElement,
+  Entity,
+  EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraFlowStep,
@@ -16,11 +18,14 @@ import {
   bindApiToElement,
   commentOnTask,
   deleteElement,
+  deleteEntity,
   deleteInfraFlow,
   deleteInfraNode,
   deleteTask,
   digest,
+  entityToMermaid,
   fetchElements,
+  fetchEntities,
   fetchFlows,
   fetchInfra,
   fetchTasks,
@@ -33,6 +38,8 @@ import {
   patchElement,
   removeMember,
   saveElement,
+  saveEntity,
+  saveEntityRelation,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
@@ -555,6 +562,142 @@ server.registerTool(
     try {
       await deleteInfraNode(getConfig(), nodeId);
       return ok({ nodeId, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- read: the ER (data model) diagram -------------------------------------
+server.registerTool(
+  "list_entities",
+  {
+    title: "List the ER (data model) diagram",
+    description:
+      "Read the project's entity-relationship model — the entities (tables/models with their " +
+      "fields) and the crow's-foot relations between them. This is the data-model diagram, " +
+      "separate from both the design elements and the infrastructure graph. Start here before " +
+      "writing to reuse entity ids when relating them. Also returns `erDiagram`: the model " +
+      "rendered as a UML ER diagram (Mermaid) ready to paste into docs.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const { entities, relations } = await fetchEntities(getConfig());
+      return ok({
+        entities,
+        relations,
+        erDiagram: entityToMermaid(entities, relations),
+      });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: create or update an entity -------------------------------------
+server.registerTool(
+  "write_entity",
+  {
+    title: "Create or update an entity",
+    description:
+      "Add a table/model to the ER diagram (or update one by passing its id), e.g. an " +
+      '"Invoice" with its fields. Each field has a name, a type, optional key roles (PK/FK/UK) ' +
+      "and an optional note. Geometry is optional — omit x/y to drop it at a default spot. " +
+      "Returns the entity id (use it with relate_entities).",
+    inputSchema: {
+      id: Entity.shape.id
+        .optional()
+        .describe("Existing entity id to update; omit to create a new entity."),
+      name: Entity.shape.name.describe('Table/model name, e.g. "Invoice".'),
+      fields: Entity.shape.fields.describe(
+        "Attributes: each is { name, type, keys?: (PK|FK|UK)[], note? }.",
+      ),
+      description: Entity.shape.description.describe("Free-form Markdown notes."),
+      x: z.number().optional().describe("Canvas x (default 80)."),
+      y: z.number().optional().describe("Canvas y (default 80)."),
+      width: Entity.shape.width.describe("Box width (default 180)."),
+      height: Entity.shape.height.describe("Box height (default 120)."),
+      parentId: Entity.shape.parentId.describe("Id of a container to nest in, or null."),
+    },
+  },
+  async ({ id, x, y, ...fields }) => {
+    try {
+      const entity = Entity.parse({
+        ...fields,
+        id: id ?? genId("entity"),
+        x: x ?? 80,
+        y: y ?? 80,
+        updatedAt: new Date().toISOString(),
+      });
+      await saveEntity(getConfig(), entity);
+      return ok({ id: entity.id, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: relate two entities --------------------------------------------
+server.registerTool(
+  "relate_entities",
+  {
+    title: "Relate two entities",
+    description:
+      'Draw a crow\'s-foot association between two entities (e.g. Customer 1—* Order "places"). ' +
+      "Pass the from/to entity ids (get them from list_entities or write_entity). Each end has a " +
+      "cardinality (zero-or-one / exactly-one / zero-or-many / one-or-many); identifying picks a " +
+      "solid vs dashed line. Pass an existing relation id to update it. The relation is removed " +
+      "automatically if either entity is deleted.",
+    inputSchema: {
+      id: EntityRelation.shape.id
+        .optional()
+        .describe("Existing relation id to update; omit to create a new one."),
+      from: EntityRelation.shape.from.describe("Source entity id."),
+      to: EntityRelation.shape.to.describe("Target entity id."),
+      fromCardinality: EntityRelation.shape.fromCardinality.describe(
+        "Multiplicity at the from end.",
+      ),
+      toCardinality: EntityRelation.shape.toCardinality.describe(
+        "Multiplicity at the to end.",
+      ),
+      label: EntityRelation.shape.label.describe('Relationship verb, e.g. "places".'),
+      identifying: EntityRelation.shape.identifying.describe(
+        "Solid (identifying) vs dashed (non-identifying) line.",
+      ),
+    },
+  },
+  async ({ id, ...fields }) => {
+    try {
+      const relation = EntityRelation.parse({
+        ...fields,
+        id: id ?? genId("rel"),
+        updatedAt: new Date().toISOString(),
+      });
+      await saveEntityRelation(getConfig(), relation);
+      return ok({ id: relation.id, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: remove an entity (and its relations) ---------------------------
+server.registerTool(
+  "remove_entity",
+  {
+    title: "Remove an entity",
+    description:
+      "Delete an entity from the ER diagram and any relations touching it, so no dangling " +
+      "association is left behind.",
+    inputSchema: {
+      entityId: z.string().min(1).describe("The entity id to delete."),
+    },
+  },
+  async ({ entityId }) => {
+    try {
+      await deleteEntity(getConfig(), entityId);
+      return ok({ entityId, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }

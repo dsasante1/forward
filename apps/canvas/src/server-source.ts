@@ -2,6 +2,8 @@ import type {
   Checkpoint,
   CheckpointInput,
   DesignElement,
+  Entity,
+  EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraNode,
@@ -12,6 +14,7 @@ import * as api from "forward-core/api";
 import type {
   CanvasSource,
   ElementSnapshot,
+  EntitySnapshot,
   InfraSnapshot,
 } from "./source.js";
 
@@ -35,10 +38,12 @@ export type TokenProvider = () => Promise<string | null | undefined>;
 export class ServerSource implements CanvasSource {
   private timer: ReturnType<typeof setInterval> | undefined;
   private infraTimer: ReturnType<typeof setInterval> | undefined;
+  private entityTimer: ReturnType<typeof setInterval> | undefined;
   private taskTimer: ReturnType<typeof setInterval> | undefined;
   private checkpointTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
   private lastInfraJson = "";
+  private lastEntityJson = "";
   private lastTasksJson = "";
   private lastCheckpointsJson = "";
   private timelineTimer: ReturnType<typeof setInterval> | undefined;
@@ -95,6 +100,26 @@ export class ServerSource implements CanvasSource {
     this.infraTimer = setInterval(tick, this.pollMs);
     return () => {
       if (this.infraTimer) clearInterval(this.infraTimer);
+    };
+  }
+
+  subscribeEntities(onChange: (snapshot: EntitySnapshot) => void): () => void {
+    const tick = async () => {
+      try {
+        const snapshot = await api.fetchEntities(await this.cfg());
+        const json = JSON.stringify(snapshot);
+        if (json !== this.lastEntityJson) {
+          this.lastEntityJson = json;
+          onChange(snapshot);
+        }
+      } catch (err) {
+        console.warn("[server-source] entities poll failed:", err);
+      }
+    };
+    void tick();
+    this.entityTimer = setInterval(tick, this.pollMs);
+    return () => {
+      if (this.entityTimer) clearInterval(this.entityTimer);
     };
   }
 
@@ -221,6 +246,22 @@ export class ServerSource implements CanvasSource {
 
   async deleteInfraFlow(flowId: string): Promise<void> {
     await api.deleteInfraFlow(await this.cfg(), flowId);
+  }
+
+  async saveEntity(entity: Entity): Promise<void> {
+    await api.saveEntity(await this.cfg(), entity);
+  }
+
+  async deleteEntity(entityId: string): Promise<void> {
+    await api.deleteEntity(await this.cfg(), entityId);
+  }
+
+  async saveEntityRelation(relation: EntityRelation): Promise<void> {
+    await api.saveEntityRelation(await this.cfg(), relation);
+  }
+
+  async deleteEntityRelation(relationId: string): Promise<void> {
+    await api.deleteEntityRelation(await this.cfg(), relationId);
   }
 
   async saveTask(task: Task): Promise<void> {
