@@ -9,6 +9,7 @@ import {
   InfraKind,
   type InfraNode,
   RelationCardinality,
+  type StrokeStyle,
   type VersionEntry,
 } from "forward-core";
 
@@ -36,60 +37,87 @@ export function renderPanel(
     return;
   }
 
-  root.append(h("h2", el.name || el.id));
-  root.append(h("p", el.type, "empty"));
+  // --- header: type chip + name + type subtitle ---
+  root.append(inspectorHeader(el));
 
-  // --- properties (each section collapses independently) ---
+  // --- Position & size (2-col floating-label grid) ---
   const pos = section("Position & size");
-  pos.append(numRow("X", el.x, (v) => onChange({ x: v })));
-  pos.append(numRow("Y", el.y, (v) => onChange({ y: v })));
-  pos.append(numRow("W", el.width, (v) => onChange({ width: v })));
-  pos.append(numRow("H", el.height, (v) => onChange({ height: v })));
-  pos.append(numRow("Rotate", el.rotation ?? 0, (v) => onChange({ rotation: v })));
+  pos.append(
+    fieldGrid([
+      numField("X", el.x, (v) => onChange({ x: v })),
+      numField("Y", el.y, (v) => onChange({ y: v })),
+      numField("Width", el.width, (v) => onChange({ width: v })),
+      numField("Height", el.height, (v) => onChange({ height: v })),
+      numField("Rotate", el.rotation ?? 0, (v) => onChange({ rotation: v })),
+    ]),
+  );
   root.append(pos);
 
-  const styleSec = section("Style");
-  styleSec.append(textRow("Name", el.name, (v) => onChange({ name: v })));
-  if (el.type === "text" || el.text !== undefined) {
-    styleSec.append(textRow("Text", el.text ?? "", (v) => onChange({ text: v })));
-  }
+  // --- Style ---
   const style = el.style ?? {};
+  const styleSec = section("Style");
   styleSec.append(
-    colorRow("Fill", style.fill ?? "", (v) =>
-      onChange({ style: { ...style, fill: v } }),
-    ),
+    fieldCell("Name", textInput(el.name, (v) => onChange({ name: v }))),
   );
+  if (el.type === "text" || el.text !== undefined) {
+    styleSec.append(
+      fieldCell("Text", textInput(el.text ?? "", (v) => onChange({ text: v }))),
+    );
+  }
+  const border = borderControl(style, onChange);
   styleSec.append(
-    colorRow("Stroke", style.stroke ?? "", (v) =>
-      onChange({ style: { ...style, stroke: v } }),
-    ),
+    fieldGrid([
+      fieldCell(
+        "Fill",
+        colorField(style.fill ?? "", (v) => onChange({ style: { ...style, fill: v } })),
+      ),
+      fieldCell(
+        "Stroke",
+        colorField(style.stroke ?? "", (v) =>
+          onChange({ style: { ...style, stroke: v } }),
+        ),
+      ),
+      fieldCell(
+        "Border",
+        selectInput(
+          style.strokeStyle ?? "solid",
+          ["solid", "dashed", "dotted"],
+          (v) => onChange({ style: { ...style, strokeStyle: v as StrokeStyle } }),
+        ),
+      ),
+      border.cell,
+    ]),
   );
-  styleSec.append(
-    numRow("Radius", style.radius ?? 0, (v) =>
-      onChange({ style: { ...style, radius: v } }),
-    ),
-  );
+  styleSec.append(border.grid);
   if (el.type === "text") {
     styleSec.append(
-      fontFamilyRow("Font", style.fontFamily ?? "", (v) =>
-        onChange({ style: { ...style, fontFamily: v || undefined } }),
+      fieldCell(
+        "Font",
+        fontFamilySelect(style.fontFamily ?? "", (v) =>
+          onChange({ style: { ...style, fontFamily: v || undefined } }),
+        ),
       ),
     );
     styleSec.append(
-      numRow("Size", style.fontSize ?? 16, (v) =>
-        onChange({ style: { ...style, fontSize: v } }),
-      ),
-    );
-    styleSec.append(
-      selectRow(
-        "Weight",
-        String(style.fontWeight ?? 400),
-        ["400", "500", "600", "700"],
-        (v) => onChange({ style: { ...style, fontWeight: Number(v) } }),
-      ),
+      fieldGrid([
+        numField("Size", style.fontSize ?? 16, (v) =>
+          onChange({ style: { ...style, fontSize: v } }),
+        ),
+        fieldCell(
+          "Weight",
+          selectInput(
+            String(style.fontWeight ?? 400),
+            ["400", "500", "600", "700"],
+            (v) => onChange({ style: { ...style, fontWeight: Number(v) } }),
+          ),
+        ),
+      ]),
     );
   }
   root.append(styleSec);
+
+  // --- Corner radius (Linked toggle + all-corners + per-corner grid) ---
+  root.append(radiusSection(style, onChange));
 
   // --- API documentation (authored here in the canvas OR from VS Code; both
   //     write to the same apiBinding sub-tree, so either side can edit) ---
@@ -506,20 +534,24 @@ function renderApiDocs(
   const b = el.apiBinding;
 
   if (!b) {
-    const p = h(
-      "p",
-      "No documentation yet — add it here, or from VS Code via “Document API on Design Element”.",
-      "empty",
-    );
+    // Floating-label affordance: a "+" chip beside an uppercase action label.
     const add = document.createElement("button");
-    add.className = "doc-add";
-    add.textContent = "+ Add documentation";
+    add.type = "button";
+    add.className = "doc-add-row";
+    const plus = h("span", "+", "doc-add-plus");
+    const label = h("span", "Add documentation", "doc-add-label");
+    add.append(plus, label);
     add.addEventListener("click", () =>
       onChange({
         apiBinding: { title: el.name || el.id, description: "", parameters: [] },
       }),
     );
-    root.append(p, add);
+    const hint = h(
+      "p",
+      "Add it here, or from VS Code via “Document API on Design Element”.",
+      "empty",
+    );
+    root.append(add, hint);
     return;
   }
 
@@ -598,11 +630,9 @@ function row(label: string, control: HTMLElement): HTMLElement {
   return div;
 }
 
-function numRow(
-  label: string,
-  value: number,
-  onChange: (v: number) => void,
-): HTMLElement {
+/** A bare numeric `<input>` — shared by the left-label `row()` builders and the
+ * floating-label `fieldCell()` cells, so both stay in sync. */
+function numInput(value: number, onChange: (v: number) => void): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "number";
   input.value = String(Math.round(value));
@@ -610,7 +640,205 @@ function numRow(
     const n = Number(input.value);
     if (!Number.isNaN(n)) onChange(n);
   });
-  return row(label, input);
+  return input;
+}
+
+// ---- floating-label cells (the design-panel layout) ---------------------
+/** A floating-label field: a small uppercase label sitting above its control.
+ * Block-level by default (full width); becomes a grid cell inside `fieldGrid`. */
+function fieldCell(label: string, control: HTMLElement): HTMLElement {
+  const div = document.createElement("div");
+  div.className = "fld";
+  const l = document.createElement("label");
+  l.textContent = label;
+  div.append(l, control);
+  return div;
+}
+
+/** Lay field cells out in a 2-col grid (or 4-col when `four`). */
+function fieldGrid(cells: HTMLElement[], four = false): HTMLElement {
+  const div = document.createElement("div");
+  div.className = four ? "fld-grid fld-grid-4" : "fld-grid";
+  div.append(...cells);
+  return div;
+}
+
+/** A numeric floating-label cell. */
+function numField(
+  label: string,
+  value: number,
+  onChange: (v: number) => void,
+): HTMLElement {
+  return fieldCell(label, numInput(value, onChange));
+}
+
+/** Panel header: a generic element glyph chip + the element name and its type. */
+function inspectorHeader(el: DesignElement): HTMLElement {
+  const head = document.createElement("div");
+  head.className = "insp-head";
+  const chip = document.createElement("div");
+  chip.className = "insp-chip";
+  const glyph = document.createElement("span");
+  glyph.className = "insp-glyph";
+  chip.append(glyph);
+  const meta = document.createElement("div");
+  meta.className = "insp-meta";
+  meta.append(h("div", el.name || el.id, "insp-name"));
+  meta.append(h("div", el.type.charAt(0).toUpperCase() + el.type.slice(1), "insp-type"));
+  head.append(chip, meta);
+  return head;
+}
+
+type StyleObj = NonNullable<DesignElement["style"]>;
+type CornerKey = "tl" | "tr" | "br" | "bl";
+type SideKey = "top" | "right" | "bottom" | "left";
+
+/** A small square expand/collapse toggle that sits beside a field's input. */
+function fldToggle(active: boolean, title: string): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = active ? "fld-toggle active" : "fld-toggle";
+  b.title = title;
+  b.textContent = "⊞";
+  return b;
+}
+
+/**
+ * Border-width control rendered as two parts: the "Border W" field cell (a
+ * uniform width input + an expand toggle) that drops into the Style grid, and a
+ * separate per-side T/R/B/L grid placed below it. Expanding seeds the four
+ * sides from the uniform width; collapsing clears them back to uniform. A live
+ * accumulator keeps multiple side edits from clobbering each other between the
+ * (non-re-rendering) onChange calls.
+ */
+function borderControl(
+  style: StyleObj,
+  onChange: (patch: Partial<DesignElement>) => void,
+): { cell: HTMLElement; grid: HTMLElement } {
+  const base = style.strokeWidth ?? 0;
+  const live: Partial<Record<SideKey, number>> = { ...(style.strokeWidths ?? {}) };
+  const perSide = Object.keys(live).length > 0;
+
+  const input = numInput(base, (v) =>
+    onChange({ style: { ...style, strokeWidth: v, strokeWidths: undefined } }),
+  );
+  const toggle = fldToggle(perSide, "Per-side border width");
+  const ctl = document.createElement("div");
+  ctl.className = "fld-inline";
+  ctl.append(input, toggle);
+  const cell = fieldCell("Border W", ctl);
+
+  const sideLabels: Array<[SideKey, string]> = [
+    ["top", "T"],
+    ["right", "R"],
+    ["bottom", "B"],
+    ["left", "L"],
+  ];
+  const grid = fieldGrid(
+    sideLabels.map(([key, label]) =>
+      numField(label, live[key] ?? base, (v) => {
+        live[key] = v;
+        onChange({ style: { ...style, strokeWidths: { ...live } } });
+      }),
+    ),
+    true,
+  );
+  grid.hidden = !perSide;
+
+  toggle.addEventListener("click", () => {
+    const show = grid.hidden;
+    if (show && Object.keys(live).length === 0) {
+      live.top = live.right = live.bottom = live.left = base; // seed from uniform
+      onChange({ style: { ...style, strokeWidths: { ...live } } });
+    } else if (!show) {
+      for (const k of Object.keys(live) as SideKey[]) delete live[k];
+      onChange({ style: { ...style, strokeWidths: undefined } }); // back to uniform
+    }
+    grid.hidden = !show;
+    toggle.classList.toggle("active", show);
+  });
+
+  return { cell, grid };
+}
+
+/**
+ * Corner-radius section: a header with a "Linked" toggle, an "All corners"
+ * uniform field, and a per-corner TL/TR/BL/BR grid shown only when unlinked.
+ * Linked = uniform (`radii` cleared, every corner follows `radius`); unlinking
+ * seeds the four corners from the uniform value so they can diverge. A live
+ * accumulator keeps multiple corner edits from clobbering each other between the
+ * (non-re-rendering) onChange calls.
+ */
+function radiusSection(
+  style: StyleObj,
+  onChange: (patch: Partial<DesignElement>) => void,
+): HTMLElement {
+  const base = style.radius ?? 0;
+  const live: Partial<Record<CornerKey, number>> = { ...(style.radii ?? {}) };
+  let linked = Object.keys(live).length === 0;
+
+  const sec = document.createElement("div");
+  sec.className = "insp-section";
+
+  const head = document.createElement("div");
+  head.className = "insp-sec-head";
+  head.append(h("span", "Corner radius", "insp-sec-label"));
+  const link = document.createElement("button");
+  link.type = "button";
+  link.className = linked ? "insp-link active" : "insp-link";
+  link.title = "Link all corners";
+  const box = document.createElement("span");
+  box.className = "insp-link-box";
+  link.append(h("span", "Linked", "insp-link-text"), box);
+  head.append(link);
+  sec.append(head);
+
+  // All-corners uniform field. While linked it also clears any overrides.
+  sec.append(
+    numField("All corners", base, (v) =>
+      onChange({ style: { ...style, radius: v, ...(linked ? { radii: undefined } : {}) } }),
+    ),
+  );
+
+  const grid = fieldGrid(
+    (["tl", "tr", "bl", "br"] as CornerKey[]).map((key) =>
+      numField(key.toUpperCase(), live[key] ?? base, (v) => {
+        live[key] = v;
+        onChange({ style: { ...style, radii: { ...live } } });
+      }),
+    ),
+    true,
+  );
+  grid.hidden = linked;
+  sec.append(grid);
+
+  link.addEventListener("click", () => {
+    linked = !linked;
+    if (linked) {
+      for (const k of Object.keys(live) as CornerKey[]) delete live[k];
+      onChange({ style: { ...style, radii: undefined } });
+    } else {
+      live.tl = live.tr = live.bl = live.br = base; // seed from uniform
+      onChange({ style: { ...style, radii: { ...live } } });
+    }
+    grid.hidden = linked;
+    link.classList.toggle("active", linked);
+  });
+
+  return sec;
+}
+
+function textInput(
+  value: string,
+  onChange: (v: string) => void,
+  readOnly = false,
+): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = value;
+  input.disabled = readOnly;
+  input.addEventListener("change", () => onChange(input.value));
+  return input;
 }
 
 function textRow(
@@ -619,12 +847,7 @@ function textRow(
   onChange: (v: string) => void,
   readOnly = false,
 ): HTMLElement {
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = value;
-  input.disabled = readOnly;
-  input.addEventListener("change", () => onChange(input.value));
-  return row(label, input);
+  return row(label, textInput(value, onChange, readOnly));
 }
 
 /** Normalize a stored color to the `#rrggbb` a native color input requires;
@@ -646,11 +869,7 @@ function toHexColor(v: string): string | null {
  * stays the source of truth (so any CSS color string is still allowed), and the
  * two stay in sync — picking updates the text, typing a valid hex updates the
  * swatch. */
-function colorRow(
-  label: string,
-  value: string,
-  onChange: (v: string) => void,
-): HTMLElement {
+function colorField(value: string, onChange: (v: string) => void): HTMLElement {
   const wrap = document.createElement("div");
   wrap.className = "color-field";
 
@@ -675,7 +894,7 @@ function colorRow(
   text.addEventListener("change", () => onChange(text.value));
 
   wrap.append(swatch, text);
-  return row(label, wrap);
+  return wrap;
 }
 
 /** Font families offered for text elements; the empty value is the canvas
@@ -693,11 +912,10 @@ const FONT_FAMILIES: ReadonlyArray<{ label: string; value: string }> = [
 ];
 
 /** A font-family picker: each option previews itself in its own typeface. */
-function fontFamilyRow(
-  label: string,
+function fontFamilySelect(
   value: string,
   onChange: (v: string) => void,
-): HTMLElement {
+): HTMLSelectElement {
   const select = document.createElement("select");
   for (const f of FONT_FAMILIES) {
     const o = document.createElement("option");
@@ -709,17 +927,16 @@ function fontFamilyRow(
     select.append(o);
   }
   select.addEventListener("change", () => onChange(select.value));
-  return row(label, select);
+  return select;
 }
 
-function selectRow(
-  label: string,
+function selectInput(
   value: string,
   options: readonly string[],
   onChange: (v: string) => void,
   readOnly = false,
   optionLabel?: (v: string) => string,
-): HTMLElement {
+): HTMLSelectElement {
   const select = document.createElement("select");
   select.disabled = readOnly;
   for (const opt of options) {
@@ -730,12 +947,18 @@ function selectRow(
     select.append(o);
   }
   select.addEventListener("change", () => onChange(select.value));
-  const div = document.createElement("div");
-  div.className = "row";
-  const l = document.createElement("label");
-  l.textContent = label;
-  div.append(l, select);
-  return div;
+  return select;
+}
+
+function selectRow(
+  label: string,
+  value: string,
+  options: readonly string[],
+  onChange: (v: string) => void,
+  readOnly = false,
+  optionLabel?: (v: string) => string,
+): HTMLElement {
+  return row(label, selectInput(value, options, onChange, readOnly, optionLabel));
 }
 
 function textareaRow(

@@ -41,6 +41,66 @@ describe("DesignElement contract", () => {
     expect(el.rotation).toBe(45);
   });
 
+  it("accepts per-corner border radii alongside a uniform radius", () => {
+    const el = DesignElement.parse({
+      id: "el_card",
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 40,
+      style: { radius: 8, radii: { tl: 16, br: 0 } },
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(el.style?.radius).toBe(8);
+    expect(el.style?.radii).toEqual({ tl: 16, br: 0 });
+  });
+
+  it("accepts per-side border widths and a stroke style", () => {
+    const el = DesignElement.parse({
+      id: "el_box",
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 40,
+      style: { strokeWidth: 1, strokeWidths: { top: 4, bottom: 0 }, strokeStyle: "dashed" },
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(el.style?.strokeWidths).toEqual({ top: 4, bottom: 0 });
+    expect(el.style?.strokeStyle).toBe("dashed");
+  });
+
+  it("rejects an unknown stroke style", () => {
+    expect(() =>
+      DesignElement.parse({
+        id: "el_bad_style",
+        type: "rectangle",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        style: { strokeStyle: "wavy" },
+        updatedAt: "2026-05-28T11:45:00Z",
+      }),
+    ).toThrow();
+  });
+
+  it("rejects a negative corner radius", () => {
+    expect(() =>
+      DesignElement.parse({
+        id: "el_bad",
+        type: "rectangle",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 10,
+        style: { radii: { tl: -4 } },
+        updatedAt: "2026-05-28T11:45:00Z",
+      }),
+    ).toThrow();
+  });
+
   it("accepts an element carrying an optional apiBinding", () => {
     const el = DesignElement.parse({
       id: "el_login_card",

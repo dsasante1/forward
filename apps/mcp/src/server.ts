@@ -877,7 +877,11 @@ server.registerTool(
       parentId: DesignElement.shape.parentId.describe(
         "Id of the frame to nest inside, or null for top level.",
       ),
-      style: Style.optional().describe("Optional fill/stroke/radius/font styling."),
+      style: Style.optional().describe(
+        "Optional fill/stroke/font styling, borders, and corner rounding. `radius` (or " +
+          "`radii` {tl,tr,br,bl}) rounds corners; `strokeWidth` (or `strokeWidths` " +
+          "{top,right,bottom,left}) sets border width per side; `strokeStyle` is solid/dashed/dotted.",
+      ),
       rotation: z
         .number()
         .optional()
@@ -932,7 +936,13 @@ server.registerTool(
         .nullable()
         .optional()
         .describe("New parent frame id, or null to un-nest."),
-      style: Style.optional().describe("Style fields to set."),
+      style: Style.optional().describe(
+        "Style fields to set; merged over the existing style (corners and border sides merge " +
+          "too), so you can change just the fill, one corner, or one side. `radius`/`radii` " +
+          "({tl,tr,br,bl}) round corners; `strokeWidth`/`strokeWidths` ({top,right,bottom,left}) " +
+          "set border width per side; `strokeStyle` is solid/dashed/dotted. An empty `radii: {}` " +
+          "or `strokeWidths: {}` clears those overrides back to the uniform value.",
+      ),
       componentId: z.string().optional().describe("New master component id (instances)."),
     },
   },

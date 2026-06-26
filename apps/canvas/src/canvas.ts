@@ -28,6 +28,7 @@ import { renderTasksView } from "./tasks-view.js";
 import {
   type CanvasTheme,
   type ThemePreset,
+  DEFAULT_THEME,
   renderThemeView,
 } from "./theme-view.js";
 import canvasCss from "./canvas.css?inline";
@@ -292,15 +293,10 @@ let showTasks = false; // show/hide the project task-tracker panel
 let showTheme = false; // show/hide the theme editor drawer
 let taskFilterLinked = false; // restrict the task list to the current selection
 
-// Local-only view theme (background/accent chrome + grid + shape-recolour defaults).
-// Persisted to localStorage per project — never written to the project data.
-let theme: CanvasTheme = {
-  canvasBg: "#0c0d11",
-  surface: "#1a1d26",
-  stroke: "#2d313c",
-  accent: "#d06a40",
-  grid: true,
-};
+// Local-only view theme (full UI palette + grid). Persisted to localStorage per
+// project — never written to the project data, and never touches canvas shapes.
+// DEFAULT_THEME is "Midnight", which mirrors the CSS `:host` defaults.
+let theme: CanvasTheme = { ...DEFAULT_THEME };
 let themeStorageKey: string | null = null;
 const tasks = new Map<string, Task>();
 // The canvas has no signed-in user; activity it writes is attributed to "canvas".
@@ -1407,26 +1403,168 @@ function drawElement(raw: DesignElement): SVGGElement {
   return g;
 }
 
+/**
+ * Resolve the four effective corner radii: a per-corner `radii` override wins,
+ * otherwise the uniform `radius` applies. Each value is clamped so opposing
+ * corners can't overlap on a small element.
+ */
+function corners(
+  el: DesignElement,
+  style: NonNullable<DesignElement["style"]>,
+): { tl: number; tr: number; br: number; bl: number } {
+  const base = style.radius ?? 0;
+  const r = style.radii ?? {};
+  const max = Math.min(el.width, el.height) / 2;
+  const clamp = (v: number) => Math.max(0, Math.min(v, max));
+  return {
+    tl: clamp(r.tl ?? base),
+    tr: clamp(r.tr ?? base),
+    br: clamp(r.br ?? base),
+    bl: clamp(r.bl ?? base),
+  };
+}
+
+/** SVG path for a rectangle with independently-rounded corners. */
+function roundedRectPath(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  c: { tl: number; tr: number; br: number; bl: number },
+): string {
+  return [
+    `M${x + c.tl},${y}`,
+    `H${x + w - c.tr}`,
+    c.tr ? `A${c.tr},${c.tr} 0 0 1 ${x + w},${y + c.tr}` : "",
+    `V${y + h - c.br}`,
+    c.br ? `A${c.br},${c.br} 0 0 1 ${x + w - c.br},${y + h}` : "",
+    `H${x + c.bl}`,
+    c.bl ? `A${c.bl},${c.bl} 0 0 1 ${x},${y + h - c.bl}` : "",
+    `V${y + c.tl}`,
+    c.tl ? `A${c.tl},${c.tl} 0 0 1 ${x + c.tl},${y}` : "",
+    "Z",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** Resolve the four effective side border widths (per-side override wins). */
+function sideWidths(
+  style: NonNullable<DesignElement["style"]>,
+): { top: number; right: number; bottom: number; left: number } {
+  const base = style.strokeWidth ?? 0;
+  const s = style.strokeWidths ?? {};
+  return {
+    top: s.top ?? base,
+    right: s.right ?? base,
+    bottom: s.bottom ?? base,
+    left: s.left ?? base,
+  };
+}
+
+/**
+ * SVG `stroke-dasharray` for a border line style, scaled to the line width.
+ * Returns "none" for solid, a pattern for dashed/dotted, or null to leave the
+ * existing (CSS) dashing untouched when no style was chosen.
+ */
+function dashArray(
+  strokeStyle: NonNullable<DesignElement["style"]>["strokeStyle"],
+  w: number,
+): string | null {
+  if (strokeStyle === undefined) return null;
+  if (strokeStyle === "dashed") return `${Math.max(w * 2, 4)} ${Math.max(w * 1.5, 3)}`;
+  if (strokeStyle === "dotted") return `0 ${Math.max(w * 2, 3)}`; // round caps → dots
+  return "none"; // solid
+}
+
+/** Apply stroke colour, width, and dash style to a single (uniform) outline. */
+function applyStroke(
+  shape: SVGElement,
+  style: NonNullable<DesignElement["style"]>,
+  width: number | null,
+): void {
+  if (style.stroke) shape.style.stroke = style.stroke;
+  if (width != null) shape.setAttribute("stroke-width", String(width));
+  const dash = dashArray(style.strokeStyle, width ?? 1);
+  if (dash !== null) {
+    shape.setAttribute("stroke-dasharray", dash);
+    if (style.strokeStyle === "dotted") shape.setAttribute("stroke-linecap", "round");
+  }
+}
+
 function el2rect(
   el: DesignElement,
   cls: string,
   style: NonNullable<DesignElement["style"]>,
-): SVGRectElement {
-  const r = svgEl("rect", {
-    x: String(el.x),
-    y: String(el.y),
-    width: String(el.width),
-    height: String(el.height),
-    rx: String(style.radius ?? 0),
-    class: cls,
-  }) as SVGRectElement;
-  // Inline style (not a presentation attribute) so a custom color overrides the
-  // .el-rect/.el-selected stylesheet rules, which would otherwise win.
-  if (style.fill) r.style.fill = style.fill;
-  if (style.stroke) r.style.stroke = style.stroke;
-  if (style.strokeWidth != null)
-    r.setAttribute("stroke-width", String(style.strokeWidth));
-  return r;
+): SVGElement {
+  const c = corners(el, style);
+  // A uniform radius renders as a plain <rect> (cheaper, crisper); only fall
+  // back to a <path> when the corners actually differ.
+  const uniformR = c.tl === c.tr && c.tr === c.br && c.br === c.bl;
+  const makeShape = (): SVGElement =>
+    uniformR
+      ? (svgEl("rect", {
+          x: String(el.x),
+          y: String(el.y),
+          width: String(el.width),
+          height: String(el.height),
+          rx: String(c.tl),
+          class: cls,
+        }) as SVGRectElement)
+      : (svgEl("path", {
+          d: roundedRectPath(el.x, el.y, el.width, el.height, c),
+          class: cls,
+        }) as SVGPathElement);
+
+  const sw = sideWidths(style);
+  const perSide =
+    style.strokeWidths != null &&
+    !(sw.top === sw.right && sw.right === sw.bottom && sw.bottom === sw.left);
+
+  if (!perSide) {
+    const shape = makeShape();
+    // Inline style (not a presentation attribute) so a custom color overrides the
+    // .el-rect/.el-selected stylesheet rules, which would otherwise win.
+    if (style.fill) shape.style.fill = style.fill;
+    applyStroke(shape, style, style.strokeWidth ?? null);
+    return shape;
+  }
+
+  // Per-side widths can't ride on one outline, so draw a stroke-less fill plus
+  // one line per non-zero side, inset to the corner radii so each segment meets
+  // the rounded fill cleanly. Selection still reads via the separate sel-box.
+  const g = svgEl("g", {}) as SVGGElement;
+  const fill = makeShape();
+  if (style.fill) fill.style.fill = style.fill;
+  fill.style.stroke = "none";
+  g.append(fill);
+
+  const color = style.stroke || "#2d313c";
+  const { x, y, width: w, height: h } = el;
+  const edges: Array<[number, number, number, number, number]> = [
+    [sw.top, x + c.tl, y, x + w - c.tr, y],
+    [sw.right, x + w, y + c.tr, x + w, y + h - c.br],
+    [sw.bottom, x + w - c.br, y + h, x + c.bl, y + h],
+    [sw.left, x, y + h - c.bl, x, y + c.tl],
+  ];
+  for (const [width, x1, y1, x2, y2] of edges) {
+    if (width <= 0) continue;
+    const line = svgEl("line", {
+      x1: String(x1),
+      y1: String(y1),
+      x2: String(x2),
+      y2: String(y2),
+    });
+    line.setAttribute("stroke", color);
+    line.setAttribute("stroke-width", String(width));
+    const dash = dashArray(style.strokeStyle, width);
+    if (dash !== null) {
+      line.setAttribute("stroke-dasharray", dash);
+      if (style.strokeStyle === "dotted") line.setAttribute("stroke-linecap", "round");
+    }
+    g.append(line);
+  }
+  return g;
 }
 
 /** Like el2rect, but draws an ellipse filling the element's bounding box. */
@@ -1443,9 +1581,7 @@ function el2ellipse(
     class: cls,
   }) as SVGEllipseElement;
   if (style.fill) e.style.fill = style.fill;
-  if (style.stroke) e.style.stroke = style.stroke;
-  if (style.strokeWidth != null)
-    e.setAttribute("stroke-width", String(style.strokeWidth));
+  applyStroke(e, style, style.strokeWidth ?? null); // per-side N/A for an ellipse
   return e;
 }
 
@@ -2356,14 +2492,13 @@ function placeInstance(): void {
 // ========================================================================
 function renderSelectionPanel(): void {
   // Theme mode takes over the right drawer (like infra), swapping the inspector
-  // for the background / fill / border / accent editor.
+  // for the UI palette / accent editor.
   if (showTheme) {
     renderThemeView(panel, theme, {
       onClose: toggleTheme,
       onChange: (patch) => setTheme({ ...theme, ...patch }),
-      onApplyPreset: (preset: ThemePreset) =>
-        setTheme({ ...theme, ...preset }),
-      onApplyToShapes: applyThemeToShapes,
+      onApplyPreset: ({ name: _name, ...palette }: ThemePreset) =>
+        setTheme({ ...theme, ...palette }),
     });
     return;
   }
@@ -2428,30 +2563,55 @@ function setTheme(next: CanvasTheme): void {
   if (showTheme) renderSelectionPanel();
 }
 
-/** Push the current theme onto the canvas: CSS custom properties on the shadow
- * host (so `:host` defaults are overridden) plus the grid on/off class. */
+/** Push the current theme onto the canvas: the full UI palette as CSS custom
+ * properties on the shadow host (so `:host` defaults are overridden) plus the
+ * grid on/off class. This recolours the editor chrome but never the shapes,
+ * which carry their own per-element fill/stroke. */
 function applyTheme(): void {
   const hostStyle = (uiRoot.host as HTMLElement).style;
-  hostStyle.setProperty("--bg", theme.canvasBg);
-  hostStyle.setProperty("--accent", theme.accent);
+  for (const [cssVar, value] of Object.entries(themeVars(theme))) {
+    hostStyle.setProperty(cssVar, value);
+  }
   svg.classList.toggle("no-grid", !theme.grid);
+  // The History overlay still has dark-tuned hardcoded colours; on a light
+  // palette (e.g. "Paper") flip its text/buttons to dark via .theme-light.
+  canvasRootEl?.classList.toggle("theme-light", isLightColor(theme.bg));
 }
 
-/** Write the current fill + border onto every shape and persist each. This is
- * the only part of the theme that touches project data. */
-function applyThemeToShapes(): void {
-  for (const el of elements.values()) {
-    // Text elements carry no fill/stroke box; leave them untouched.
-    if (el.type === "text") continue;
-    const updated = {
-      ...el,
-      style: { ...el.style, fill: theme.surface, stroke: theme.stroke },
-      updatedAt: now(),
-    };
-    elements.set(el.id, updated);
-    void source.saveElement(updated);
-  }
-  render();
+/** Map the palette fields onto their CSS custom-property names. */
+function themeVars(t: CanvasTheme): Record<string, string> {
+  return {
+    "--bg": t.bg,
+    "--bg-strip": t.bgStrip,
+    "--bg-rail": t.bgRail,
+    "--bg-panel": t.bgPanel,
+    "--surface": t.surface,
+    "--surface-2": t.surface2,
+    "--surface-3": t.surface3,
+    "--surface-4": t.surface4,
+    "--line": t.line,
+    "--line-2": t.line2,
+    "--line-3": t.line3,
+    "--text": t.text,
+    "--text-2": t.text2,
+    "--text-3": t.text3,
+    "--muted": t.muted,
+    "--muted-2": t.muted2,
+    "--faint": t.faint,
+    "--accent": t.accent,
+  };
+}
+
+/** True when a hex colour is light enough to need dark foreground text on it. */
+function isLightColor(hex: string): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m?.[1]) return false;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  // Perceived luminance (ITU-R BT.601); >0.6 ⇒ a light backdrop.
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6;
 }
 
 /** Load the saved theme for this project from localStorage, if any. */
@@ -2461,6 +2621,9 @@ function loadTheme(): void {
     const raw = window.localStorage.getItem(themeStorageKey);
     if (!raw) return;
     const saved = JSON.parse(raw) as Partial<CanvasTheme>;
+    // Ignore themes saved under the old (shape-fill) model: a full palette has a
+    // `bg` field. Older saves lack it and would corrupt the new chrome vars.
+    if (typeof saved.bg !== "string") return;
     theme = { ...theme, ...saved };
   } catch {
     // Corrupt/blocked storage just falls back to the default theme.

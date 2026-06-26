@@ -200,6 +200,12 @@ export async function saveElement(
  * apiBinding). Reads the element first so a partial change — move, resize,
  * rename, restyle, re-parent, or promote to a component — doesn't clobber the
  * other fields. Throws if the element doesn't exist.
+ *
+ * `style` is merged field-by-field — and its nested per-side maps (`radii`,
+ * `strokeWidths`) key-by-key — rather than replaced, so a caller can tweak one
+ * corner radius, one border side, or just the fill without restating the rest
+ * of the styling. Passing an explicit empty `radii: {}` / `strokeWidths: {}`
+ * clears those overrides (they fall back to the uniform `radius`/`strokeWidth`).
  */
 export async function patchElement(
   cfg: FirebaseConfig,
@@ -208,9 +214,23 @@ export async function patchElement(
 ): Promise<DesignElement> {
   const current = (await fetchElements(cfg)).find((e) => e.id === elementId);
   if (!current) throw new Error(`No design element with id "${elementId}".`);
+  let style = current.style;
+  if (patch.style !== undefined) {
+    const merged = { ...current.style, ...patch.style };
+    if (patch.style.radii !== undefined) {
+      if (Object.keys(patch.style.radii).length === 0) delete merged.radii;
+      else merged.radii = { ...current.style?.radii, ...patch.style.radii };
+    }
+    if (patch.style.strokeWidths !== undefined) {
+      if (Object.keys(patch.style.strokeWidths).length === 0) delete merged.strokeWidths;
+      else merged.strokeWidths = { ...current.style?.strokeWidths, ...patch.style.strokeWidths };
+    }
+    style = merged;
+  }
   const next = DesignElement.parse({
     ...current,
     ...patch,
+    ...(style === undefined ? {} : { style }),
     id: elementId,
     updatedAt: new Date().toISOString(),
   });

@@ -1,61 +1,116 @@
 /**
- * The Theme drawer (right panel): recolours the canvas surface and, on demand,
- * every shape on it. The background / accent are pure view chrome applied as CSS
- * custom properties on the canvas shadow host — local to this browser and never
- * persisted to the project. Only "Apply fill & border to all shapes" writes data
- * (each element's style, through the CanvasSource). The grid toggle is also a
- * local view preference.
+ * The Theme drawer (right panel): recolours the whole editor UI (the rail,
+ * panels, strips, text and accent) by swapping the CSS custom properties on the
+ * canvas shadow host. It is pure view chrome — local to this browser and never
+ * persisted to the project, and it deliberately leaves the design elements on
+ * the canvas alone (those carry their own per-shape fill/stroke).
  *
  * This module only draws; canvas.ts owns the theme state, applies it live, and
  * persists it to localStorage via the callbacks.
  */
 
-/** The view-only theme: surface chrome + the fill/stroke "Apply to shapes" uses. */
-export interface CanvasTheme {
+/** A full UI palette: every chrome surface/text/line/accent custom property. */
+export interface ThemePalette {
   /** Canvas viewport background (the `--bg` custom property / grid backdrop). */
-  canvasBg: string;
-  /** Default shape fill — what "Apply fill & border to all shapes" writes. */
+  bg: string;
+  /** Top breadcrumb strip background (`--bg-strip`). */
+  bgStrip: string;
+  /** Left tool rail background (`--bg-rail`). */
+  bgRail: string;
+  /** Side panel background — layers + inspector (`--bg-panel`). */
+  bgPanel: string;
+  /** Raised surfaces: inputs, menus, cards (`--surface` … `--surface-4`). */
   surface: string;
-  /** Default shape border — what "Apply fill & border to all shapes" writes. */
-  stroke: string;
+  surface2: string;
+  surface3: string;
+  surface4: string;
+  /** Hairline borders, light → heavy (`--line` … `--line-3`). */
+  line: string;
+  line2: string;
+  line3: string;
+  /** Foreground text, strong → faint (`--text` … `--faint`). */
+  text: string;
+  text2: string;
+  text3: string;
+  muted: string;
+  muted2: string;
+  faint: string;
   /** Accent colour (selection, handles, active tools) — the `--accent` property. */
   accent: string;
+}
+
+/** The view-only theme: a full UI palette plus the local grid preference. */
+export interface CanvasTheme extends ThemePalette {
   /** Whether the dotted alignment grid is drawn behind the design. */
   grid: boolean;
 }
 
-/** A one-click bundle that sets background + fill + border + accent together. */
-export interface ThemePreset {
+/** A named, one-click UI palette. */
+export interface ThemePreset extends ThemePalette {
   name: string;
-  canvasBg: string;
-  surface: string;
-  stroke: string;
-  accent: string;
 }
 
 export interface ThemeCallbacks {
   onClose: () => void;
-  /** Apply a live patch (background/accent recolour instantly; grid toggles). */
+  /** Apply a live patch (recolours the UI instantly; grid toggles). */
   onChange: (patch: Partial<CanvasTheme>) => void;
-  /** Apply a whole preset bundle at once. */
+  /** Apply a whole preset palette at once. */
   onApplyPreset: (preset: ThemePreset) => void;
-  /** Persist the current fill + border onto every shape on the canvas. */
-  onApplyToShapes: () => void;
 }
 
-/** Built-in presets, seeded from the design spec's palette. */
+/** The "Midnight" palette — mirrors the CSS `:host` defaults and is the default. */
+const MIDNIGHT: ThemePreset = {
+  name: "Midnight",
+  bg: "#0c0d11", bgStrip: "#101116", bgRail: "#131419", bgPanel: "#121319",
+  surface: "#15171e", surface2: "#171920", surface3: "#1a1c23", surface4: "#191b22",
+  line: "rgba(255, 255, 255, 0.06)", line2: "rgba(255, 255, 255, 0.09)", line3: "rgba(255, 255, 255, 0.12)",
+  text: "#e8e5de", text2: "#cfccc4", text3: "#a9a7a0", muted: "#8d8b85", muted2: "#7d7c76", faint: "#6c6b65",
+  accent: "#d06a40",
+};
+
+/** Built-in palettes. The first ("Midnight") doubles as the default theme. */
 export const THEME_PRESETS: ThemePreset[] = [
-  { name: "Midnight", canvasBg: "#0c0d11", surface: "#1a1d26", stroke: "#2d313c", accent: "#d06a40" },
-  { name: "Slate", canvasBg: "#111418", surface: "#1d232b", stroke: "#39424d", accent: "#5b8fcf" },
-  { name: "Paper", canvasBg: "#f4f1ea", surface: "#ffffff", stroke: "#d8d2c4", accent: "#c2562b" },
-  { name: "Forest", canvasBg: "#0d1411", surface: "#16241d", stroke: "#2c4438", accent: "#5db98a" },
-  { name: "Plum", canvasBg: "#120e16", surface: "#221a2a", stroke: "#3c3048", accent: "#9a7fd0" },
+  MIDNIGHT,
+  {
+    name: "Slate",
+    bg: "#111418", bgStrip: "#14181d", bgRail: "#161a20", bgPanel: "#15191f",
+    surface: "#1d232b", surface2: "#20262f", surface3: "#232a34", surface4: "#222831",
+    line: "rgba(255, 255, 255, 0.06)", line2: "rgba(255, 255, 255, 0.09)", line3: "rgba(255, 255, 255, 0.12)",
+    text: "#e6e9ee", text2: "#c4cad3", text3: "#9aa2ad", muted: "#828a95", muted2: "#737b86", faint: "#636b76",
+    accent: "#5b8fcf",
+  },
+  {
+    name: "Paper",
+    bg: "#f4f1ea", bgStrip: "#ece8df", bgRail: "#e8e3d8", bgPanel: "#efece4",
+    surface: "#ffffff", surface2: "#faf8f3", surface3: "#f1ede4", surface4: "#f6f3ec",
+    line: "rgba(0, 0, 0, 0.08)", line2: "rgba(0, 0, 0, 0.12)", line3: "rgba(0, 0, 0, 0.16)",
+    text: "#2a2824", text2: "#4a463f", text3: "#6b675e", muted: "#847f74", muted2: "#948f84", faint: "#a8a298",
+    accent: "#c2562b",
+  },
+  {
+    name: "Forest",
+    bg: "#0d1411", bgStrip: "#101a15", bgRail: "#121d18", bgPanel: "#111b16",
+    surface: "#16241d", surface2: "#192a21", surface3: "#1d3026", surface4: "#1b2d24",
+    line: "rgba(255, 255, 255, 0.06)", line2: "rgba(255, 255, 255, 0.09)", line3: "rgba(255, 255, 255, 0.12)",
+    text: "#e6ece8", text2: "#c2cec7", text3: "#97a59d", muted: "#7f8d85", muted2: "#707e76", faint: "#616f67",
+    accent: "#5db98a",
+  },
+  {
+    name: "Plum",
+    bg: "#120e16", bgStrip: "#17121c", bgRail: "#1a1420", bgPanel: "#18121e",
+    surface: "#221a2a", surface2: "#261d30", surface3: "#2b2136", surface4: "#291f34",
+    line: "rgba(255, 255, 255, 0.06)", line2: "rgba(255, 255, 255, 0.09)", line3: "rgba(255, 255, 255, 0.12)",
+    text: "#ebe6f0", text2: "#cdc6d6", text3: "#a59caf", muted: "#8d8497", muted2: "#7e7588", faint: "#6f6679",
+    accent: "#9a7fd0",
+  },
 ];
 
-/** Swatch palettes for each role (first entry doubles as a sensible default). */
-const BG_SWATCHES = ["#0c0d11", "#111418", "#0d1411", "#120e16", "#1a1410", "#f4f1ea"];
-const FILL_SWATCHES = ["#1a1d26", "#1d232b", "#16241d", "#221a2a", "#2a2018", "#ffffff"];
-const STROKE_SWATCHES = ["#2d313c", "#39424d", "#2c4438", "#3c3048", "#4a3a2a", "#d8d2c4"];
+/** The default theme: the "Midnight" palette with the grid shown. */
+const { name: _midnightName, ...midnightPalette } = MIDNIGHT;
+export const DEFAULT_THEME: CanvasTheme = { ...midnightPalette, grid: true };
+
+/** Swatch palettes for the two fine-tune roles (one bg + accent per preset). */
+const BG_SWATCHES = THEME_PRESETS.map((p) => p.bg);
 const ACCENT_SWATCHES = ["#d06a40", "#5b8fcf", "#9a7fd0", "#5db98a", "#bc9a64", "#d2603e"];
 
 function hEl(tag: string, content = "", cls = ""): HTMLElement {
@@ -109,7 +164,7 @@ export function renderThemeView(
   body.append(
     hEl(
       "p",
-      "Set the canvas background and recolour every shape. Presets apply instantly; fine-tune each role below.",
+      "Recolour the editor interface. Presets restyle the whole UI instantly; fine-tune the background and accent below. The shapes on the canvas keep their own colours.",
       "th-intro",
     ),
   );
@@ -119,13 +174,13 @@ export function renderThemeView(
   const presets = hEl("div", "", "th-presets");
   for (const p of THEME_PRESETS) {
     const active =
-      p.canvasBg.toLowerCase() === theme.canvasBg.toLowerCase() &&
+      p.bg.toLowerCase() === theme.bg.toLowerCase() &&
       p.accent.toLowerCase() === theme.accent.toLowerCase();
     const btn = hEl("button", "", "th-preset") as HTMLButtonElement;
     btn.type = "button";
     if (active) btn.classList.add("active");
     const chips = hEl("span", "", "th-preset-chips");
-    for (const c of [p.canvasBg, p.surface, p.accent]) {
+    for (const c of [p.bg, p.surface, p.accent]) {
       const chip = hEl("span", "", "th-preset-chip");
       chip.style.background = c;
       chips.append(chip);
@@ -136,24 +191,12 @@ export function renderThemeView(
   }
   body.append(presets);
 
-  // --- per-role swatches ---
-  body.append(label("CANVAS BACKGROUND"));
-  body.append(swatchRow(BG_SWATCHES, theme.canvasBg, (c) => cb.onChange({ canvasBg: c })));
-
-  body.append(label("SHAPE FILL"));
-  body.append(swatchRow(FILL_SWATCHES, theme.surface, (c) => cb.onChange({ surface: c })));
-
-  body.append(label("BORDERS"));
-  body.append(swatchRow(STROKE_SWATCHES, theme.stroke, (c) => cb.onChange({ stroke: c })));
+  // --- per-role fine-tuning ---
+  body.append(label("BACKGROUND"));
+  body.append(swatchRow(BG_SWATCHES, theme.bg, (c) => cb.onChange({ bg: c })));
 
   body.append(label("ACCENT"));
   body.append(swatchRow(ACCENT_SWATCHES, theme.accent, (c) => cb.onChange({ accent: c })));
-
-  // --- apply to shapes (the one persisted action) ---
-  const apply = hEl("button", "Apply fill & border to all shapes", "th-apply") as HTMLButtonElement;
-  apply.type = "button";
-  apply.addEventListener("click", cb.onApplyToShapes);
-  body.append(apply);
 
   // --- grid toggle ---
   const gridRow = hEl("div", "", "th-grid");

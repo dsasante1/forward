@@ -64,12 +64,68 @@ export const ElementType = z.enum([
 ]);
 export type ElementType = z.infer<typeof ElementType>;
 
+/**
+ * Per-corner border radius. Each corner is optional and, when absent, falls
+ * back to the uniform `Style.radius`. Present only when a corner has been
+ * customised away from the uniform value.
+ */
+export const CornerRadii = z
+  .object({
+    tl: z.number().nonnegative().describe("Top-left corner radius."),
+    tr: z.number().nonnegative().describe("Top-right corner radius."),
+    br: z.number().nonnegative().describe("Bottom-right corner radius."),
+    bl: z.number().nonnegative().describe("Bottom-left corner radius."),
+  })
+  .partial();
+export type CornerRadii = z.infer<typeof CornerRadii>;
+
+/** Line style for an element's border. */
+export const StrokeStyle = z.enum(["solid", "dashed", "dotted"]);
+export type StrokeStyle = z.infer<typeof StrokeStyle>;
+
+/**
+ * Per-side border width. Each side is optional and, when absent, falls back to
+ * the uniform `Style.strokeWidth`. Present only when a side has been customised
+ * away from the uniform value.
+ */
+export const SideWidths = z
+  .object({
+    top: z.number().nonnegative().describe("Top border width."),
+    right: z.number().nonnegative().describe("Right border width."),
+    bottom: z.number().nonnegative().describe("Bottom border width."),
+    left: z.number().nonnegative().describe("Left border width."),
+  })
+  .partial();
+export type SideWidths = z.infer<typeof SideWidths>;
+
 /** Visual styling — all optional, sensible defaults applied at render time. */
 export const Style = z.object({
   fill: z.string().optional(),
   stroke: z.string().optional(),
-  strokeWidth: z.number().nonnegative().optional(),
-  radius: z.number().nonnegative().optional(),
+  /** Uniform border width. `strokeWidths` overrides individual sides when set. */
+  strokeWidth: z
+    .number()
+    .nonnegative()
+    .optional()
+    .describe("Uniform border width for all four sides."),
+  /** Per-side overrides; each side falls back to `strokeWidth` when omitted. */
+  strokeWidths: SideWidths.optional().describe(
+    "Per-side border widths {top,right,bottom,left}; each side falls back to `strokeWidth` when omitted. Use to weight sides independently; an empty {} clears overrides back to the uniform width.",
+  ),
+  /** Border line style; defaults to solid when omitted. */
+  strokeStyle: StrokeStyle.optional().describe(
+    "Border line style: solid (default), dashed, or dotted.",
+  ),
+  /** Uniform corner radius. `radii` overrides individual corners when set. */
+  radius: z
+    .number()
+    .nonnegative()
+    .optional()
+    .describe("Uniform corner radius for all four corners."),
+  /** Per-corner overrides; each corner falls back to `radius` when omitted. */
+  radii: CornerRadii.optional().describe(
+    "Per-corner radius overrides {tl,tr,br,bl}; each corner falls back to `radius` when omitted. Use to round corners independently; an empty {} clears overrides back to the uniform radius.",
+  ),
   fontSize: z.number().positive().optional(),
   fontWeight: z.number().int().optional(),
   fontFamily: z.string().optional(),

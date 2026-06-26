@@ -113,6 +113,36 @@ describe("patchElement", () => {
     mockFetch([el("x")]);
     await expect(patchElement(cfg, "ghost", { x: 1 })).rejects.toThrow(/ghost/);
   });
+
+  it("merges style and per-corner radii instead of replacing them", async () => {
+    const styled = { ...el("x"), style: { fill: "#fff", radius: 8, radii: { tl: 16 } } };
+    mockFetch([styled]);
+    // Patch only one corner: fill, uniform radius, and other corners survive.
+    const next = await patchElement(cfg, "x", { style: { radii: { br: 4 } } });
+    expect(next.style?.fill).toBe("#fff");
+    expect(next.style?.radius).toBe(8);
+    expect(next.style?.radii).toEqual({ tl: 16, br: 4 });
+  });
+
+  it("merges per-side border widths instead of replacing them", async () => {
+    const styled = {
+      ...el("x"),
+      style: { stroke: "#000", strokeWidth: 1, strokeWidths: { top: 4 } },
+    };
+    mockFetch([styled]);
+    const next = await patchElement(cfg, "x", { style: { strokeWidths: { bottom: 2 } } });
+    expect(next.style?.stroke).toBe("#000");
+    expect(next.style?.strokeWidths).toEqual({ top: 4, bottom: 2 });
+  });
+
+  it("clears per-corner radii on an explicit empty radii, keeping other style", async () => {
+    const styled = { ...el("x"), style: { fill: "#fff", radius: 8, radii: { tl: 16 } } };
+    mockFetch([styled]);
+    const next = await patchElement(cfg, "x", { style: { radii: {} } });
+    expect(next.style?.radii).toBeUndefined();
+    expect(next.style?.fill).toBe("#fff");
+    expect(next.style?.radius).toBe(8);
+  });
 });
 
 describe("saveElement", () => {
