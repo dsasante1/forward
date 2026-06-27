@@ -1,7 +1,7 @@
 import { useAuth } from "@clerk/react";
 import { useCallback, useMemo } from "react";
 import * as api from "forward-core/api";
-import type { InviteSummary } from "forward-core/api";
+import type { ApiTokenSummary, InviteSummary } from "forward-core/api";
 import type { Task, ProjectRole, DesignElement } from "forward-core";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL.replace(/\/$/, "");
@@ -116,6 +116,22 @@ export function useApi() {
           method: "PUT",
           body: JSON.stringify({ favorite }),
         }),
+
+      // --- Personal Access Tokens (account-level; for the VS Code extension) ---
+      listApiTokens: () => accountFetch<ApiTokenSummary[]>("/tokens"),
+      // `expiresInDays`: omit for the 90-day default. Every token expires.
+      createApiToken: (name: string, expiresInDays?: number) =>
+        accountFetch<ApiTokenSummary & { token: string }>("/tokens", {
+          method: "POST",
+          body: JSON.stringify({ name, expiresInDays }),
+        }),
+      rotateApiToken: (id: string, expiresInDays?: number) =>
+        accountFetch<ApiTokenSummary & { token: string }>(`/tokens/${id}/rotate`, {
+          method: "POST",
+          body: JSON.stringify({ expiresInDays }),
+        }),
+      revokeApiToken: (id: string) =>
+        accountFetch<{ ok: true }>(`/tokens/${id}`, { method: "DELETE" }),
 
       // --- membership roster (project-scoped, via forward-core/api) ---
       listMembers: async (projectId: string): Promise<Member[]> =>

@@ -10,16 +10,22 @@ import { Reflector } from "@nestjs/core";
 import { verifyToken } from "@clerk/backend";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import type { AuthUser } from "./current-user.decorator.js";
+import { PAT_PREFIX, TokensService } from "../tokens/tokens.service.js";
 
 /**
- * Verifies the per-user Clerk session token on every request and attaches the
- * principal to `req.user`. This is the heart of the closed-source pivot: the old
- * extension carried a Firebase admin secret that bypassed all rules
- * (firebase.rules.json:3) — that god-token is gone. Every surface now sends a
- * short-lived, user-scoped bearer token, verified here, with no admin powers.
+ * Authenticates every request and attaches the principal to `req.user`. This is
+ * the heart of the closed-source pivot: the old extension carried a Firebase
+ * admin secret that bypassed all rules (firebase.rules.json:3) — that god-token
+ * is gone. Two user-scoped credentials are accepted, both with no admin powers:
  *
- * The token is read from the `Authorization: Bearer` header only — never a query
- * string (the old client appended `?auth=`, which leaks into logs/proxies).
+ *   - a short-lived Clerk session JWT (browsers: dashboard + embedded canvas), and
+ *   - a long-lived Personal Access Token, `fwd_pat_…` (headless: the VS Code
+ *     extension / CLIs), resolved to its owner via TokensService.
+ *
+ * Either way the result is a plain `{ id }` principal, so MembershipGuard and the
+ * role checks downstream are identical for both. The token is read from the
+ * `Authorization: Bearer` header only — never a query string (the old client
+ * appended `?auth=`, which leaks into logs/proxies).
  */
 @Injectable()
 export class ClerkAuthGuard implements CanActivate {
@@ -29,6 +35,7 @@ export class ClerkAuthGuard implements CanActivate {
 
   constructor(
     private readonly reflector: Reflector,
+    private readonly tokens: TokensService,
     config: ConfigService,
   ) {
     this.secretKey = config.getOrThrow<string>("CLERK_SECRET_KEY");
@@ -50,6 +57,14 @@ export class ClerkAuthGuard implements CanActivate {
       .getRequest<{ headers: Record<string, string>; user?: AuthUser }>();
     const token = bearer(req.headers["authorization"]);
     if (!token) throw new UnauthorizedException("Missing bearer token");
+
+    // A Personal Access Token resolves to its owner without touching Clerk.
+    if (token.startsWith(PAT_PREFIX)) {
+      const userId = await this.tokens.verify(token);
+      if (!userId) throw new UnauthorizedException("Invalid or revoked token");
+      req.user = { id: userId };
+      return true;
+    }
 
     try {
       const claims = await verifyToken(token, {

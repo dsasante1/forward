@@ -25,12 +25,13 @@ import {
   fetchTasks,
   fetchTimelinesConditional,
   listElements,
+  listProjects,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
   saveTask,
   unbindApiFromElement,
-  type FirebaseConfig,
+  type ApiConfig,
   type InfraPollState,
 } from "./firebase.js";
 
@@ -38,7 +39,19 @@ const NO_METHOD = "— none (not an HTTP endpoint) —";
 const POLL_MS = 1000; // base cadence while the canvas is visible
 const POLL_MAX_MS = 30000; // backoff ceiling after repeated failures
 
+/** Key under which the Personal Access Token is held in VS Code SecretStorage. */
+const PAT_SECRET_KEY = "forward.apiToken";
+
+/**
+ * The extension's secret store, set once in `activate`. The PAT lives here rather
+ * than in settings.json (which is often committed): the token is the only
+ * credential and must not leak — mirroring the server guard's "never in a query
+ * string / never in logs" stance.
+ */
+let secrets: vscode.SecretStorage;
+
 export function activate(context: vscode.ExtensionContext): void {
+  secrets = context.secrets;
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "forward.connectEndpoint",
@@ -71,6 +84,9 @@ export function activate(context: vscode.ExtensionContext): void {
       "forward.updateTaskStatus",
       updateTaskStatus,
     ),
+    vscode.commands.registerCommand("forward.signIn", signIn),
+    vscode.commands.registerCommand("forward.signOut", signOut),
+    vscode.commands.registerCommand("forward.selectProject", selectProject),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
@@ -78,35 +94,132 @@ export function activate(context: vscode.ExtensionContext): void {
   const c = vscode.workspace.getConfiguration("forward");
   if (
     c.get<boolean>("openCanvasOnStartup") &&
-    c.get<string>("firebaseDatabaseUrl") &&
+    c.get<string>("apiBaseUrl") &&
     c.get<string>("projectId")
   ) {
-    openCanvas(context);
+    void openCanvas(context);
   }
 }
 
 export function deactivate(): void {}
 
-function readConfig(): FirebaseConfig | undefined {
+/**
+ * Build the API config for a request: base URL + project id from settings, and
+ * the Personal Access Token from SecretStorage. Returns undefined (after showing
+ * an actionable error) when anything required is missing, so callers just bail.
+ */
+async function readConfig(): Promise<ApiConfig | undefined> {
   const c = vscode.workspace.getConfiguration("forward");
-  const databaseUrl = c.get<string>("firebaseDatabaseUrl") ?? "";
+  const baseUrl = c.get<string>("apiBaseUrl") ?? "";
   const projectId = c.get<string>("projectId") ?? "";
-  const authToken = c.get<string>("authToken") ?? "";
-  if (!databaseUrl || !projectId) {
+  if (!baseUrl) {
     vscode.window.showErrorMessage(
-      "Set forward.firebaseDatabaseUrl and projectId in Settings.",
+      "Set forward.apiBaseUrl (your Forward server URL) in Settings.",
     );
     return undefined;
   }
-  return {
-    databaseUrl,
-    projectId,
-    ...(authToken ? { authToken } : {}),
-  };
+  const token = await secrets.get(PAT_SECRET_KEY);
+  if (!token) {
+    void vscode.window
+      .showErrorMessage(
+        "Not signed in to Forward. Generate a token in the dashboard, then sign in.",
+        "Sign in to Forward",
+      )
+      .then((pick) => {
+        if (pick) void vscode.commands.executeCommand("forward.signIn");
+      });
+    return undefined;
+  }
+  if (!projectId) {
+    void vscode.window
+      .showErrorMessage("No Forward project selected.", "Select project")
+      .then((pick) => {
+        if (pick) void vscode.commands.executeCommand("forward.selectProject");
+      });
+    return undefined;
+  }
+  return { baseUrl, projectId, token };
+}
+
+/** Store a pasted PAT after verifying it can reach the server. */
+async function signIn(): Promise<void> {
+  const baseUrl =
+    vscode.workspace.getConfiguration("forward").get<string>("apiBaseUrl") ?? "";
+  if (!baseUrl) {
+    vscode.window.showErrorMessage(
+      "Set forward.apiBaseUrl (your Forward server URL) before signing in.",
+    );
+    return;
+  }
+  const token = await vscode.window.showInputBox({
+    title: "Sign in to Forward",
+    prompt: "Paste a Personal Access Token (generate one in the dashboard → Account).",
+    password: true,
+    ignoreFocusOut: true,
+    placeHolder: "fwd_pat_…",
+  });
+  if (!token) return;
+  try {
+    // Validate by calling an authenticated account-level route.
+    await listProjects(baseUrl, token);
+  } catch {
+    vscode.window.showErrorMessage(
+      "That token was rejected by the server. Check the token and forward.apiBaseUrl.",
+    );
+    return;
+  }
+  await secrets.store(PAT_SECRET_KEY, token);
+  vscode.window.showInformationMessage(
+    "Signed in to Forward. Run “Forward: Select Project” to choose a project.",
+  );
+}
+
+/** Forget the stored PAT. */
+async function signOut(): Promise<void> {
+  await secrets.delete(PAT_SECRET_KEY);
+  vscode.window.showInformationMessage("Signed out of Forward.");
+}
+
+/** Pick from the projects the token can access and persist it to settings. */
+async function selectProject(): Promise<void> {
+  const c = vscode.workspace.getConfiguration("forward");
+  const baseUrl = c.get<string>("apiBaseUrl") ?? "";
+  const token = await secrets.get(PAT_SECRET_KEY);
+  if (!baseUrl || !token) {
+    void vscode.window
+      .showErrorMessage(
+        "Sign in to Forward first (and set forward.apiBaseUrl).",
+        "Sign in to Forward",
+      )
+      .then((pick) => {
+        if (pick) void vscode.commands.executeCommand("forward.signIn");
+      });
+    return;
+  }
+  let projects: Awaited<ReturnType<typeof listProjects>>;
+  try {
+    projects = await listProjects(baseUrl, token);
+  } catch {
+    vscode.window.showErrorMessage("Could not list projects from the server.");
+    return;
+  }
+  if (projects.length === 0) {
+    vscode.window.showWarningMessage(
+      "You aren't a member of any Forward projects yet.",
+    );
+    return;
+  }
+  const pick = await vscode.window.showQuickPick(
+    projects.map((p) => ({ label: p.name, description: `${p.role} · ${p.id}`, id: p.id })),
+    { title: "Select Forward project", placeHolder: "Annotate elements under…" },
+  );
+  if (!pick) return;
+  await c.update("projectId", pick.id, vscode.ConfigurationTarget.Global);
+  vscode.window.showInformationMessage(`Forward project set to “${pick.label}”.`);
 }
 
 async function connectEndpoint(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   // Backend devs document elements the designers already drew. Pick one.
@@ -122,7 +235,7 @@ async function connectEndpoint(): Promise<void> {
  * so the same flow documents a REST route, a GraphQL resolver or a CLI command.
  */
 async function documentElement(
-  cfg: FirebaseConfig,
+  cfg: ApiConfig,
   elementId: string,
   existing?: ApiBinding,
 ): Promise<void> {
@@ -159,7 +272,7 @@ async function documentElement(
  * carried a binding.
  */
 async function saveDocumentation(
-  cfg: FirebaseConfig,
+  cfg: ApiConfig,
   elementId: string,
   text: string,
 ): Promise<void> {
@@ -194,7 +307,7 @@ async function saveDocumentation(
 
 /** Palette entry point: pick a documented element, then remove its docs. */
 async function removeDocumentationCommand(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let documented: Array<{ id: string; title: string }> = [];
@@ -220,7 +333,7 @@ async function removeDocumentationCommand(): Promise<void> {
 
 /** Confirm, then strip the binding off one element. Shared by command + canvas. */
 async function removeDocumentation(
-  cfg: FirebaseConfig,
+  cfg: ApiConfig,
   elementId: string,
   title?: string,
 ): Promise<void> {
@@ -326,7 +439,7 @@ function pathParams(endpoint: string): string[] {
  * several added in a row don't stack on the same spot.
  */
 async function addInfraNode(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   const kind = await vscode.window.showQuickPick([...InfraKind.options], {
@@ -384,7 +497,7 @@ async function addInfraNode(): Promise<void> {
 
 /** Draw a directed edge between two existing infra nodes. */
 async function linkInfraNodes(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let nodes: InfraNode[] = [];
@@ -440,7 +553,7 @@ async function linkInfraNodes(): Promise<void> {
 
 /** Pick an infra node, confirm, then remove it along with its edges. */
 async function removeInfraNode(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let nodes: InfraNode[] = [];
@@ -532,7 +645,7 @@ async function promptForStep(
  * Saved as an InfraFlow that renders as a UML sequence diagram.
  */
 async function addFlow(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let nodes: InfraNode[] = [];
@@ -593,7 +706,7 @@ async function addFlow(): Promise<void> {
 
 /** Append one step to the end of an existing flow. */
 async function addFlowStep(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let flows: InfraFlow[] = [];
@@ -647,7 +760,7 @@ async function addFlowStep(): Promise<void> {
 
 /** Pick a flow, confirm, then delete it (infra nodes/edges are left intact). */
 async function removeFlow(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let flows: InfraFlow[] = [];
@@ -724,7 +837,7 @@ const STATUS_PICKS: (vscode.QuickPickItem & { status: TaskStatus })[] = [
 const TASK_ACTOR = "extension";
 
 /** Read the project's tasks, swallowing offline errors into an empty list. */
-async function safeFetchTasks(cfg: FirebaseConfig): Promise<Task[]> {
+async function safeFetchTasks(cfg: ApiConfig): Promise<Task[]> {
   try {
     return await fetchTasks(cfg);
   } catch {
@@ -738,7 +851,7 @@ async function safeFetchTasks(cfg: FirebaseConfig): Promise<Task[]> {
  * cursor when present, otherwise picked from the canvas elements.
  */
 async function createTask(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   const title = await vscode.window.showInputBox({
@@ -808,7 +921,7 @@ async function createTask(): Promise<void> {
 
 /** Pick a task, then move it to a new status (the common "mark done" path). */
 async function updateTaskStatus(): Promise<void> {
-  const cfg = readConfig();
+  const cfg = await readConfig();
   if (!cfg) return;
 
   let tasks: Task[] = [];
@@ -857,7 +970,7 @@ async function updateTaskStatus(): Promise<void> {
 
 /** Read design elements, swallowing offline errors into an empty list. */
 async function safeListElements(
-  cfg: FirebaseConfig,
+  cfg: ApiConfig,
 ): Promise<Array<{ id: string; name: string; type: string }>> {
   try {
     return await listElements(cfg);
@@ -868,12 +981,12 @@ async function safeListElements(
 
 /**
  * Open a read-only webview that renders the design and overlays a doc pin on
- * every element with an apiBinding. The host (not the webview) polls the RTDB
- * and posts elements in, so the auth token never leaves the extension process
- * and the webview CSP can forbid all network access.
+ * every element with an apiBinding. The host (not the webview) polls the Forward
+ * server and posts elements in, so the access token never leaves the extension
+ * process and the webview CSP can forbid all network access.
  */
-function openCanvas(context: vscode.ExtensionContext): void {
-  const cfg = readConfig();
+async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
+  const cfg = await readConfig();
   if (!cfg) return;
 
   const panel = vscode.window.createWebviewPanel(
@@ -888,11 +1001,11 @@ function openCanvas(context: vscode.ExtensionContext): void {
   );
   panel.webview.html = canvasHtml(panel.webview, scriptUri);
 
-  // Poll the database and push snapshots to the webview only when they change.
-  // The design layer and the infrastructure layer are tracked independently so
-  // a change to one doesn't force a redraw of the other. Change detection is
-  // delegated to the server via ETags (conditional GETs): an unchanged subtree
-  // returns a bodyless 304, so we skip the transfer, the parse, and the post.
+  // Poll the server and push snapshots to the webview. The design layer and the
+  // infrastructure layer are tracked independently so a change to one doesn't
+  // force a redraw of the other. The conditional pollers keep the ETag signature
+  // for compatibility but the backend has no 304 path yet, so they always return
+  // fresh data; the webview only redraws when the snapshot actually differs.
   let elementsEtag: string | undefined;
   let infra: InfraPollState = { nodes: [], edges: [], flows: [] };
   let timelinesEtag: string | undefined;
@@ -1340,7 +1453,7 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
  * annotate elements the designer has already created — there is no "new element"
  * path here, which keeps the two sides from drifting.
  */
-async function pickElement(cfg: FirebaseConfig): Promise<string | undefined> {
+async function pickElement(cfg: ApiConfig): Promise<string | undefined> {
   let elements: Array<{ id: string; name: string; type: string }> = [];
   try {
     elements = await listElements(cfg);
