@@ -357,8 +357,12 @@ export type EntityRelation = z.infer<typeof EntityRelation>;
 export const TaskStatus = z.enum(["todo", "in_progress", "blocked", "done"]);
 export type TaskStatus = z.infer<typeof TaskStatus>;
 
-/** What kind of work the item is — colours the type dot/badge in the tracker. */
-export const TaskType = z.enum(["bug", "feature", "task"]);
+/**
+ * What kind of work the item is — colours the type dot/badge in the tracker.
+ * A `milestone` is a zero-duration marker (a target date rather than a span);
+ * the timeline renders it as a diamond instead of a bar.
+ */
+export const TaskType = z.enum(["bug", "feature", "task", "milestone"]);
 export type TaskType = z.infer<typeof TaskType>;
 
 /** How urgent the work is. Independent of status. */
@@ -433,6 +437,13 @@ export const Task = z.object({
   flowId: z.string().optional(),
   /** Optional link to the element whose apiBinding defines the endpoint. */
   endpointId: z.string().optional(),
+  /**
+   * Ids of other tasks this one depends on (finish-to-start): they should
+   * complete before this one starts. Drives the timeline's dependency
+   * connectors. Soft references resolved on read, like the layer links —
+   * a dangling id (deleted task) is simply ignored, not an error.
+   */
+  dependsOn: z.array(z.string()).default([]),
   /** Chronological history of comments + events (oldest first). */
   activity: z.array(TaskActivity).default([]),
   /** ISO-8601 timestamp the task was created. */

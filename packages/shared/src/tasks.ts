@@ -27,6 +27,7 @@ export const TYPE_LABELS: Record<TaskType, string> = {
   bug: "Bug",
   feature: "Feature",
   task: "Task",
+  milestone: "Milestone",
 };
 
 export const PRIORITY_LABELS: Record<TaskPriority, string> = {
@@ -85,6 +86,7 @@ export interface NewTaskInput {
   elementId?: string;
   flowId?: string;
   endpointId?: string;
+  dependsOn?: string[];
 }
 
 /**
@@ -122,6 +124,7 @@ export type TaskPatch = Partial<
     | "elementId"
     | "flowId"
     | "endpointId"
+    | "dependsOn"
   >
 >;
 
@@ -186,6 +189,12 @@ export function applyTaskChange(
       if (!prev.labels.includes(l)) ev({ verb: "added label", badge: l });
     for (const l of prev.labels)
       if (!patch.labels.includes(l)) ev({ verb: "removed label", badge: l });
+  }
+  if (patch.dependsOn) {
+    for (const d of patch.dependsOn)
+      if (!prev.dependsOn.includes(d)) ev({ verb: "added dependency", target: d });
+    for (const d of prev.dependsOn)
+      if (!patch.dependsOn.includes(d)) ev({ verb: "removed dependency", target: d });
   }
   for (const f of ["elementId", "flowId", "endpointId"] as const) {
     if (f in patch && patch[f] !== prev[f]) {

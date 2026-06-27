@@ -993,10 +993,11 @@ server.registerTool(
     title: "List tasks",
     description:
       "Read the project's task tracker — work items that stand apart from the design elements " +
-      "but optionally link into them. Each task carries a type (bug / feature / task), status " +
+      "but optionally link into them. Each task carries a type (bug / feature / task / milestone), status " +
       "(todo / in_progress / blocked / done), priority, labels, assignees, a reporter, an optional " +
-      "due date, a running activity/comment feed, and optional links: elementId (a design element), " +
-      "flowId (a narrated infra flow), and endpointId (a documented endpoint element). Filter by any " +
+      "due date, dependencies on other tasks, a running activity/comment feed, and optional links: " +
+      "elementId (a design element), flowId (a narrated infra flow), and endpointId (a documented " +
+      "endpoint element). Filter by any " +
       "of these to answer e.g. \"what high-priority bugs are left for the signup flow?\". Returns a " +
       "summary per task; call get_task for one task's full body + activity. Start here to reuse ids.",
     inputSchema: {
@@ -1071,12 +1072,19 @@ server.registerTool(
     inputSchema: {
       title: Task.shape.title.describe("Short summary of the work to do."),
       description: Task.shape.description.describe("Markdown details, acceptance criteria, notes."),
-      type: Task.shape.type.describe("bug, feature, or task (default)."),
+      type: Task.shape.type.describe(
+        "bug, feature, task (default), or milestone (a zero-duration marker date).",
+      ),
       status: Task.shape.status.describe("todo (default), in_progress, blocked, or done."),
       priority: Task.shape.priority.describe("low, medium (default), high, or urgent."),
       labels: Task.shape.labels.describe("Free-form label names, e.g. backend, bug."),
       assignees: Task.shape.assignees.describe("uids from the project roster to assign."),
-      dueDate: Task.shape.dueDate.describe("Due date (ISO yyyy-mm-dd or a short label)."),
+      dueDate: Task.shape.dueDate.describe(
+        "Due date — for a milestone, its target date (ISO yyyy-mm-dd or a short label).",
+      ),
+      dependsOn: Task.shape.dependsOn.describe(
+        "Task ids this one depends on (finish-to-start) — drives the timeline connectors.",
+      ),
       elementId: Task.shape.elementId.describe("Design element this task concerns."),
       flowId: Task.shape.flowId.describe("Infra flow this task implements."),
       endpointId: Task.shape.endpointId.describe("Documented endpoint element this task concerns."),
@@ -1110,12 +1118,13 @@ server.registerTool(
       taskId: z.string().min(1).describe("The task id to update (from list_tasks)."),
       title: z.string().min(1).optional().describe("New title."),
       description: z.string().optional().describe("New Markdown description."),
-      type: Task.shape.type.optional().describe("New type."),
+      type: Task.shape.type.optional().describe("New type (incl. milestone)."),
       status: Task.shape.status.optional().describe("New status."),
       priority: Task.shape.priority.optional().describe("New priority."),
       labels: Task.shape.labels.optional().describe("Replace the label list."),
       assignees: Task.shape.assignees.optional().describe("Replace the assignee uid list."),
       dueDate: Task.shape.dueDate.describe("New due date."),
+      dependsOn: Task.shape.dependsOn.optional().describe("Replace the dependency task-id list."),
       elementId: z.string().optional().describe("Link to a design element id."),
       flowId: z.string().optional().describe("Link to an infra flow id."),
       endpointId: z.string().optional().describe("Link to an endpoint element id."),

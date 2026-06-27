@@ -25,12 +25,13 @@ export const PRIORITY_META: Record<TaskPriority, { label: string; color: string 
   urgent: { label: "Urgent", color: "#c0492f" },
 };
 
-export const TYPE_ORDER: TaskType[] = ["bug", "feature", "task"];
+export const TYPE_ORDER: TaskType[] = ["bug", "feature", "task", "milestone"];
 
 export const TYPE_META: Record<TaskType, { label: string; color: string }> = {
   bug: { label: "Bug", color: "#c0492f" },
   feature: { label: "Feature", color: "#3a6ea8" },
   task: { label: "Task", color: "#7a6f60" },
+  milestone: { label: "Milestone", color: "#8a6db0" },
 };
 
 /** Known label names get a stable colour; anything else falls back to the accent. */

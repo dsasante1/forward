@@ -21,6 +21,16 @@ describe("newTask", () => {
     expect(t.priority).toBe("medium");
     expect(t.activity).toHaveLength(1);
     expect(t.activity[0]).toMatchObject({ kind: "event", actor: "u1", verb: "created this task" });
+    expect(t.dependsOn).toEqual([]);
+  });
+
+  it("opens a milestone with its dependencies", () => {
+    const t = newTask(
+      { title: "Sign-up ships", type: "milestone", dependsOn: ["t_a"] },
+      { actor: "u1" },
+    );
+    expect(t.type).toBe("milestone");
+    expect(t.dependsOn).toEqual(["t_a"]);
   });
 });
 
@@ -56,6 +66,15 @@ describe("applyTaskChange", () => {
     const next = applyTaskChange(linked, { elementId: undefined }, "u2");
     expect(next.elementId).toBeUndefined();
     expect(next.activity.at(-1)).toMatchObject({ verb: "cleared element link" });
+  });
+
+  it("emits an event per added and removed dependency", () => {
+    const withDep: Task = { ...base, dependsOn: ["t_a", "t_b"] };
+    const next = applyTaskChange(withDep, { dependsOn: ["t_b", "t_c"] }, "u2");
+    expect(next.dependsOn).toEqual(["t_b", "t_c"]);
+    const verbs = next.activity.slice(base.activity.length).map((a) => `${a.verb} ${a.target}`);
+    expect(verbs).toContain("added dependency t_c");
+    expect(verbs).toContain("removed dependency t_a");
   });
 });
 
