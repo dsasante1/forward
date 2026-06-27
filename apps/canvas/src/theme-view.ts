@@ -111,7 +111,7 @@ export const DEFAULT_THEME: CanvasTheme = { ...midnightPalette, grid: true };
 
 /** Swatch palettes for the two fine-tune roles (one bg + accent per preset). */
 const BG_SWATCHES = THEME_PRESETS.map((p) => p.bg);
-const ACCENT_SWATCHES = ["#d06a40", "#5b8fcf", "#9a7fd0", "#5db98a", "#bc9a64", "#d2603e"];
+const ACCENT_SWATCHES = THEME_PRESETS.map((p) => p.accent);
 
 function hEl(tag: string, content = "", cls = ""): HTMLElement {
   const node = document.createElement(tag);

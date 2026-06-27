@@ -11,6 +11,8 @@ import {
 import { useApi, type Member } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
 import { useProject } from "../api/ProjectContext.js";
+import { Avatar, AvatarStack } from "./Avatar.js";
+import { TaskGantt } from "./TaskGantt.js";
 import {
   KNOWN_LABELS,
   dateInputValue,
@@ -42,6 +44,7 @@ export function TasksTab() {
   }, [lastChange, reload]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "timeline">("list");
   const [mutateError, setMutateError] = useState<string>();
 
   // The uid stamped on activity events this user creates.
@@ -68,41 +71,71 @@ export function TasksTab() {
       {selected ? (
         <TaskDetail
           task={selected}
-          canWrite={canWrite}
-          members={members}
-          myUid={myUid}
-          actor={actor}
-          onBack={() => setSelectedId(null)}
-          onSave={save}
-        />
-      ) : (
-        <TaskList
-          tasks={tasks}
-          loading={loading}
+          allTasks={tasks ?? []}
           canWrite={canWrite}
           members={members}
           myUid={myUid}
           actor={actor}
           onOpen={setSelectedId}
+          onBack={() => setSelectedId(null)}
           onSave={save}
-          onCreate={async (title) => {
-            await save(
-              newTask(
-                { title },
-                { actor, existingKeys: (tasks ?? []).map((t) => t.key) },
-              ),
-            );
-          }}
-          onDelete={async (id) => {
-            setMutateError(undefined);
-            try {
-              await api.deleteTask(projectId, id);
-              reload();
-            } catch (err) {
-              setMutateError((err as Error).message);
-            }
-          }}
         />
+      ) : (
+        <>
+          <div className="tk-viewswitch">
+            <button
+              type="button"
+              className={view === "list" ? "active" : ""}
+              onClick={() => setView("list")}
+            >
+              List
+            </button>
+            <button
+              type="button"
+              className={view === "timeline" ? "active" : ""}
+              onClick={() => setView("timeline")}
+            >
+              Timeline
+            </button>
+          </div>
+
+          {view === "list" ? (
+            <TaskList
+              tasks={tasks}
+              loading={loading}
+              canWrite={canWrite}
+              members={members}
+              myUid={myUid}
+              actor={actor}
+              onOpen={setSelectedId}
+              onSave={save}
+              onCreate={async (title) => {
+                await save(
+                  newTask(
+                    { title },
+                    { actor, existingKeys: (tasks ?? []).map((t) => t.key) },
+                  ),
+                );
+              }}
+              onDelete={async (id) => {
+                setMutateError(undefined);
+                try {
+                  await api.deleteTask(projectId, id);
+                  reload();
+                } catch (err) {
+                  setMutateError((err as Error).message);
+                }
+              }}
+            />
+          ) : (
+            <TaskGantt
+              tasks={tasks}
+              members={members}
+              myUid={myUid}
+              onOpen={setSelectedId}
+            />
+          )}
+        </>
       )}
     </section>
   );
@@ -277,18 +310,22 @@ function TaskList({
 
 function TaskDetail({
   task,
+  allTasks,
   canWrite,
   members,
   myUid,
   actor,
+  onOpen,
   onBack,
   onSave,
 }: {
   task: Task;
+  allTasks: Task[];
   canWrite: boolean;
   members: Member[] | undefined;
   myUid: string | undefined;
   actor: string;
+  onOpen: (id: string) => void;
   onBack: () => void;
   onSave: (task: Task) => Promise<void>;
 }) {
@@ -296,6 +333,7 @@ function TaskDetail({
   const [desc, setDesc] = useState(task.description);
   const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
   const [labelPickerOpen, setLabelPickerOpen] = useState(false);
+  const [depPickerOpen, setDepPickerOpen] = useState(false);
 
   // Re-seed the description editor whenever the task changes (switching tasks,
   // or a realtime refetch brings a newer body).
@@ -340,6 +378,22 @@ function TaskDetail({
         : [...task.labels, name],
     });
   }
+  function toggleDependency(id: string) {
+    const has = task.dependsOn.includes(id);
+    change({
+      dependsOn: has
+        ? task.dependsOn.filter((d) => d !== id)
+        : [...task.dependsOn, id],
+    });
+  }
+
+  // Other tasks this one can depend on, and a resolver for the stored ids.
+  const byId = useMemo(
+    () => new Map(allTasks.map((t) => [t.id, t])),
+    [allTasks],
+  );
+  const dependencyOptions = allTasks.filter((t) => t.id !== task.id);
+  const label = (t: Task) => `${t.key ?? "—"} ${t.title}`;
   function addComment() {
     const body = draft.trim();
     if (!body) return;
@@ -641,6 +695,61 @@ function TaskDetail({
             )}
           </div>
 
+          <div className="tk-side-block">
+            <div className="section-label" style={{ margin: "0 0 0.6rem" }}>Depends on</div>
+            <div className="tk-deps">
+              {task.dependsOn.length === 0 && <span className="muted small">Nothing</span>}
+              {task.dependsOn.map((id) => {
+                const dep = byId.get(id);
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    className="tk-dep-chip"
+                    onClick={() => dep && onOpen(id)}
+                    title={dep ? label(dep) : id}
+                  >
+                    <span className="mono">{dep?.key ?? "—"}</span>
+                    <span className="tk-dep-title">{dep ? dep.title : "(deleted task)"}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {canWrite && dependencyOptions.length > 0 && (
+              <button
+                type="button"
+                className="tk-add-dashed"
+                onClick={() => setDepPickerOpen((o) => !o)}
+              >
+                + Add dependency
+              </button>
+            )}
+            {depPickerOpen && (
+              <div className="tk-picker">
+                {dependencyOptions.map((t) => {
+                  const on = task.dependsOn.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      className="tk-picker-row"
+                      onClick={() => toggleDependency(t.id)}
+                    >
+                      <span
+                        className="tk-dot"
+                        style={{ background: TYPE_META[t.type].color }}
+                      />
+                      <span className="tk-picker-name">
+                        <span className="mono muted">{t.key ?? "—"}</span> {t.title}
+                      </span>
+                      {on && <span className="tk-check mono">✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="tk-side-block tk-dates">
             <div className="tk-date-row">
               <span className="mono muted">Due</span>
@@ -729,42 +838,6 @@ function ActivityRow({
         )}
         <span className="mono muted small"> · {relTime(entry.at)}</span>
       </div>
-    </div>
-  );
-}
-
-function Avatar({
-  person,
-  size,
-  className = "",
-}: {
-  person: Person;
-  size: number;
-  className?: string;
-}) {
-  return (
-    <span
-      className={`tk-avatar ${className}`}
-      style={{
-        width: size,
-        height: size,
-        background: person.color,
-        fontSize: Math.round(size * 0.38),
-      }}
-      title={person.name}
-    >
-      {person.initials}
-    </span>
-  );
-}
-
-function AvatarStack({ people }: { people: Person[] }) {
-  if (people.length === 0) return null;
-  return (
-    <div className="tk-avatar-stack">
-      {people.map((p) => (
-        <Avatar key={p.uid} person={p} size={24} className="tk-stacked" />
-      ))}
     </div>
   );
 }

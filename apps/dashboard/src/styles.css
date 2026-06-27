@@ -1578,3 +1578,346 @@ textarea.tk-desc-edit:focus {
     flex-wrap: wrap;
   }
 }
+
+/* ===================================================================== */
+/* Tasks timeline (Gantt)                                                 */
+/* ===================================================================== */
+
+.tk-viewswitch {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 3px;
+  margin-bottom: 1.3rem;
+}
+
+.tk-viewswitch button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 7px;
+  padding: 0.45rem 1.1rem;
+  font-size: 0.85rem;
+}
+
+.tk-viewswitch button:hover:not(:disabled) {
+  transform: none;
+}
+
+.tk-viewswitch button.active {
+  background: var(--text);
+  color: #f1ece1;
+  font-weight: 500;
+}
+
+.tk-gantt-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.tk-gantt-head {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+
+.tk-gantt-corner {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 1rem 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-right: 1px solid var(--border);
+}
+
+.tk-gantt-weeks {
+  display: flex;
+}
+
+.tk-gantt-week {
+  flex: none;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  border-left: 1px solid var(--border);
+}
+
+.tk-gantt-week:first-child {
+  border-left: none;
+}
+
+.tk-gantt-days {
+  display: flex;
+  border-top: 1px solid var(--border);
+}
+
+.tk-gantt-day {
+  flex: none;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  padding: 0.35rem 0;
+  color: var(--muted);
+}
+
+.tk-gantt-day.weekend {
+  color: var(--faint);
+}
+
+.tk-gantt-today-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+}
+
+.tk-gantt-body {
+  display: flex;
+}
+
+.tk-gantt-labels {
+  flex: none;
+  border-right: 1px solid var(--border);
+}
+
+.tk-gantt-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  background: rgba(28, 26, 21, 0.03);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  color: var(--faint);
+}
+
+.tk-gantt-sec-count {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.tk-gantt-row-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0 1rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tk-gantt-row-label:hover:not(:disabled) {
+  background: rgba(28, 26, 21, 0.03);
+  transform: none;
+}
+
+.tk-gantt-row-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.tk-gantt-row-name {
+  font-size: 0.83rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tk-gantt-row-label .tk-avatar-stack {
+  margin-left: auto;
+  flex: none;
+}
+
+.tk-gantt-timeline {
+  position: relative;
+  flex: none;
+}
+
+.tk-gantt-shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(28, 26, 21, 0.035);
+}
+
+.tk-gantt-sec-spacer {
+  border-bottom: 1px solid var(--border);
+  background: rgba(28, 26, 21, 0.015);
+}
+
+.tk-gantt-rowcell {
+  position: relative;
+  border-bottom: 1px solid var(--border);
+}
+
+.tk-gantt-bar {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid;
+  cursor: pointer;
+  overflow: hidden;
+  padding: 0;
+  z-index: 1;
+}
+
+.tk-gantt-bar:hover:not(:disabled) {
+  transform: translateY(-50%);
+}
+
+.tk-gantt-bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+
+.tk-gantt-bar-label {
+  position: absolute;
+  left: 10px;
+  right: 8px;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tk-gantt-today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.85;
+  z-index: 3;
+}
+
+.tk-gantt-today-pill {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  background: var(--accent);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 2px 6px;
+  border-radius: 5px;
+  z-index: 4;
+  white-space: nowrap;
+}
+
+/* milestones (diamonds) */
+.tk-gantt-row-diamond {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  transform: rotate(45deg);
+  border: 1.5px solid;
+}
+
+.tk-gantt-diamond {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translate(-50%, -50%) rotate(45deg);
+  border: 2px solid var(--panel);
+  cursor: pointer;
+  padding: 0;
+  z-index: 2;
+}
+
+.tk-gantt-diamond:hover:not(:disabled) {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.tk-gantt-mlabel {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid;
+  border-radius: 7px;
+  background: var(--panel-bright);
+  font-size: 0.72rem;
+  color: var(--text);
+  white-space: nowrap;
+  z-index: 2;
+}
+
+/* dependency connectors */
+.tk-gantt-conns {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+
+/* "Depends on" chips in the task detail sidebar */
+.tk-deps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tk-dep-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  background: var(--panel-bright);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.tk-dep-chip:hover:not(:disabled) {
+  transform: none;
+  border-color: rgba(28, 26, 21, 0.3);
+}
+
+.tk-dep-chip .mono {
+  color: var(--faint);
+  flex: none;
+}
+
+.tk-dep-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
