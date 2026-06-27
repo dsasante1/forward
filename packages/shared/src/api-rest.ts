@@ -276,6 +276,130 @@ export async function acceptInvite(
 }
 
 // --------------------------------------------------------------------------
+// account-level (above project scope)
+//
+// These take a raw baseUrl + token rather than a project-scoped ApiConfig: they
+// list the projects a user belongs to, and manage the Personal Access Tokens a
+// headless surface (the VS Code extension) authenticates with. Shared here so the
+// dashboard and extension don't each hand-build these paths.
+// --------------------------------------------------------------------------
+
+async function accountRequest<T>(
+  baseUrl: string,
+  token: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    method,
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!res.ok) {
+    throw new Error(`Forward API ${method} ${path} failed: ${res.status}`);
+  }
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  return (text ? (JSON.parse(text) as T) : (undefined as T));
+}
+
+/** A project the caller belongs to, with their role in it. */
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  role: ProjectRole;
+}
+
+/** The projects the authenticated user is a member of (account-level). */
+export async function listProjects(
+  baseUrl: string,
+  token: string,
+): Promise<ProjectSummary[]> {
+  const rows = await accountRequest<
+    Array<{ id: string; name: string; role: ProjectRole }>
+  >(baseUrl, token, "GET", "/projects");
+  return (rows ?? []).map((p) => ({ id: p.id, name: p.name, role: p.role }));
+}
+
+/** A Personal Access Token as listed — never includes the secret. */
+export interface ApiTokenSummary {
+  id: string;
+  name: string;
+  prefix: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export async function listApiTokens(
+  baseUrl: string,
+  token: string,
+): Promise<ApiTokenSummary[]> {
+  return (
+    (await accountRequest<ApiTokenSummary[]>(baseUrl, token, "GET", "/tokens")) ??
+    []
+  );
+}
+
+/** A freshly minted PAT — the only response that carries the plaintext `token`. */
+export interface NewApiToken {
+  id: string;
+  name: string;
+  prefix: string;
+  expiresAt: string | null;
+  createdAt: string;
+  token: string;
+}
+
+/**
+ * Mint a PAT. The returned `token` is the plaintext, available only here — show
+ * it once, then it is unrecoverable. `expiresInDays` defaults to 90 server-side
+ * when omitted; every token expires (there is no never-expires option).
+ */
+export async function createApiToken(
+  baseUrl: string,
+  token: string,
+  name: string,
+  expiresInDays?: number,
+): Promise<NewApiToken> {
+  return accountRequest(baseUrl, token, "POST", "/tokens", {
+    name,
+    ...(expiresInDays !== undefined ? { expiresInDays } : {}),
+  });
+}
+
+/**
+ * Rotate a PAT: revoke `id` and mint a replacement under the same name. Returns
+ * the new plaintext (shown once); the old token stops working immediately.
+ */
+export async function rotateApiToken(
+  baseUrl: string,
+  token: string,
+  id: string,
+  expiresInDays?: number,
+): Promise<NewApiToken> {
+  return accountRequest(
+    baseUrl,
+    token,
+    "POST",
+    `/tokens/${encodeURIComponent(id)}/rotate`,
+    expiresInDays !== undefined ? { expiresInDays } : {},
+  );
+}
+
+export async function revokeApiToken(
+  baseUrl: string,
+  token: string,
+  id: string,
+): Promise<void> {
+  await accountRequest(baseUrl, token, "DELETE", `/tokens/${encodeURIComponent(id)}`);
+}
+
+// --------------------------------------------------------------------------
 // infrastructure graph + flows
 // --------------------------------------------------------------------------
 

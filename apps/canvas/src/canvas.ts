@@ -2490,7 +2490,20 @@ function placeInstance(): void {
 // ========================================================================
 // Properties + API panel
 // ========================================================================
+/** Show or hide the right drawer, collapsing its grid column when hidden so the
+ * stage reclaims the space (an explicit grid track keeps `display:none` alone
+ * from closing the gap). */
+function setPanelHidden(hidden: boolean): void {
+  panel.hidden = hidden;
+  canvasRootEl?.classList.toggle("panel-collapsed", hidden);
+}
+
 function renderSelectionPanel(): void {
+  // The right drawer is hidden when there's nothing to inspect; the takeover
+  // modes below (theme/infra/ER) and a live design selection re-show it. A draw
+  // tool that's mid-stroke has already `select()`-ed its new element, so
+  // `selectedId` covers both "selected" and "drawing" in the design path.
+  setPanelHidden(false);
   // Theme mode takes over the right drawer (like infra), swapping the inspector
   // for the UI palette / accent editor.
   if (showTheme) {
@@ -2538,6 +2551,9 @@ function renderSelectionPanel(): void {
     });
     return;
   }
+  // Design mode: only show the inspector when an element is selected (drawing a
+  // new one selects it too); otherwise keep the drawer out of the way.
+  setPanelHidden(!selectedId);
   const el = selectedId ? elements.get(selectedId) : undefined;
   const tl = selectedId ? (timelines.get(selectedId) ?? []) : [];
   renderPanel(panel, el, tl, (patch) => {
@@ -3726,6 +3742,7 @@ function hEl(tag: string, content: string, cls = ""): HTMLElement {
   return node;
 }
 function notify(msg: string): void {
+  setPanelHidden(false); // the drawer may be hidden in design mode; show the toast
   panel.querySelector(".empty")?.remove();
   const p = document.createElement("p");
   p.className = "empty";

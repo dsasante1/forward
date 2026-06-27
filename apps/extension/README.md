@@ -22,13 +22,17 @@ The companion web canvas is where designers draw the UI.
 ## Setup
 
 1. Install this extension.
-2. Open **Settings → Forward** and set:
-   - `forward.firebaseDatabaseUrl` — your Firebase RTDB URL.
-   - `forward.projectId` — the canvas namespace to annotate under
-     (must match the canvas's `VITE_CANVAS_PROJECT_ID`).
-   - `forward.authToken` — *(optional)* a Firebase auth token / DB
-     secret, only if your database rules require auth. **Put this in your User
-     settings, not committed workspace settings.**
+2. Open **Settings → Forward** and set `forward.apiBaseUrl` to your Forward
+   server URL (e.g. `http://localhost:8080` or `https://api.forward.dev`).
+3. In the Forward dashboard, open **Account → Extension tokens**, generate a
+   Personal Access Token, and copy it (it's shown only once).
+4. Run **Forward: Sign In** (Command Palette) and paste the token. It's stored
+   securely in VS Code's SecretStorage — never in settings.
+5. Run **Forward: Select Project** to choose which project to annotate (this sets
+   `forward.projectId`; it must match the canvas's `VITE_CANVAS_PROJECT_ID`).
+
+Sign out any time with **Forward: Sign Out**. The token grants exactly your own
+project access — every request is authenticated per-user by the server.
 
 ## License
 

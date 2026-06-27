@@ -1,4 +1,5 @@
 import { UserProfile, OrganizationProfile } from "@clerk/react";
+import { ExtensionTokens } from "../components/ExtensionTokens.js";
 
 /**
  * Account + organization management.
@@ -23,6 +24,10 @@ export function AccountPage() {
       <section>
         <h2>Organization</h2>
         <OrganizationProfile routing="hash" />
+      </section>
+      <section>
+        <h2>Extension tokens</h2>
+        <ExtensionTokens />
       </section>
     </div>
   );

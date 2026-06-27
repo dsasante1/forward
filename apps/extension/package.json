@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "publisher": "forward",
-  "description": "Document any API (any language/framework) on your design canvas via your own Firebase RTDB.",
+  "description": "Document any API (any language/framework) on your design canvas, synced through the Forward server.",
   "license": "UNLICENSED",
   "repository": {
     "type": "git",
@@ -91,6 +91,21 @@
         "command": "forward.updateTaskStatus",
         "title": "Update Task Status",
         "category": "Forward"
+      },
+      {
+        "command": "forward.signIn",
+        "title": "Sign In (paste access token)",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.signOut",
+        "title": "Sign Out",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.selectProject",
+        "title": "Select Project",
+        "category": "Forward"
       }
     ],
     "menus": {
@@ -104,25 +119,20 @@
     "configuration": {
       "title": "Forward",
       "properties": {
-        "forward.firebaseDatabaseUrl": {
+        "forward.apiBaseUrl": {
           "type": "string",
           "default": "",
-          "description": "Your Firebase Realtime Database URL."
+          "description": "Base URL of your Forward server, e.g. http://localhost:8080 or https://api.forward.dev."
         },
         "forward.projectId": {
           "type": "string",
           "default": "",
-          "description": "Canvas project id to annotate elements under (must match the canvas VITE_CANVAS_PROJECT_ID)."
-        },
-        "forward.authToken": {
-          "type": "string",
-          "default": "",
-          "description": "Optional Firebase auth token / DB secret, used when your RTDB rules require auth. Leave blank for test-mode (open) rules."
+          "description": "Project to annotate elements under. Use the “Forward: Select Project” command to pick one (it must match the canvas VITE_CANVAS_PROJECT_ID)."
         },
         "forward.openCanvasOnStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Open the read-only Design Canvas automatically when VS Code starts (only if the database URL and project id are set)."
+          "description": "Open the read-only Design Canvas automatically when VS Code starts (only if the server URL and project id are set)."
         }
       }
     }

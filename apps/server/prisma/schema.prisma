@@ -46,6 +46,28 @@ model User {
   createdAt     DateTime        @default(now())
   ownedProjects Project[]       @relation("ProjectOwner")
   memberships   ProjectMember[]
+  apiTokens     ApiToken[]
+}
+
+// A long-lived Personal Access Token, the headless surfaces' (VS Code extension,
+// CLIs) credential. Clerk session JWTs are short-lived and browser-bound; a PAT
+// lets a non-browser client authenticate as its owner without the god-secret the
+// old Firebase extension carried. The plaintext is shown once at creation and
+// only its sha256 hash is stored; ClerkAuthGuard resolves a `fwd_pat_` bearer
+// token to this row's `userId`, so the PAT grants exactly its owner's access.
+model ApiToken {
+  id         String    @id @default(cuid())
+  userId     String
+  name       String // user label, e.g. "Work laptop"
+  tokenHash  String    @unique // sha256(plaintext), hex
+  prefix     String // first chars for display, e.g. "fwd_pat_8f2a…"
+  lastUsedAt DateTime?
+  expiresAt  DateTime? // null = no expiry
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // A project = the tenancy boundary (the old RTDB "project id" namespace).
