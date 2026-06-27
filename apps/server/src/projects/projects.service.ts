@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ProjectRole } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { ClerkUserService } from "../common/clerk-user.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
 
 /** How many member avatars the list endpoint previews per project. */
@@ -23,15 +24,16 @@ export class ProjectsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    private readonly users: ClerkUserService,
   ) {}
 
-  /** Lazily ensure a User row exists for a Clerk id (FK target for memberships). */
-  private async ensureUser(userId: string, email?: string): Promise<void> {
-    await this.prisma.user.upsert({
-      where: { id: userId },
-      update: email ? { email } : {},
-      create: { id: userId, email: email ?? null },
-    });
+  /**
+   * Lazily ensure a User row exists for a Clerk id (FK target for memberships),
+   * mirroring the Clerk profile (email/name/avatar) so the roster shows a person
+   * rather than a raw id. Falls back to a bare row if Clerk is unreachable.
+   */
+  private async ensureUser(userId: string): Promise<void> {
+    await this.users.sync(userId);
   }
 
   /** Create a project; the caller becomes its `owner`. */
@@ -60,6 +62,10 @@ export class ProjectsService {
    * name) and sort (recent | name).
    */
   async listForUser(userId: string, opts: ListOptions = {}) {
+    // The dashboard load every user hits — also our self-heal hook: refresh the
+    // caller's mirrored Clerk profile so their roster row shows a name, not a raw
+    // id, even for accounts created before the profile was mirrored.
+    await this.ensureUser(userId);
     const q = opts.q?.trim();
     const memberships = await this.prisma.projectMember.findMany({
       where: {
@@ -85,7 +91,7 @@ export class ProjectsService {
               select: {
                 userId: true,
                 role: true,
-                user: { select: { email: true } },
+                user: { select: { email: true, name: true, imageUrl: true } },
               },
             },
           },
@@ -103,6 +109,8 @@ export class ProjectsService {
         members: members.map((mm) => ({
           userId: mm.userId,
           email: mm.user.email,
+          name: mm.user.name,
+          imageUrl: mm.user.imageUrl,
           role: mm.role,
         })),
       };
@@ -242,13 +250,15 @@ export class ProjectsService {
         userId: true,
         role: true,
         addedAt: true,
-        user: { select: { email: true } },
+        user: { select: { email: true, name: true, imageUrl: true } },
       },
       orderBy: { addedAt: "asc" },
     });
     return members.map((m) => ({
       userId: m.userId,
       email: m.user.email,
+      name: m.user.name,
+      imageUrl: m.user.imageUrl,
       role: m.role,
       addedAt: m.addedAt.toISOString(),
     }));

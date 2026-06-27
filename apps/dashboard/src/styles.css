@@ -337,6 +337,23 @@ button.danger:hover:not(:disabled) {
   flex: 1;
 }
 
+/* A roster member's name stacked over their email. */
+.member-identity {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.member-identity .list-title {
+  flex: initial;
+}
+
+/* Photo avatars (Clerk) reuse the initials-bubble sizing. */
+img.tk-avatar {
+  object-fit: cover;
+}
+
 .mono {
   font-family: var(--mono);
   font-size: 0.85rem;

@@ -3,6 +3,8 @@ import type { ProjectRole } from "forward-core";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
 import { useProject } from "../api/ProjectContext.js";
+import { Avatar } from "./Avatar.js";
+import { personOf } from "./tasks-format.js";
 
 const ROLES: ProjectRole[] = ["viewer", "editor", "owner"];
 const ROLE_HELP: Record<ProjectRole, string> = {
@@ -164,9 +166,20 @@ export function MembersTab() {
       <ul className="list">
         {members?.map((m) => {
           const isSelf = m.uid === myUid;
+          const person = personOf(m.uid, members, myUid);
           return (
             <li key={m.uid} className="list-row">
-              <span className="list-title">{m.email ?? m.uid}</span>
+              {m.imageUrl ? (
+                <img className="tk-avatar" src={m.imageUrl} alt="" width={28} height={28} />
+              ) : (
+                <Avatar person={person} size={28} />
+              )}
+              <span className="member-identity">
+                <span className="list-title">{m.name ?? person.name}</span>
+                {m.email && m.email !== m.name && (
+                  <span className="muted small">{m.email}</span>
+                )}
+              </span>
               {isOwner && !isSelf ? (
                 <select
                   value={m.role}
