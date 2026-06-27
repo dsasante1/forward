@@ -175,15 +175,33 @@ export async function unbindApiFromElement(
 // membership roster
 // --------------------------------------------------------------------------
 
-export async function listMembers(
-  cfg: ApiConfig,
-): Promise<Array<{ uid: string; email: string | null; role: ProjectRole; addedAt: string }>> {
+export interface RosterMember {
+  uid: string;
+  email: string | null;
+  /** Display name mirrored from Clerk; null until the user's profile is synced. */
+  name: string | null;
+  /** Avatar URL mirrored from Clerk; null if unavailable. */
+  imageUrl: string | null;
+  role: ProjectRole;
+  addedAt: string;
+}
+
+export async function listMembers(cfg: ApiConfig): Promise<RosterMember[]> {
   const rows = await get<
-    Array<{ userId: string; email: string | null; role: ProjectRole; addedAt: string }>
+    Array<{
+      userId: string;
+      email: string | null;
+      name?: string | null;
+      imageUrl?: string | null;
+      role: ProjectRole;
+      addedAt: string;
+    }>
   >(cfg, "/members");
   return (rows ?? []).map((m) => ({
     uid: m.userId,
     email: m.email ?? null,
+    name: m.name ?? null,
+    imageUrl: m.imageUrl ?? null,
     role: m.role,
     addedAt: m.addedAt,
   }));

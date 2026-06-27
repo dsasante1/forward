@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { RedirectToSignIn, Show } from "@clerk/react";
+import { RedirectToSignUp, Show } from "@clerk/react";
 import { useApi } from "../api/client.js";
 
 /**
  * Invitation accept landing (`/invite/:token`). Public route:
- *   - signed out → RedirectToSignIn captures this URL, so after sign-up/in Clerk
- *     returns here (the auth pages use fallbackRedirectUrl, so the return wins).
+ *   - signed out → RedirectToSignUp captures this URL, so after sign-up Clerk
+ *     returns here to redeem. We send invitees to sign-UP, not sign-in: a person
+ *     invited by email almost never has an account yet, and sign-in would just
+ *     dead-end on "couldn't find your account". Clerk's sign-up still links to
+ *     sign-in for the rare already-registered invitee.
  *   - signed in  → redeem the token and link into the project.
  */
 export function AcceptInvitePage() {
@@ -14,7 +17,7 @@ export function AcceptInvitePage() {
   return (
     <div className="auth-screen">
       <Show when="signed-out">
-        <RedirectToSignIn />
+        <RedirectToSignUp />
       </Show>
       <Show when="signed-in">{token ? <Redeem token={token} /> : <p className="error">Missing invite token.</p>}</Show>
     </div>

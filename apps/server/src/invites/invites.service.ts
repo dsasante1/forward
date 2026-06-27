@@ -10,7 +10,9 @@ import { createClerkClient, type ClerkClient } from "@clerk/backend";
 import { randomBytes } from "node:crypto";
 import type { ProjectRole } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
+import { ClerkUserService } from "../common/clerk-user.service.js";
 import { EmailService } from "../common/email.service.js";
+import { inviteEmail } from "../common/email-template.js";
 import { RealtimeService } from "../common/realtime.service.js";
 
 const INVITE_TTL_DAYS = 7;
@@ -33,6 +35,7 @@ export class InvitesService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly realtime: RealtimeService,
+    private readonly users: ClerkUserService,
     config: ConfigService,
   ) {
     this.clerk = createClerkClient({
@@ -164,11 +167,9 @@ export class InvitesService {
       );
     }
 
-    await this.prisma.user.upsert({
-      where: { id: userId },
-      update: { email: matched },
-      create: { id: userId, email: matched },
-    });
+    // Pin the email to the verified address the invite was sent to, while also
+    // mirroring the rest of the Clerk profile (name/avatar) for the roster.
+    await this.users.sync(userId, matched);
     await this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId: invite.projectId, userId } },
       update: { role: invite.role },
@@ -222,33 +223,12 @@ export class InvitesService {
     token: string,
   ): Promise<boolean> {
     const link = `${this.appBaseUrl}/invite/${token}`;
-    const safeName = escapeHtml(projectName);
-    return this.email.send({
-      to,
-      subject: `You've been invited to "${projectName}" on Forward`,
-      text:
-        `You've been invited to join the project "${projectName}" as ${role}.\n\n` +
-        `Accept your invitation:\n${link}\n\n` +
-        `This link expires in ${INVITE_TTL_DAYS} days.`,
-      html:
-        `<p>You've been invited to join the project <strong>${safeName}</strong> as <strong>${role}</strong>.</p>` +
-        `<p><a href="${link}">Accept your invitation</a></p>` +
-        `<p style="color:#666">Or paste this link into your browser:<br>${link}</p>` +
-        `<p style="color:#999;font-size:12px">This link expires in ${INVITE_TTL_DAYS} days.</p>`,
+    const { subject, text, html } = inviteEmail({
+      projectName,
+      role,
+      link,
+      expiresDays: INVITE_TTL_DAYS,
     });
+    return this.email.send({ to, subject, text, html });
   }
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(
-    /[&<>"']/g,
-    (c) =>
-      ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      })[c] ?? c,
-  );
 }

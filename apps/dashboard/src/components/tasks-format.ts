@@ -106,9 +106,9 @@ function initialsFrom(name: string): string {
 }
 
 /**
- * Resolve a uid against the roster for display. Members only carry uid + email,
- * so we derive a friendly name from the email's local part (or the raw uid) and
- * a deterministic avatar colour. The signed-in user shows as "You".
+ * Resolve a uid against the roster for display. Prefer the member's real Clerk
+ * name, falling back to the email's local part and finally the raw uid, plus a
+ * deterministic avatar colour. The signed-in user shows as "You".
  */
 export function personOf(
   uid: string,
@@ -116,9 +116,9 @@ export function personOf(
   myUid: string | undefined,
 ): Person {
   const member = members?.find((m) => m.uid === uid);
-  const base = member?.email
-    ? member.email.split("@")[0]!
-    : uid;
+  const base =
+    member?.name?.trim() ||
+    (member?.email ? member.email.split("@")[0]! : uid);
   const name = uid === myUid ? "You" : base;
   return {
     uid,

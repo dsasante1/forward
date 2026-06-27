@@ -37,6 +37,12 @@ enum InviteStatus {
 model User {
   id            String          @id // Clerk user id, e.g. "user_2abc..."
   email         String?
+  // Display profile mirrored from Clerk so the member roster can show a person,
+  // not a raw "user_..." id. Synced on every authenticated touch (see
+  // ClerkUserService.sync); nullable because Clerk may be unreachable when the
+  // FK-target User row is first created.
+  name          String?
+  imageUrl      String?
   createdAt     DateTime        @default(now())
   ownedProjects Project[]       @relation("ProjectOwner")
   memberships   ProjectMember[]
