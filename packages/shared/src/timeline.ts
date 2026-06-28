@@ -1,6 +1,15 @@
+import { flowToMermaid, infraToComponentMermaid } from "./infra-flow.js";
 import type {
   Checkpoint,
+  DesignElement,
+  DiffSection,
+  ElementType,
   HttpMethod,
+  InfraEdge,
+  InfraFlow,
+  InfraKind,
+  InfraNode,
+  InfraStepKind,
   ProjectTimelineEvent,
   TimelineDomain,
   VersionAction,
@@ -321,5 +330,277 @@ export function buildHistoryTimeline(
       first: stamps.length ? Math.min(...stamps) : undefined,
       last: stamps.length ? Math.max(...stamps) : undefined,
     },
+  };
+}
+
+// --------------------------------------------------------------------------
+// History event detail: the per-domain body the "View" overlay renders
+// --------------------------------------------------------------------------
+
+/**
+ * The live project state a `HistoryRow` is resolved against to build its
+ * domain-specific detail. Every field is optional so a host that only has some
+ * layers loaded (or a read-only source) still gets a best-effort body. Maps
+ * mirror the in-memory shapes the canvas already keeps, so the host passes them
+ * straight through — no copying.
+ */
+export interface HistorySources {
+  /** Live design elements by id — geometry + apiBinding for design/api rows. */
+  elements?: Map<string, DesignElement>;
+  /** Per-element append-only API history — the diff an `api` row expands. */
+  timelines?: Map<string, VersionEntry[]>;
+  infraNodes?: Map<string, InfraNode>;
+  infraEdges?: InfraEdge[];
+  infraFlows?: Map<string, InfraFlow>;
+}
+
+/** A labelled property in the Design detail table. */
+export interface DetailProp {
+  label: string;
+  value: string;
+}
+
+/** One resolved hop in the UML (sequence-flow) detail. */
+export interface UmlDetailStep {
+  n: number;
+  fromLabel: string;
+  toLabel: string;
+  label: string;
+  kind: InfraStepKind;
+}
+
+export interface DesignDetail {
+  kind: "design";
+  /** False when the element no longer exists (a deletion event). */
+  found: boolean;
+  elementType?: ElementType;
+  props: DetailProp[];
+  /** Fill colour, surfaced as a swatch. */
+  fill?: string;
+  /** Text content, for text elements. */
+  text?: string;
+}
+
+export interface ApiDetail {
+  kind: "api";
+  method?: HttpMethod;
+  path?: string;
+  version?: string;
+  previousVersion?: string;
+  /** `+added −removed` counts from the matched entry's diff (0 when none). */
+  added: number;
+  removed: number;
+  /** Set when the change breaks clients — rendered as a warning callout. */
+  breaking?: string;
+  /** The structured documentation diff to render as coloured rows. */
+  sections: DiffSection[];
+  changeLog?: string;
+  /** Current Markdown description of the binding, if it still exists. */
+  description?: string;
+}
+
+export interface InfraDetail {
+  kind: "infra";
+  subject: "node" | "edge" | "unknown";
+  // node
+  nodeKind?: InfraKind;
+  label?: string;
+  tech?: string;
+  description?: string;
+  // edge
+  fromLabel?: string;
+  toLabel?: string;
+  edgeLabel?: string;
+  /** Focused neighbourhood component diagram (Mermaid) for spatial context. */
+  mermaid?: string;
+}
+
+export interface UmlDetail {
+  kind: "uml";
+  /** False when the flow no longer exists (a deletion event). */
+  found: boolean;
+  flowName?: string;
+  description?: string;
+  steps: UmlDetailStep[];
+  /** The sequence diagram (Mermaid), absent for an empty flow. */
+  mermaid?: string;
+}
+
+/** Anything without a richer body (checkpoints, unknown targets). */
+export interface GenericDetail {
+  kind: "generic";
+}
+
+export type HistoryDetail =
+  | DesignDetail
+  | ApiDetail
+  | InfraDetail
+  | UmlDetail
+  | GenericDetail;
+
+const round = (n: number): string => String(Math.round(n));
+
+/**
+ * Resolve a history row against the live project state into a domain-specific
+ * detail the viewer renders. Pure: it only reads the passed snapshots, so both
+ * canvases and the unit tests share one resolver. Checkpoints and unresolvable
+ * targets fall back to `{ kind: "generic" }` (the caller's one-line summary).
+ */
+export function buildHistoryDetail(
+  row: HistoryRow,
+  src: HistorySources,
+): HistoryDetail {
+  if (row.kind === "checkpoint") return { kind: "generic" };
+  switch (row.domain) {
+    case "design":
+      return designDetail(row, src);
+    case "api":
+      return apiDetail(row, src);
+    case "infra":
+      return infraDetail(row, src);
+    case "uml":
+      return umlDetail(row, src);
+    default:
+      return { kind: "generic" };
+  }
+}
+
+function designDetail(row: HistoryRow, src: HistorySources): DesignDetail {
+  const el = row.targetId ? src.elements?.get(row.targetId) : undefined;
+  if (!el) return { kind: "design", found: false, props: [] };
+  const props: DetailProp[] = [
+    { label: "Position", value: `${round(el.x)}, ${round(el.y)}` },
+    { label: "Size", value: `${round(el.width)} × ${round(el.height)}` },
+  ];
+  const parent = el.parentId ? src.elements?.get(el.parentId) : undefined;
+  if (parent) props.push({ label: "Parent", value: parent.name || parent.type });
+  if (el.rotation) props.push({ label: "Rotation", value: `${round(el.rotation)}°` });
+  return {
+    kind: "design",
+    found: true,
+    elementType: el.type,
+    props,
+    ...(el.style?.fill ? { fill: el.style.fill } : {}),
+    ...(el.text ? { text: el.text } : {}),
+  };
+}
+
+/** The history entry closest in time to the event (its recorded change). */
+function pickEntry(entries: VersionEntry[], ts: number): VersionEntry | undefined {
+  let best = entries[0];
+  if (!best) return undefined;
+  let bestDiff = Math.abs(best.timestamp - ts);
+  for (const e of entries) {
+    const d = Math.abs(e.timestamp - ts);
+    if (d < bestDiff) {
+      best = e;
+      bestDiff = d;
+    }
+  }
+  return best;
+}
+
+function apiDetail(row: HistoryRow, src: HistorySources): ApiDetail {
+  const entries = (row.targetId ? src.timelines?.get(row.targetId) : undefined) ?? [];
+  const el = row.targetId ? src.elements?.get(row.targetId) : undefined;
+  const entry = pickEntry(entries, row.timestamp);
+  const diff = entry?.diff;
+  return {
+    kind: "api",
+    ...(entry?.endpoint?.method ? { method: entry.endpoint.method } : {}),
+    ...(entry?.endpoint?.path ? { path: entry.endpoint.path } : {}),
+    ...(entry?.version ? { version: entry.version } : {}),
+    ...(entry?.previousVersion ? { previousVersion: entry.previousVersion } : {}),
+    added: diff?.added ?? 0,
+    removed: diff?.removed ?? 0,
+    ...(diff?.breaking ? { breaking: diff.breaking } : {}),
+    sections: diff?.sections ?? [],
+    ...(entry?.changeLog ? { changeLog: entry.changeLog } : {}),
+    ...(el?.apiBinding?.description ? { description: el.apiBinding.description } : {}),
+  };
+}
+
+/**
+ * A focused component diagram around `focus` nodes: the focus plus (when
+ * `expand`) their one-hop neighbours, and the edges among that set. Undefined
+ * when no focus node is loaded (e.g. the node was deleted).
+ */
+function focusDiagram(
+  focus: string[],
+  src: HistorySources,
+  expand: boolean,
+): string | undefined {
+  const nodes = src.infraNodes;
+  if (!nodes) return undefined;
+  const edges = src.infraEdges ?? [];
+  const ids = new Set(focus.filter((id) => nodes.has(id)));
+  if (!ids.size) return undefined;
+  if (expand) {
+    for (const e of edges) {
+      if (ids.has(e.from)) ids.add(e.to);
+      if (ids.has(e.to)) ids.add(e.from);
+    }
+  }
+  const picked: InfraNode[] = [];
+  for (const id of ids) {
+    const n = nodes.get(id);
+    if (n) picked.push(n);
+  }
+  if (!picked.length) return undefined;
+  const sub = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+  return infraToComponentMermaid(picked, sub);
+}
+
+function infraDetail(row: HistoryRow, src: HistorySources): InfraDetail {
+  const id = row.targetId ?? "";
+  const node = src.infraNodes?.get(id);
+  if (node) {
+    const mermaid = focusDiagram([node.id], src, true);
+    return {
+      kind: "infra",
+      subject: "node",
+      nodeKind: node.kind,
+      label: node.label,
+      ...(node.tech ? { tech: node.tech } : {}),
+      ...(node.description ? { description: node.description } : {}),
+      ...(mermaid ? { mermaid } : {}),
+    };
+  }
+  const edge = (src.infraEdges ?? []).find((e) => e.id === id);
+  if (edge) {
+    const from = src.infraNodes?.get(edge.from);
+    const to = src.infraNodes?.get(edge.to);
+    const mermaid = focusDiagram([edge.from, edge.to], src, false);
+    return {
+      kind: "infra",
+      subject: "edge",
+      fromLabel: from?.label ?? edge.from,
+      toLabel: to?.label ?? edge.to,
+      ...(edge.label ? { edgeLabel: edge.label } : {}),
+      ...(mermaid ? { mermaid } : {}),
+    };
+  }
+  return { kind: "infra", subject: "unknown" };
+}
+
+function umlDetail(row: HistoryRow, src: HistorySources): UmlDetail {
+  const flow = row.targetId ? src.infraFlows?.get(row.targetId) : undefined;
+  if (!flow) return { kind: "uml", found: false, steps: [] };
+  const nodes = src.infraNodes ?? new Map<string, InfraNode>();
+  const steps: UmlDetailStep[] = flow.steps.map((s, i) => ({
+    n: i + 1,
+    fromLabel: nodes.get(s.from)?.label ?? s.from,
+    toLabel: nodes.get(s.to)?.label ?? s.to,
+    label: s.label,
+    kind: s.kind,
+  }));
+  const mermaid = flow.steps.length ? flowToMermaid(flow, nodes) : undefined;
+  return {
+    kind: "uml",
+    found: true,
+    flowName: flow.name,
+    ...(flow.description ? { description: flow.description } : {}),
+    steps,
+    ...(mermaid ? { mermaid } : {}),
   };
 }

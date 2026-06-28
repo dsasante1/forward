@@ -2949,25 +2949,36 @@ function renderTimelinePanel(): void {
   // The History timeline merges the server activity feed (design/api/infra/uml)
   // with the manual checkpoints, grouped by domain on a date-rail. Selecting an
   // event deep-links its element on the canvas; restoring rewinds a checkpoint.
-  renderTimelineView(historyEl, projectTimeline, checkpoints, {
-    onSelectElement: (id) => {
-      if (elements.has(id)) {
-        select(id);
-        toggleTimeline(); // leave the History view to reveal the canvas selection
-      }
-    },
-    onRestore: (id) => {
-      void restoreCheckpoint(id);
-    },
-    ...(source.deleteCheckpoint
-      ? {
-          onDelete: (id: string) => {
-            void deleteCheckpoint(id);
-          },
+  renderTimelineView(
+    historyEl,
+    projectTimeline,
+    checkpoints,
+    { elements, timelines, infraNodes, infraEdges, infraFlows },
+    {
+      onSelectElement: (id) => {
+        if (elements.has(id)) {
+          select(id);
+          toggleTimeline(); // leave the History view to reveal the canvas selection
         }
-      : {}),
-    onClose: toggleTimeline,
-  });
+      },
+      onRestore: (id) => {
+        void restoreCheckpoint(id);
+      },
+      ...(source.deleteCheckpoint
+        ? {
+            onDelete: (id: string) => {
+              void deleteCheckpoint(id);
+            },
+          }
+        : {}),
+      renderMermaid: async (src) => {
+        const mermaid = await getMermaid();
+        const { svg } = await mermaid.render(`hist_${++umlSeq}`, src);
+        return svg;
+      },
+      onClose: toggleTimeline,
+    },
+  );
 }
 
 // ========================================================================
