@@ -1,3 +1,4 @@
+import { diffBindings } from "./api-diff.js";
 import {
   ApiBinding,
   DesignElement,
@@ -9,6 +10,7 @@ import {
   ProjectMember,
   ProjectRole,
   Task,
+  type VersionDiff,
   VersionEntry,
   paths,
 } from "./schema.js";
@@ -44,7 +46,14 @@ export interface FirebaseConfig {
  * — but a caller that knows (created vs modified, or a deletion) should pass them.
  */
 export type VersionInput = Omit<VersionEntry, "timestamp" | "action" | "endpoint"> &
-  Partial<Pick<VersionEntry, "action" | "endpoint">>;
+  Partial<Pick<VersionEntry, "action" | "endpoint">> & {
+    /**
+     * Flag this change as breaking; merged onto the auto-computed `diff` so a
+     * caller can warn clients without having to build the whole diff itself.
+     * Ignored when the caller supplies a full `diff` (which carries its own).
+     */
+    breaking?: string;
+  };
 
 function url(cfg: FirebaseConfig, path: string): string {
   const base = cfg.databaseUrl.replace(/\/$/, "");
@@ -52,6 +61,24 @@ function url(cfg: FirebaseConfig, path: string): string {
     ? `?auth=${encodeURIComponent(cfg.authToken)}`
     : "";
   return `${base}/${path}.json${suffix}`;
+}
+
+/** Read one element's current API binding (undefined when absent/malformed). */
+async function fetchBinding(
+  cfg: FirebaseConfig,
+  elementId: string,
+): Promise<ApiBinding | undefined> {
+  const res = await fetch(url(cfg, paths.apiBinding(cfg.projectId, elementId)));
+  if (!res.ok) return undefined;
+  const body = (await res.json()) as unknown;
+  if (!body) return undefined;
+  const parsed = ApiBinding.safeParse(body);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Stamp the caller's `breaking` flag onto an auto-computed diff (if any). */
+function mergeBreaking(diff: VersionDiff, version: VersionInput): VersionDiff {
+  return version.breaking ? { ...diff, breaking: version.breaking } : diff;
 }
 
 /**
@@ -66,24 +93,33 @@ export async function bindApiToElement(
 ): Promise<void> {
   const binding: ApiBinding = ApiBinding.parse(payload);
 
-  // 1. Write the binding onto the element (leaves the element's geometry intact).
+  // 1. Read the binding being replaced (before the PUT) so we can record a
+  //    structured doc diff against it — skipped when the caller already supplied
+  //    one, or merged with the caller's `breaking` flag (which can't be inferred).
+  const prev = version.diff ? undefined : await fetchBinding(cfg, elementId);
+
+  // 2. Write the binding onto the element (leaves the element's geometry intact).
   await put(url(cfg, paths.apiBinding(cfg.projectId, elementId)), binding);
 
-  // 2. Touch updatedAt so the canvas flags the change live.
+  // 3. Touch updatedAt so the canvas flags the change live.
   await put(
     url(cfg, `${paths.element(cfg.projectId, elementId)}/updatedAt`),
     new Date().toISOString(),
   );
 
-  // 3. Append to the append-only timeline (POST = push id under the list path).
+  // 4. Append to the append-only timeline (POST = push id under the list path).
   //    Snapshot the endpoint title onto the entry so the timeline can still
   //    label this change after the binding is later deleted. The caller supplies
   //    `action` (created vs modified — it knows which); default covers any caller
   //    that doesn't.
+  const diff = version.diff
+    ? version.diff
+    : mergeBreaking(diffBindings(prev, binding), version);
   const entry: VersionEntry = VersionEntry.parse({
     ...version,
     timestamp: Date.now(),
     endpoint: version.endpoint ?? { title: binding.title },
+    diff,
   });
   await post(url(cfg, paths.timeline(cfg.projectId, elementId)), entry);
 }
@@ -98,14 +134,21 @@ export async function unbindApiFromElement(
   elementId: string,
   version: VersionInput,
 ): Promise<void> {
+  // Read the binding being removed (before the delete) so the entry records an
+  // all-removed diff — what the timeline shows for a documentation deletion.
+  const prev = version.diff ? undefined : await fetchBinding(cfg, elementId);
   await del(url(cfg, paths.apiBinding(cfg.projectId, elementId)));
   await put(
     url(cfg, `${paths.element(cfg.projectId, elementId)}/updatedAt`),
     new Date().toISOString(),
   );
+  const diff = version.diff
+    ? version.diff
+    : mergeBreaking(diffBindings(prev, undefined), version);
   const entry: VersionEntry = VersionEntry.parse({
     ...version,
     timestamp: Date.now(),
+    diff,
   });
   await post(url(cfg, paths.timeline(cfg.projectId, elementId)), entry);
 }

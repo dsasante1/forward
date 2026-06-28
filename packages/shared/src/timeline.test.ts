@@ -201,17 +201,24 @@ describe("buildHistoryTimeline", () => {
     pe({ seq: 5, domain: "design" }),
   ];
 
-  it("counts per domain with unified as the grand total", () => {
+  it("drops auto-logged design events; the design layer is shown via checkpoints", () => {
+    // The two `design` events are filtered out — design history is the checkpoints.
     const tl = buildHistoryTimeline(events, [], { view: "unified", sort: "new" });
-    expect(tl.counts).toMatchObject({ unified: 5, design: 2, api: 1, infra: 1, uml: 1 });
-    expect(tl.rows).toHaveLength(5);
+    expect(tl.counts).toMatchObject({ unified: 3, design: 0, api: 1, infra: 1, uml: 1 });
+    expect(tl.rows).toHaveLength(3);
+    expect(tl.rows.some((r) => r.domain === "design")).toBe(false);
   });
 
-  it("filters to a single domain but keeps counts global", () => {
-    const tl = buildHistoryTimeline(events, [], { view: "design", sort: "new" });
-    expect(tl.rows.every((r) => r.domain === "design")).toBe(true);
-    expect(tl.rows).toHaveLength(2);
-    expect(tl.counts.unified).toBe(5); // counts ignore the active filter
+  it("the design view shows checkpoints, not the per-edit design events", () => {
+    const tl = buildHistoryTimeline(events, [cp({ id: "c1" })], {
+      view: "design",
+      sort: "new",
+    });
+    // a default checkpoint (no changes) is dominant-design, so it lands here…
+    expect(tl.rows).toEqual([expect.objectContaining({ kind: "checkpoint", domain: "design" })]);
+    // …and none of the filtered-out design events leak in.
+    expect(tl.rows.every((r) => r.kind === "checkpoint")).toBe(true);
+    expect(tl.counts.design).toBe(1); // the checkpoint, not the 2 design events
   });
 
   it("sorts newest-first or oldest-first", () => {
@@ -264,10 +271,102 @@ describe("buildHistoryDetail", () => {
       ...part,
     };
   }
+  function checkpoint(part: Partial<Checkpoint> & { id: string }): Checkpoint {
+    return {
+      title: "Checkpoint",
+      description: "",
+      tag: "checkpoint",
+      changes: [],
+      snapshot: { elements: [], infraNodes: [], infraEdges: [], infraFlows: [] },
+      createdAt: new Date(0).toISOString(),
+      ...part,
+    };
+  }
 
-  it("checkpoint rows fall back to generic", () => {
+  it("a checkpoint row with no source checkpoints has an empty checkpoint detail", () => {
     const d = buildHistoryDetail(row({ domain: "design", kind: "checkpoint" }), {});
-    expect(d.kind).toBe("generic");
+    expect(d).toMatchObject({ kind: "checkpoint", changes: [] });
+    if (d.kind !== "checkpoint") throw new Error("expected checkpoint");
+    expect(d.preview).toBeUndefined();
+  });
+
+  it("a checkpoint row previews its own frozen snapshot + change chips", () => {
+    const cp = checkpoint({
+      id: "cp1",
+      title: "v1 launch",
+      changes: [{ layer: "DESIGN", n: 8 }],
+      snapshot: {
+        elements: [el({ id: "a" }), el({ id: "b" })],
+        infraNodes: [],
+        infraEdges: [],
+        infraFlows: [],
+      },
+      createdAt: new Date(5000).toISOString(),
+    });
+    const d = buildHistoryDetail(row({ domain: "design", kind: "checkpoint", checkpointId: "cp1" }), {
+      checkpoints: [cp],
+    });
+    expect(d).toMatchObject({ kind: "checkpoint", changes: [{ layer: "DESIGN", n: 8 }] });
+    if (d.kind !== "checkpoint") throw new Error("expected checkpoint");
+    expect(d.preview?.elements).toHaveLength(2);
+    expect(d.preview?.rootId).toBeUndefined(); // whole-project view
+    expect(d.preview?.basis).toMatchObject({ kind: "checkpoint", label: "v1 launch", at: 5000 });
+  });
+
+  it("design: previews the nearest checkpoint at-or-before the event (as-of, not live)", () => {
+    // Live shows the rectangle at x=200; a checkpoint before the event froze x=50.
+    const elements = new Map<string, DesignElement>([["rect-1", el({ id: "rect-1", x: 200 })]]);
+    const cp = checkpoint({
+      id: "cp1",
+      title: "before",
+      snapshot: {
+        elements: [el({ id: "rect-1", x: 50, width: 120, height: 48 })],
+        infraNodes: [],
+        infraEdges: [],
+        infraFlows: [],
+      },
+      createdAt: new Date(500).toISOString(),
+    });
+    const d = buildHistoryDetail(row({ domain: "design", targetId: "rect-1", timestamp: 1000 }), {
+      elements,
+      checkpoints: [cp],
+    });
+    if (d.kind !== "design") throw new Error("expected design");
+    expect(d.preview?.basis).toMatchObject({ kind: "checkpoint", label: "before" });
+    expect(d.preview?.elements[0]?.x).toBe(50); // the as-of geometry, not the live 200
+    expect(d.props).toContainEqual({ label: "Position", value: "50, 0" });
+  });
+
+  it("design: falls back to the live element when no earlier checkpoint exists", () => {
+    const elements = new Map<string, DesignElement>([["rect-1", el({ id: "rect-1", x: 200 })]]);
+    // The only checkpoint is AFTER the event, so it can't describe the as-of state.
+    const cp = checkpoint({
+      id: "cp1",
+      snapshot: { elements: [el({ id: "rect-1", x: 50 })], infraNodes: [], infraEdges: [], infraFlows: [] },
+      createdAt: new Date(5000).toISOString(),
+    });
+    const d = buildHistoryDetail(row({ domain: "design", targetId: "rect-1", timestamp: 1000 }), {
+      elements,
+      checkpoints: [cp],
+    });
+    if (d.kind !== "design") throw new Error("expected design");
+    expect(d.preview?.basis).toMatchObject({ kind: "live" });
+    expect(d.preview?.elements[0]?.x).toBe(200);
+  });
+
+  it("design: a preview composition includes descendants in paint order", () => {
+    const elements = new Map<string, DesignElement>([
+      ["frame-1", el({ id: "frame-1", type: "frame", name: "Signup" })],
+      ["rect-1", el({ id: "rect-1", parentId: "frame-1" })],
+      ["text-1", el({ id: "text-1", type: "text", parentId: "rect-1" })],
+      ["other", el({ id: "other" })], // unrelated, must NOT appear
+    ]);
+    const d = buildHistoryDetail(row({ domain: "design", targetId: "frame-1" }), { elements });
+    if (d.kind !== "design") throw new Error("expected design");
+    const ids = d.preview?.elements.map((e) => e.id);
+    expect(ids?.[0]).toBe("frame-1"); // root first
+    expect(ids).toEqual(expect.arrayContaining(["frame-1", "rect-1", "text-1"]));
+    expect(ids).not.toContain("other");
   });
 
   it("design: resolves geometry, parent name and fill", () => {

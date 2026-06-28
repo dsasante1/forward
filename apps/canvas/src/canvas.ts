@@ -71,6 +71,7 @@ const SKELETON = `
     </div>
     <div id="stage">
       <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+      <button id="inspectorToggle" class="fwd-inspbtn" type="button" title="Toggle inspector" aria-pressed="false"></button>
       <div id="zoombar">
         <button id="zoomOut" title="Zoom out">−</button>
         <span id="zoomLabel">100%</span>
@@ -141,6 +142,10 @@ let focusElementId: string | null = null;
 let focusApplied = false;
 /** Is the left Layers sidebar (DESIGN TREE) open? Defaults open, per the design. */
 let layersOpen = true;
+/** Is the right Inspector drawer open? Defaults closed — the inspector no longer
+ * auto-opens when an element is selected; the user reveals it via the top-right
+ * inspector toggle. */
+let inspectorOpen = false;
 /** Ids the user has hidden via the layer eye toggle — view-only, not persisted. */
 const hiddenIds = new Set<string>();
 
@@ -196,6 +201,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   layersCountEl = uiRoot.querySelector("#layersCount") as HTMLElement | null;
   // Reset view-only layer state on (re)mount so a reused container starts clean.
   layersOpen = true;
+  inspectorOpen = false;
   hiddenIds.clear();
 
   setBreadcrumb(opts.projectName ?? null);
@@ -206,6 +212,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   renderLayers(); // populate the (initially empty) DESIGN TREE before data loads
   wireZoomControls();
   wireSaveButton();
+  wireInspectorToggle();
   bindPointer();
   bindKeyboard();
   bindResize();
@@ -385,10 +392,17 @@ let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 function subscribeAll(): void {
   disposers.push(
     source.subscribe((snaps) => {
-      // Don't clobber an element the user is actively dragging.
-      const active = gesture && "id" in gesture ? gesture.id : null;
+      // Don't clobber an element the user is actively dragging. A frame move
+      // drags its whole subtree, so protect the descendants too — otherwise a
+      // mid-drag poll snaps the children back to their stored positions.
+      const active =
+        gesture && gesture.kind === "move"
+          ? new Set([gesture.id, ...descendants(gesture.id, elements.values())])
+          : gesture && "id" in gesture
+            ? new Set([gesture.id])
+            : null;
       for (const s of snaps) {
-        if (s.element.id === active) continue;
+        if (active?.has(s.element.id)) continue;
         elements.set(s.element.id, s.element);
         timelines.set(s.element.id, s.timeline);
       }
@@ -2169,13 +2183,27 @@ svg.addEventListener("pointerup", () => {
   }
 
   const el = elements.get(gesture.id);
+  const wasMove = gesture.kind === "move";
   guides = { v: [], h: [] };
   if (el) {
     // On drop, recompute nesting and persist.
+    const now = new Date().toISOString();
     const parentId = findParent(rectOf(el), el.id, elements.values());
-    const finalEl = { ...el, parentId, updatedAt: new Date().toISOString() };
+    const finalEl = { ...el, parentId, updatedAt: now };
     elements.set(el.id, finalEl);
     void source.saveElement(finalEl);
+    // A move drags the element's whole subtree along (see applyMove). Persist
+    // the shifted descendants too, or the next sync reverts them to their old
+    // stored positions and they appear to "fall out" of the moved frame.
+    if (wasMove) {
+      for (const cid of descendants(el.id, elements.values())) {
+        const child = elements.get(cid);
+        if (!child) continue;
+        const movedChild = { ...child, updatedAt: now };
+        elements.set(cid, movedChild);
+        void source.saveElement(movedChild);
+      }
+    }
   }
   if (gesture.kind === "create") setTool("select");
   gesture = null;
@@ -2644,6 +2672,31 @@ function placeInstance(): void {
 // ========================================================================
 // Properties + API panel
 // ========================================================================
+/** Wire the top-right inspector toggle: paint its icon and flip `inspectorOpen`
+ * on click. The inspector starts hidden and only this button reveals it. */
+function wireInspectorToggle(): void {
+  const btn = uiRoot.querySelector("#inspectorToggle") as HTMLButtonElement | null;
+  if (!btn) return;
+  btn.replaceChildren(inspectorIcon());
+  btn.addEventListener("click", toggleInspector);
+  syncInspectorToggle();
+}
+
+/** Toggle the right Inspector drawer open/closed and repaint it. */
+function toggleInspector(): void {
+  inspectorOpen = !inspectorOpen;
+  syncInspectorToggle();
+  renderSelectionPanel();
+}
+
+/** Reflect `inspectorOpen` on the top-right toggle button. */
+function syncInspectorToggle(): void {
+  const btn = uiRoot.querySelector("#inspectorToggle") as HTMLButtonElement | null;
+  if (!btn) return;
+  btn.classList.toggle("active", inspectorOpen);
+  btn.setAttribute("aria-pressed", String(inspectorOpen));
+}
+
 /** Show or hide the right drawer, collapsing its grid column when hidden so the
  * stage reclaims the space (an explicit grid track keeps `display:none` alone
  * from closing the gap). */
@@ -2670,9 +2723,11 @@ function renderSelectionPanel(): void {
     setPanelHidden(true);
     return;
   }
-  // Design mode: only show the inspector when an element is selected (drawing a
-  // new one selects it too); otherwise keep the drawer out of the way.
-  setPanelHidden(!selectedId);
+  // Design mode: the inspector is revealed only via the top-right toggle —
+  // selecting an element no longer auto-opens it. When closed, keep the drawer
+  // collapsed and skip the (now-pointless) render work.
+  setPanelHidden(!inspectorOpen);
+  if (!inspectorOpen) return;
   const el = selectedId ? elements.get(selectedId) : undefined;
   const tl = selectedId ? (timelines.get(selectedId) ?? []) : [];
   // Explicit "Save documentation" — only offered when the source records history.
@@ -2692,6 +2747,9 @@ function renderSelectionPanel(): void {
         elements.set(id, { ...current, apiBinding: binding, updatedAt: now() });
         void doc(id, binding, { version, changeLog, action });
         render();
+        // render() rebuilt the panel, wiping any inline button state — surface the
+        // confirmation toast afterwards so the save actually registers to the user.
+        notify("Documentation saved.");
       }
     : undefined;
   renderPanel(
@@ -2706,8 +2764,14 @@ function renderSelectionPanel(): void {
       elements.set(selectedId, updated);
       void source.saveElement(updated);
       render();
+      // "Remove documentation" clears the binding through this same patch path;
+      // confirm it after the re-render (live field edits keep a defined binding).
+      if ("apiBinding" in patch && patch.apiBinding === undefined) {
+        notify("Documentation removed.");
+      }
     },
     onDocument,
+    toggleInspector,
   );
 }
 
@@ -4230,6 +4294,10 @@ function rect(x: number, y: number, w: number, h: number, r = 2): SVGElement {
 // Layers: a stacked-diamond (sheets) glyph, matching the imported design.
 function layersIcon(): SVGElement {
   return lineIcon([path("M12 3l9 5-9 5-9-5z"), path("M3 13l9 5 9-5")]);
+}
+// Inspector: a panel frame with a right-hand drawer column, for the toggle.
+function inspectorIcon(): SVGElement {
+  return lineIcon([rect(3, 4, 18, 16, 2), line(15, 4, 15, 20)]);
 }
 // Eye (visible) / eye-with-slash (hidden), for the layer-row visibility toggle.
 function eyeIcon(): SVGElement {
