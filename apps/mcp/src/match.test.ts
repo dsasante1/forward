@@ -55,7 +55,7 @@ describe("rankElements", () => {
       el({
         id: "el_documented",
         name: "Login",
-        apiBinding: { title: "Login", description: "", parameters: [] },
+        apiBinding: { title: "Login", description: "" },
       }),
       el({ id: "el_fresh", name: "Login" }),
     ]);

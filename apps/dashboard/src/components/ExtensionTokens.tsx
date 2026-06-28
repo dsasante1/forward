@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
+import { AsyncStates } from "./AsyncStates.js";
 
 /** Selectable lifetimes. Every token expires — there is no never-expires option. */
 const DURATIONS: { label: string; days: number }[] = [
@@ -139,11 +140,12 @@ export function ExtensionTokens() {
       {error && <p className="error">{error}</p>}
 
       <h3 className="section-label">Your tokens</h3>
-      {tokens.loading && <p className="muted">Loading tokens…</p>}
-      {tokens.error && <p className="error">{tokens.error}</p>}
-      {tokens.data && tokens.data.length === 0 && (
-        <p className="muted small">No tokens yet.</p>
-      )}
+      <AsyncStates
+        state={tokens}
+        loadingText="Loading tokens…"
+        isEmpty={(t) => t.length === 0}
+        empty={<p className="muted small">No tokens yet.</p>}
+      />
       <ul className="list">
         {tokens.data?.map((t) => (
           <li key={t.id} className="list-row">

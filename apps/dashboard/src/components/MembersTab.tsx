@@ -3,6 +3,7 @@ import type { ProjectRole } from "forward-core";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
 import { useProject } from "../api/ProjectContext.js";
+import { Loading, RetryError } from "./AsyncStates.js";
 import { Avatar } from "./Avatar.js";
 import { personOf } from "./tasks-format.js";
 
@@ -135,6 +136,9 @@ export function MembersTab() {
       {error && <p className="error">{error}</p>}
 
       {/* Pending invitations */}
+      {invites.error && (
+        <RetryError message={invites.error} onRetry={invites.reload} />
+      )}
       {invites.data && invites.data.length > 0 && (
         <>
           <h3 className="section-label">Pending invitations</h3>
@@ -161,8 +165,10 @@ export function MembersTab() {
 
       {/* Members */}
       <h3 className="section-label">Members</h3>
-      {membersLoading && <p className="muted">Loading members…</p>}
-      {membersError && <p className="error">{membersError}</p>}
+      {membersLoading && !members && <Loading>Loading members…</Loading>}
+      {membersError && (
+        <RetryError message={membersError} onRetry={reloadMembers} />
+      )}
       <ul className="list">
         {members?.map((m) => {
           const isSelf = m.uid === myUid;

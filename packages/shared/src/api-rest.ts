@@ -632,7 +632,10 @@ export async function fetchTimelinesConditional(
   cfg: ApiConfig,
   _etag: string | undefined,
 ): Promise<{ etag: string | undefined; timelines: ProjectTimelines }> {
-  const raw = await get<Record<string, unknown[]>>(cfg, "/timeline");
+  // Per-element version histories live at `/timelines` (plural); the singular
+  // `/timeline` is the unified project feed (see fetchProjectTimeline). They must
+  // stay distinct — sharing a path collides the two server routes.
+  const raw = await get<Record<string, unknown[]>>(cfg, "/timelines");
   const timelines: ProjectTimelines = {};
   for (const [elementId, list] of Object.entries(raw ?? {})) {
     const entries = parseAll(list ?? [], VersionEntry);

@@ -1,6 +1,5 @@
 import * as vscode from "vscode";
 import {
-  HttpMethod,
   InfraFlow,
   InfraFlowStep,
   InfraKind,
@@ -8,36 +7,49 @@ import {
   applyTaskChange,
   newTask,
   type ApiBinding,
+  type CheckpointInput,
+  type DesignElement,
+  type Entity,
+  type EntityRelation,
   type InfraEdge,
   type InfraNode,
   type InfraStepKind,
   type Task,
 } from "forward-core";
 import {
+  addMember,
   bindApiToElement,
+  createCheckpoint,
+  deleteCheckpoint,
+  deleteElement,
+  deleteEntity,
+  deleteEntityRelation,
   deleteInfraFlow,
   deleteInfraNode,
+  deleteTask,
+  fetchCheckpoints,
   fetchElements,
-  fetchElementsConditional,
+  fetchEntities,
   fetchFlows,
   fetchInfra,
-  fetchInfraConditional,
+  fetchProjectTimeline,
   fetchTasks,
   fetchTimelinesConditional,
   listElements,
   listProjects,
+  restoreCheckpoint,
+  saveElement,
+  saveEntity,
+  saveEntityRelation,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
   saveTask,
   unbindApiFromElement,
   type ApiConfig,
-  type InfraPollState,
 } from "./firebase.js";
 
-const NO_METHOD = "— none (not an HTTP endpoint) —";
-const POLL_MS = 1000; // base cadence while the canvas is visible
-const POLL_MAX_MS = 30000; // backoff ceiling after repeated failures
+const POLL_MS = 1000; // cadence each subscribed channel polls while visible
 
 /** Key under which the Personal Access Token is held in VS Code SecretStorage. */
 const PAT_SECRET_KEY = "forward.apiToken";
@@ -282,7 +294,7 @@ async function saveDocumentation(
   const newline = trimmed.indexOf("\n");
   const title = (newline === -1 ? trimmed : trimmed.slice(0, newline)).trim();
   const description = newline === -1 ? "" : trimmed.slice(newline + 1).trim();
-  const binding: ApiBinding = { title, description, parameters: [] };
+  const binding: ApiBinding = { title, description };
 
   let existed = false;
   try {
@@ -381,51 +393,10 @@ async function gatherDocumentation(
   });
   if (description === undefined) return undefined;
 
-  const language = await vscode.window.showInputBox({
-    prompt: "Language / framework (optional)",
-    placeHolder: "e.g. Python/FastAPI, Go, Node/Express, GraphQL",
-    value: existing?.language ?? "",
-  });
-  if (language === undefined) return undefined;
-
-  // Optional HTTP hints. Picking "none" documents a non-HTTP API. The current
-  // method (when editing) is floated to the top so it's the obvious default.
-  const methodOptions = existing?.method
-    ? [existing.method, ...HttpMethod.options.filter((m) => m !== existing.method), NO_METHOD]
-    : [...HttpMethod.options, NO_METHOD];
-  const methodPick = await vscode.window.showQuickPick(methodOptions, {
-    placeHolder: "HTTP method (optional)",
-  });
-  if (methodPick === undefined) return undefined;
-  const isHttp = methodPick !== NO_METHOD;
-
-  let endpoint: string | undefined;
-  if (isHttp) {
-    endpoint = await vscode.window.showInputBox({
-      prompt: "Endpoint / path (optional)",
-      placeHolder: "/api/v1/users/:id",
-      value: existing?.endpoint ?? "",
-    });
-    if (endpoint === undefined) return undefined;
-  }
-
   return {
     title: title.trim(),
     description,
-    ...(language.trim() ? { language: language.trim() } : {}),
-    ...(isHttp ? { method: HttpMethod.parse(methodPick) } : {}),
-    ...(endpoint?.trim() ? { endpoint: endpoint.trim() } : {}),
-    parameters: endpoint ? pathParams(endpoint) : [],
   };
-}
-
-/** Extract `:param` style path params, e.g. /users/:id -> ["id"]. */
-function pathParams(endpoint: string): string[] {
-  const out: string[] = [];
-  for (const m of endpoint.matchAll(/:([A-Za-z0-9_]+)/g)) {
-    if (m[1]) out.push(m[1]);
-  }
-  return out;
 }
 
 // ==========================================================================
@@ -979,11 +950,23 @@ async function safeListElements(
   }
 }
 
+/** The messages the canvas webview's bridge posts to the host. */
+interface BridgeMessage {
+  kind?: "sub" | "unsub" | "rpc";
+  channel?: string;
+  method?: string;
+  id?: number;
+  args?: unknown[];
+}
+
 /**
- * Open a read-only webview that renders the design and overlays a doc pin on
- * every element with an apiBinding. The host (not the webview) polls the Forward
- * server and posts elements in, so the access token never leaves the extension
- * process and the webview CSP can forbid all network access.
+ * Open the design canvas in a webview. Rather than a bespoke viewer, this mounts
+ * the real `forward-canvas` editor — identical toolbar and full authoring
+ * (Layers / Data / UML / Tasks / Infra / checkpoints) to the dashboard's canvas —
+ * and drives it through a postMessage bridge. The webview's CanvasSource forwards
+ * every subscription and mutation here; the host answers them against the Forward
+ * server. The access token never leaves the extension process (the webview makes
+ * no network calls of its own) and the CSP forbids remote connections.
  */
 async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
   const cfg = await readConfig();
@@ -999,144 +982,188 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
   const scriptUri = panel.webview.asWebviewUri(
     vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"),
   );
-  panel.webview.html = canvasHtml(panel.webview, scriptUri);
+  // The breadcrumb wants the project's display name; fall back silently to the id.
+  let projectName: string | null = null;
+  try {
+    projectName =
+      (await listProjects(cfg.baseUrl, cfg.token)).find((p) => p.id === cfg.projectId)
+        ?.name ?? null;
+  } catch {
+    /* offline / unreachable — the canvas still mounts with the id */
+  }
+  panel.webview.html = canvasHtml(panel.webview, scriptUri, cfg.projectId, projectName);
 
-  // Poll the server and push snapshots to the webview. The design layer and the
-  // infrastructure layer are tracked independently so a change to one doesn't
-  // force a redraw of the other. The conditional pollers keep the ETag signature
-  // for compatibility but the backend has no 304 path yet, so they always return
-  // fresh data; the webview only redraws when the snapshot actually differs.
-  let elementsEtag: string | undefined;
-  let infra: InfraPollState = { nodes: [], edges: [], flows: [] };
-  let timelinesEtag: string | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
-  let backoff = POLL_MS; // grows on consecutive failures, resets on success
 
-  const poll = async () => {
-    let ok = true;
-    try {
-      const next = await fetchElementsConditional(cfg, elementsEtag);
-      if (next) {
-        elementsEtag = next.etag;
-        void panel.webview.postMessage({
-          type: "elements",
-          elements: next.elements,
-          projectId: cfg.projectId,
-        });
-      }
-    } catch (err) {
-      ok = false;
-      console.warn("[canvas] poll failed:", err);
-    }
-    try {
-      const next = await fetchInfraConditional(cfg, infra);
-      infra = next;
-      if (next.changed) {
-        void panel.webview.postMessage({
-          type: "infra",
-          nodes: next.nodes,
-          edges: next.edges,
-          flows: next.flows,
-        });
-      }
-    } catch (err) {
-      ok = false;
-      console.warn("[canvas] infra poll failed:", err);
-    }
-    try {
-      const next = await fetchTimelinesConditional(cfg, timelinesEtag);
-      if (next) {
-        timelinesEtag = next.etag;
-        void panel.webview.postMessage({
-          type: "timeline",
-          timelines: next.timelines,
-        });
-      }
-    } catch (err) {
-      ok = false;
-      console.warn("[canvas] timeline poll failed:", err);
-    }
-    // Reset to the base cadence on success; back off (capped) on failure so an
-    // unreachable database isn't hammered every second.
-    backoff = ok ? POLL_MS : Math.min(backoff * 2, POLL_MAX_MS);
+  // --- read side: one poller per subscribed channel ----------------------
+  // The canvas subscribes to each data channel once; we poll the server and post
+  // a `snap` only when that channel's snapshot actually changed (mirroring
+  // ServerSource), so an in-progress edit isn't clobbered. Polling pauses while
+  // the tab is hidden and resumes when it returns.
+  type Channel =
+    | "elements"
+    | "infra"
+    | "entities"
+    | "tasks"
+    | "checkpoints"
+    | "timeline";
+
+  const fetchers: Record<Channel, () => Promise<unknown>> = {
+    elements: async () => {
+      const [elements, { timelines }] = await Promise.all([
+        fetchElements(cfg),
+        fetchTimelinesConditional(cfg, undefined),
+      ]);
+      return elements.map((element) => ({
+        element,
+        timeline: timelines[element.id] ?? [],
+      }));
+    },
+    infra: async () => {
+      const [{ nodes, edges }, flows] = await Promise.all([
+        fetchInfra(cfg),
+        fetchFlows(cfg),
+      ]);
+      return { nodes, edges, flows };
+    },
+    entities: () => fetchEntities(cfg),
+    tasks: () => fetchTasks(cfg),
+    checkpoints: () => fetchCheckpoints(cfg),
+    timeline: () => fetchProjectTimeline(cfg),
   };
 
-  // Self-scheduling loop (instead of a fixed setInterval) so it can honour the
-  // backoff and stop cleanly while the panel is hidden.
-  const loop = async () => {
+  interface Poller {
+    timer?: ReturnType<typeof setTimeout>;
+    lastJson: string;
+  }
+  const pollers = new Map<Channel, Poller>();
+
+  const pollChannel = async (channel: Channel): Promise<void> => {
+    const poller = pollers.get(channel);
+    if (!poller || disposed) return;
+    poller.timer = undefined; // mark idle so a resume can re-arm it
+    try {
+      const data = await fetchers[channel]();
+      const json = JSON.stringify(data);
+      if (json !== poller.lastJson) {
+        poller.lastJson = json;
+        void panel.webview.postMessage({ kind: "snap", channel, data });
+      }
+    } catch (err) {
+      console.warn(`[canvas] ${channel} poll failed:`, err);
+    }
     if (disposed || !panel.visible) return;
-    await poll();
-    if (disposed || !panel.visible) return;
-    timer = setTimeout(() => void loop(), backoff);
+    poller.timer = setTimeout(() => void pollChannel(channel), POLL_MS);
   };
 
-  const refresh = () => {
-    elementsEtag = undefined; // drop ETags so the next poll re-emits every layer
-    timelinesEtag = undefined;
-    infra = { nodes: [], edges: [], flows: [] };
-    if (timer) clearTimeout(timer);
-    void loop();
+  const startChannel = (channel: Channel): void => {
+    if (pollers.has(channel)) return;
+    pollers.set(channel, { lastJson: "" });
+    void pollChannel(channel);
+  };
+  const stopChannel = (channel: Channel): void => {
+    const poller = pollers.get(channel);
+    if (poller?.timer) clearTimeout(poller.timer);
+    pollers.delete(channel);
   };
 
-  // Pause polling entirely when the canvas tab is in the background (the webview
-  // keeps its DOM via retainContextWhenHidden); resume with a fresh frame when
-  // it comes back into view.
-  panel.onDidChangeViewState(() => {
-    if (disposed) return;
-    if (panel.visible) {
-      if (timer) clearTimeout(timer);
-      void loop();
-    } else if (timer) {
-      clearTimeout(timer);
+  // --- write side: dispatch a bridge RPC to the matching server call ------
+  const rpcHandlers: Record<string, (args: unknown[]) => Promise<unknown>> = {
+    saveElement: ([el]) => saveElement(cfg, el as DesignElement),
+    documentElement: ([id, binding, version]) =>
+      bindApiToElement(cfg, id as string, binding as ApiBinding, {
+        ...(version as { version: string; changeLog: string; action: "created" | "modified" }),
+        author: process.env.USER ?? "unknown",
+      }),
+    deleteElement: ([id]) => deleteElement(cfg, id as string),
+    saveInfraNode: ([n]) => saveInfraNode(cfg, n as InfraNode),
+    deleteInfraNode: ([id]) => deleteInfraNode(cfg, id as string),
+    saveInfraEdge: ([e]) => saveInfraEdge(cfg, e as InfraEdge),
+    saveInfraFlow: ([f]) => saveInfraFlow(cfg, f as InfraFlow),
+    deleteInfraFlow: ([id]) => deleteInfraFlow(cfg, id as string),
+    saveEntity: ([e]) => saveEntity(cfg, e as Entity),
+    deleteEntity: ([id]) => deleteEntity(cfg, id as string),
+    saveEntityRelation: ([r]) => saveEntityRelation(cfg, r as EntityRelation),
+    deleteEntityRelation: ([id]) => deleteEntityRelation(cfg, id as string),
+    saveTask: ([t]) => saveTask(cfg, t as Task),
+    deleteTask: ([id]) => deleteTask(cfg, id as string),
+    createCheckpoint: ([input]) => createCheckpoint(cfg, input as CheckpointInput),
+    restoreCheckpoint: ([id]) => restoreCheckpoint(cfg, id as string),
+    deleteCheckpoint: ([id]) => deleteCheckpoint(cfg, id as string),
+    addMember: ([uid]) => addMember(cfg, uid as string),
+  };
+
+  panel.webview.onDidReceiveMessage(async (msg: BridgeMessage) => {
+    if (msg?.kind === "sub" && msg.channel) {
+      startChannel(msg.channel as Channel);
+      return;
+    }
+    if (msg?.kind === "unsub" && msg.channel) {
+      stopChannel(msg.channel as Channel);
+      return;
+    }
+    if (msg?.kind !== "rpc" || typeof msg.id !== "number" || !msg.method) return;
+    const handler = rpcHandlers[msg.method];
+    if (!handler) {
+      void panel.webview.postMessage({
+        kind: "rpc-result",
+        id: msg.id,
+        ok: false,
+        error: `Unknown method "${msg.method}".`,
+      });
+      return;
+    }
+    try {
+      const value = await handler(msg.args ?? []);
+      void panel.webview.postMessage({ kind: "rpc-result", id: msg.id, ok: true, value });
+    } catch (err) {
+      void panel.webview.postMessage({
+        kind: "rpc-result",
+        id: msg.id,
+        ok: false,
+        error: (err as Error).message,
+      });
     }
   });
 
-  // The webview asks for the first frame once its script is live; it also
-  // forwards the save/delete actions the user triggers on the canvas. The
-  // developer fills in the documentation inline on the canvas (no prompt flow),
-  // so the canvas posts the whole binding back here in one "save" message.
-  panel.webview.onDidReceiveMessage(
-    async (msg: {
-      type?: string;
-      id?: string;
-      title?: string;
-      text?: string;
-    }) => {
-      switch (msg?.type) {
-        case "ready":
-          refresh();
-          return;
-        case "save":
-          if (!msg.id || msg.text == null) return;
-          await saveDocumentation(cfg, msg.id, msg.text);
-          refresh();
-          return;
-        case "delete":
-          if (!msg.id) return;
-          await removeDocumentation(cfg, msg.id, msg.title);
-          refresh();
-          return;
-      }
-    },
-  );
+  // Resume the active channels' polling when the tab returns to the foreground
+  // (it pauses itself while hidden, since pollChannel bails on !panel.visible).
+  panel.onDidChangeViewState(() => {
+    if (disposed || !panel.visible) return;
+    for (const [channel, poller] of pollers) {
+      if (!poller.timer) void pollChannel(channel);
+    }
+  });
 
-  // The "ready" message kicks off the first poll via refresh(); nothing to do
-  // here but make sure the loop tears down with the panel.
   panel.onDidDispose(() => {
     disposed = true;
-    if (timer) clearTimeout(timer);
+    for (const channel of [...pollers.keys()]) stopChannel(channel);
   });
 }
 
-function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
+/**
+ * The webview shell: a full-bleed mount point plus the bundled canvas script.
+ * The project id/name are injected as a global so the editor mounts immediately
+ * without an extra round-trip. The CSP allows the canvas's inline Shadow-DOM
+ * styles and Mermaid's `eval`, but no remote origins — all I/O is bridged.
+ */
+function canvasHtml(
+  webview: vscode.Webview,
+  scriptUri: vscode.Uri,
+  projectId: string,
+  projectName: string | null,
+): string {
   const nonce = Array.from({ length: 24 }, () =>
     Math.floor(Math.random() * 36).toString(36),
   ).join("");
   const csp =
     `default-src 'none'; ` +
+    `img-src ${webview.cspSource} data: blob:; ` +
+    `font-src ${webview.cspSource} data:; ` +
     `style-src ${webview.cspSource} 'unsafe-inline'; ` +
-    `script-src 'nonce-${nonce}';`;
+    `script-src 'nonce-${nonce}' 'unsafe-eval';`;
+  // Escape `<` so the JSON can't break out of the inline <script>.
+  const config = JSON.stringify({ projectId, projectName }).replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1145,304 +1172,13 @@ function canvasHtml(webview: vscode.Webview, scriptUri: vscode.Uri): string {
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <style>
-  body {
-    margin: 0; padding: 0; font-family: var(--vscode-font-family); color: var(--vscode-foreground);
-    background-color: var(--vscode-editor-background);
-    background-image:
-      linear-gradient(to right, rgba(127,127,127,0.12) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(127,127,127,0.12) 1px, transparent 1px);
-    background-size: 40px 40px;
-    /* Grid scrolls with the canvas. Avoid background-attachment: fixed, which
-       forces a full-viewport repaint on every pan/scroll frame. */
-  }
-  .empty { opacity: 0.6; padding: 16px; }
-  .toolbar {
-    position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 6px;
-    padding: 6px 12px; background: var(--vscode-editor-background);
-    border-bottom: 1px solid var(--vscode-panel-border);
-  }
-  .toolbar button {
-    min-width: 26px; padding: 2px 8px; cursor: pointer; border: none; border-radius: 4px;
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  }
-  .toolbar button:hover { filter: brightness(1.15); }
-  .toolbar button.active {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-  }
-  .toolbar #zoomLabel { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
-  .toolbar .hint { margin-left: auto; opacity: 0.55; font-size: 11px; }
-  #app { position: relative; padding: 16px; cursor: grab; }
-  body.panning, body.panning #app { cursor: grabbing; user-select: none; }
-  .world { position: relative; }
-  .el { position: absolute; box-sizing: border-box; border: 1px solid var(--vscode-panel-border); overflow: visible; }
-  .el-frame { background: rgba(127,127,127,0.06); }
-  .el-text { border: none; }
-  .el .el-text { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 12px; }
-  .el .el-name { position: absolute; left: 0; bottom: 100%; margin-bottom: 4px; font-size: 10px; opacity: 0.7; white-space: nowrap; pointer-events: none; }
-  /* documented elements: subtle accent cue, full leader callout on hover */
-  .el.documented { cursor: pointer; }
-  .el.documented:hover { border-color: var(--vscode-charts-blue, #5b8cff); }
-  .doc-leader-layer {
-    position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-    z-index: 8; overflow: visible; pointer-events: none;
-  }
-  .doc-leader { pointer-events: auto; cursor: pointer; }
-  .doc-leader-line { fill: none; stroke: var(--vscode-charts-blue, #5b8cff); stroke-width: 1.5; }
-  .doc-leader-dot { fill: var(--vscode-charts-blue, #5b8cff); }
-  .doc-leader-bg {
-    fill: var(--vscode-editorWidget-background, #14171f);
-    stroke: var(--vscode-charts-blue, #5b8cff); stroke-width: 1;
-  }
-  .doc-leader-label { fill: var(--vscode-foreground); font-size: 12px; font-weight: 700; pointer-events: none; }
-  .doc-leader-sub { fill: var(--vscode-descriptionForeground); font-size: 10px; pointer-events: none; }
-  .addbtn {
-    position: absolute; top: -10px; right: -10px; z-index: 4; opacity: 0;
-    font-size: 10px; line-height: 1; padding: 2px 6px; border-radius: 9px; cursor: pointer;
-    border: 1px dashed var(--vscode-panel-border); background: var(--vscode-editor-background);
-    color: var(--vscode-foreground); transition: opacity 0.1s;
-  }
-  .el:hover > .addbtn { opacity: 0.85; }
-  .addbtn:hover { opacity: 1; }
-  .doccard {
-    position: absolute; top: 18px; right: 0; z-index: 10; cursor: default;
-    width: 260px; overflow: visible; text-align: left;
-    padding: 10px 12px; border-radius: 6px;
-    background: var(--vscode-editorWidget-background, #252526);
-    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-    font-weight: 400; letter-spacing: normal;
-  }
-  .doccard .cardhead { display: flex; align-items: flex-start; gap: 6px; }
-  .doccard h4 { flex: 1; margin: 0 0 6px; font-size: 13px; }
-  .doccard .tag { display: inline-block; font-size: 11px; color: var(--vscode-descriptionForeground); margin-bottom: 4px; }
-  .doccard .route { font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; margin-bottom: 6px; }
-  .doccard .params { font-size: 11px; color: var(--vscode-descriptionForeground); margin-bottom: 6px; }
-  .doccard .doc { font-size: 12px; line-height: 1.45; max-height: 220px; overflow: auto; }
-  .doccard code { font-family: var(--vscode-editor-font-family, monospace); background: rgba(127,127,127,0.2); padding: 0 3px; border-radius: 3px; }
-  /* kebab (⋮) menu */
-  .doccard .kebabwrap { position: relative; flex: none; }
-  .doccard .kebab {
-    border: none; background: transparent; cursor: pointer; padding: 0 4px;
-    font-size: 16px; line-height: 1; border-radius: 4px;
-    color: var(--vscode-foreground);
-  }
-  .doccard .kebab:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,0.2)); }
-  .doccard .menu {
-    position: absolute; top: 24px; right: 0; z-index: 20; min-width: 120px;
-    display: flex; flex-direction: column; padding: 4px; border-radius: 6px;
-    background: var(--vscode-menu-background, var(--vscode-editorWidget-background, #252526));
-    color: var(--vscode-menu-foreground, var(--vscode-foreground));
-    border: 1px solid var(--vscode-menu-border, var(--vscode-editorWidget-border, var(--vscode-panel-border)));
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  }
-  .doccard .menuitem {
-    text-align: left; padding: 5px 10px; cursor: pointer; border: none; border-radius: 4px;
-    background: transparent; color: inherit;
-  }
-  .doccard .menuitem:hover {
-    background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
-    color: var(--vscode-menu-selectionForeground, inherit);
-  }
-  .doccard .menuitem.danger:hover { background: var(--vscode-errorForeground, #c33); color: #fff; }
-  /* --- inline documentation form: one free-form text box, no prompts --- */
-  .docform { width: 300px; }
-  .docform-input {
-    box-sizing: border-box; width: 100%; padding: 6px 8px; font-size: 12px;
-    border-radius: 4px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-  }
-  .docform-input:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
-  .docform-input.invalid { border-color: var(--vscode-errorForeground, #c33); }
-  .docform-text {
-    resize: vertical; min-height: 160px; line-height: 1.45;
-    font-family: var(--vscode-editor-font-family, monospace);
-  }
-  .docform-error {
-    min-height: 14px; margin: 6px 0; font-size: 11px;
-    color: var(--vscode-errorForeground, #c33);
-  }
-  .docform-actions { display: flex; justify-content: flex-end; gap: 6px; }
-  .docform-actions button {
-    padding: 4px 14px; font-size: 12px; cursor: pointer; border: none; border-radius: 4px;
-  }
-  .docform-save { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-  .docform-save:hover { filter: brightness(1.1); }
-  .docform-cancel {
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  }
-  .docform-cancel:hover { filter: brightness(1.15); }
-  /* --- infrastructure overlay --- */
-  #infra { position: absolute; left: 0; top: 0; pointer-events: none; }
-  #infraEdges { position: absolute; left: 0; top: 0; overflow: visible; }
-  #infraEdges line { stroke: var(--vscode-charts-blue, #5b8cff); stroke-width: 1.5; }
-  #infraEdges .edgelabel { fill: var(--vscode-descriptionForeground); font-size: 10px; }
-  .infranode {
-    position: absolute; box-sizing: border-box; pointer-events: auto;
-    padding: 8px 10px; border-radius: 8px; cursor: default; overflow: hidden;
-    border: 1px solid var(--vscode-panel-border);
-    background: var(--vscode-editorWidget-background, #252526);
-    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-  }
-  .infranode .ikind {
-    font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px;
-    color: var(--vscode-descriptionForeground);
-  }
-  .infranode .ilabel { font-size: 13px; font-weight: 600; margin-top: 2px; }
-  .infranode .itech { font-size: 11px; color: var(--vscode-descriptionForeground); }
-  /* a left accent bar tints the node by kind */
-  .infranode { border-left-width: 4px; border-left-style: solid; }
-  .infranode.k-frontend { border-left-color: #5b8cff; }
-  .infranode.k-backend  { border-left-color: #36c275; }
-  .infranode.k-database { border-left-color: #c9a227; }
-  .infranode.k-cache    { border-left-color: #d1603d; }
-  .infranode.k-queue    { border-left-color: #b06ad6; }
-  .infranode.k-service  { border-left-color: #3db6c9; }
-  .infranode.k-devops   { border-left-color: #e0507a; }
-  .infranode.k-external { border-left-color: #8a93a3; }
-  .infranode.k-group {
-    border-style: dashed; border-left-style: dashed; background: rgba(127,127,127,0.05);
-  }
-  /* a selected flow dims the nodes/edges it doesn't touch and lights the rest */
-  .infranode.flow-dim { opacity: .25; }
-  .infranode.flow-active { box-shadow: 0 0 0 2px #ffb020, 0 2px 6px rgba(0,0,0,0.3); }
-  #infraEdges line.flow-edge-dim { opacity: .12; }
-  #infraEdges line.flow-arrow { stroke: #ffb020; stroke-width: 2; }
-  #infraEdges line.flow-arrow-async { stroke-dasharray: 6 4; }
-  #infraEdges line.flow-arrow-reply { stroke: #36c275; }
-  #infraEdges polygon.flow-arrowhead { fill: #ffb020; }
-  #infraEdges polygon.flow-arrowhead-reply { fill: #36c275; }
-  #infraEdges circle.flow-step-num-bg { fill: var(--vscode-editor-background, #0f1115); stroke: #ffb020; stroke-width: 1.5; }
-  #infraEdges text.flow-step-num { fill: #ffb020; font-size: 11px; font-weight: 700; text-anchor: middle; }
-  #infraEdges text.flow-step-label { fill: var(--vscode-foreground); font-size: 11px; }
-  /* --- infrastructure flow panel (overlay, top-left) --- */
-  #flowbar {
-    position: fixed; top: 42px; left: 12px; width: 300px; z-index: 55;
-    max-height: calc(100% - 60px); overflow: auto; padding: 12px 14px; border-radius: 8px;
-    background: var(--vscode-editorWidget-background, #252526);
-    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  }
-  #flowbar[hidden] { display: none; }
-  #flowbar h3 {
-    margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
-    color: var(--vscode-descriptionForeground);
-  }
-  #flowbar select {
-    width: 100%; padding: 4px 6px; border-radius: 4px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-  }
-  .flow-desc { font-size: 12px; opacity: .85; margin: 10px 0 6px; }
-  .flow-steps { list-style: none; padding: 0; margin: 8px 0; }
-  .flow-steps li {
-    display: flex; gap: 9px; padding: 7px 0; font-size: 12px;
-    border-top: 1px solid var(--vscode-panel-border);
-  }
-  .flow-steps li:first-child { border-top: none; }
-  .flow-step-n {
-    flex: none; width: 18px; height: 18px; border-radius: 50%;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 10px; font-weight: 700; color: #0f1115; background: #ffb020;
-  }
-  .flow-step-route { font-weight: 600; }
-  .flow-step-route .flow-arrow-tok { opacity: .6; margin: 0 4px; }
-  .flow-step-text { opacity: .85; }
-  .flow-step-endpoint {
-    display: inline-block; margin-top: 3px; font-size: 11px;
-    color: var(--vscode-textLink-foreground, #5b8cff); cursor: pointer;
-  }
-  .flow-step-endpoint:hover { text-decoration: underline; }
-  .flow-actions { display: flex; gap: 8px; margin-top: 6px; }
-  .flow-btn {
-    font: inherit; font-size: 11px; cursor: pointer; padding: 5px 10px; border-radius: 4px;
-    border: 1px solid var(--vscode-button-border, transparent);
-    background: var(--vscode-button-secondaryBackground, rgba(127,127,127,0.2));
-    color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  }
-  .flow-btn:hover { filter: brightness(1.15); }
-  /* --- endpoint timeline panel (git-graph + catch-up digest) --- */
-  #timeline {
-    position: fixed; top: 42px; right: 12px; bottom: 12px; width: 380px; z-index: 60;
-    overflow: auto; padding: 12px 14px; border-radius: 8px;
-    background: var(--vscode-editorWidget-background, #252526);
-    color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
-    border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
-    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-  }
-  #timeline[hidden] { display: none; }
-  #timeline h3 {
-    margin: 16px 0 6px; font-size: 11px; text-transform: uppercase;
-    color: var(--vscode-descriptionForeground);
-  }
-  .tl-head { display: flex; align-items: center; justify-content: space-between; }
-  .tl-head h2 { margin: 0; font-size: 14px; }
-  .tl-close {
-    border: none; background: transparent; cursor: pointer; padding: 2px 6px;
-    border-radius: 4px; font-size: 13px; color: var(--vscode-foreground);
-  }
-  .tl-close:hover { background: var(--vscode-toolbar-hoverBackground, rgba(127,127,127,0.2)); }
-  .tl-since { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
-  .tl-since label { color: var(--vscode-descriptionForeground); }
-  .tl-since select {
-    flex: 1; padding: 3px 6px; border-radius: 4px;
-    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
-    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
-  }
-  .tl-group-title {
-    display: flex; gap: 8px; align-items: center;
-    font-size: 12px; font-weight: 600; margin: 10px 0 2px;
-  }
-  .tl-count {
-    font-size: 10px; padding: 1px 7px; border-radius: 99px;
-    background: var(--vscode-badge-background); color: var(--vscode-badge-foreground);
-  }
-  .tl-item {
-    display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap;
-    padding: 4px 6px; border-radius: 4px; cursor: pointer;
-  }
-  .tl-item:hover { background: var(--vscode-list-hoverBackground); }
-  .tl-method { font-size: 10px; font-weight: 700; color: var(--vscode-charts-blue, #5b8cff); }
-  .tl-title { font-size: 12px; font-weight: 600; }
-  .tl-path { font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; opacity: .75; }
-  .tl-graph { display: flex; flex-direction: column; }
-  .tl-row { display: flex; gap: 10px; cursor: pointer; border-radius: 4px; padding: 0 4px; }
-  .tl-row:hover { background: var(--vscode-list-hoverBackground); }
-  .tl-rail { flex: none; display: block; }
-  .tl-rail line { stroke: var(--vscode-panel-border, #3a4250); stroke-width: 2; }
-  .tl-node-created { fill: var(--vscode-charts-green, #36c275); }
-  .tl-node-modified { fill: var(--vscode-charts-blue, #5b8cff); }
-  .tl-node-deleted { fill: var(--vscode-charts-red, #e0507a); }
-  .tl-info { min-width: 0; padding: 5px 0; }
-  .tl-info > div > * + * { margin-left: 6px; }
-  .tl-action { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
-  .tl-action-created { color: var(--vscode-charts-green, #36c275); }
-  .tl-action-modified { color: var(--vscode-charts-blue, #5b8cff); }
-  .tl-action-deleted { color: var(--vscode-charts-red, #e0507a); }
-  .tl-log { font-size: 11px; opacity: .85; }
-  .tl-meta { font-size: 10px; color: var(--vscode-descriptionForeground); }
-  .tl-empty { color: var(--vscode-descriptionForeground); }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  #app { position: fixed; inset: 0; }
 </style>
 </head>
 <body>
-<div class="toolbar">
-  <button id="zoomOut" title="Zoom out">−</button>
-  <span id="zoomLabel">100%</span>
-  <button id="zoomIn" title="Zoom in">+</button>
-  <button id="zoomFit" title="Fit to width">Fit</button>
-  <button id="toggleDocs" title="Show/hide API documentation" aria-pressed="true">Docs</button>
-  <button id="toggleInfra" title="Show/hide infrastructure diagram" aria-pressed="false">Infra</button>
-  <button id="toggleTimeline" title="Show/hide the endpoint timeline" aria-pressed="false">Timeline</button>
-  <span class="hint">Ctrl/⌘ + scroll to zoom</span>
-</div>
 <div id="app"></div>
-<div id="flowbar" hidden></div>
-<div id="timeline" hidden></div>
+<script nonce="${nonce}">window.__FORWARD_CONFIG__ = ${config};</script>
 <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

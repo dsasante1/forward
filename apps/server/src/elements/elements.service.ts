@@ -184,19 +184,13 @@ export class ElementsService {
         author: actor,
         action: version.action,
         changeLog: version.changeLog,
-        endpoint: {
-          title: clean.title,
-          ...(clean.method ? { method: clean.method } : {}),
-          ...(clean.endpoint ? { path: clean.endpoint } : {}),
-        },
+        endpoint: { title: clean.title },
       });
       await this.timeline.record(tx, projectId, actor, {
         domain: "api",
         action: version.action,
         targetId: id,
-        title: clean.method
-          ? `${clean.method} ${clean.endpoint ?? clean.title}`
-          : clean.title,
+        title: clean.title,
         detail:
           version.changeLog ||
           `${version.action === "created" ? "Documented" : "Updated"} ${clean.title}`,

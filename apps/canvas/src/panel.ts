@@ -5,7 +5,6 @@ import {
   type EntityField,
   EntityKey,
   type EntityRelation,
-  HttpMethod,
   InfraKind,
   type InfraNode,
   RelationCardinality,
@@ -27,6 +26,12 @@ export function renderPanel(
   el: DesignElement | undefined,
   timeline: VersionEntry[],
   onChange: (patch: Patch) => void,
+  /**
+   * Explicit "Save documentation" action — commits the current binding as a new
+   * version-history entry (vs `onChange`, which only live-syncs the binding).
+   * When omitted (source has no history), the button is hidden.
+   */
+  onDocument?: (binding: ApiBinding) => void,
 ): void {
   root.replaceChildren();
   if (!el) {
@@ -114,15 +119,15 @@ export function renderPanel(
       ]),
     );
   }
-  root.append(styleSec);
-
   // --- Corner radius (Linked toggle + all-corners + per-corner grid) ---
-  root.append(radiusSection(style, onChange));
+  //     Part of Style, so it lives inside the Style section and collapses with it.
+  styleSec.append(radiusSection(style, onChange));
+  root.append(styleSec);
 
   // --- API documentation (authored here in the canvas OR from VS Code; both
   //     write to the same apiBinding sub-tree, so either side can edit) ---
   const docs = section("API documentation");
-  renderApiDocs(docs, el, onChange);
+  renderApiDocs(docs, el, onChange, onDocument);
   root.append(docs);
 
   // --- version history ---
@@ -530,6 +535,7 @@ function renderApiDocs(
   root: HTMLElement,
   el: DesignElement,
   onChange: (patch: Patch) => void,
+  onDocument?: (binding: ApiBinding) => void,
 ): void {
   const b = el.apiBinding;
 
@@ -543,7 +549,7 @@ function renderApiDocs(
     add.append(plus, label);
     add.addEventListener("click", () =>
       onChange({
-        apiBinding: { title: el.name || el.id, description: "", parameters: [] },
+        apiBinding: { title: el.name || el.id, description: "" },
       }),
     );
     const hint = h(
@@ -560,51 +566,45 @@ function renderApiDocs(
     onChange({ apiBinding: { ...b, ...patch } });
 
   // Docs-first: the title + free-form Markdown body carry the meaning, and work
-  // for any kind of binding (REST, GraphQL, gRPC, CLI, a background job…).
-  root.append(textRow("Title", b.title, (v) => set({ title: v })));
-  root.append(
-    textareaRow(
-      "Docs",
-      b.description,
-      (v) => set({ description: v }),
-      8,
-      "Free-form Markdown — describe the endpoint, behaviour, examples…",
-    ),
-  );
+  // for any kind of binding (REST, GraphQL, gRPC, CLI, a background job…). We keep
+  // references to the live inputs so the "Save documentation" button can read the
+  // current text directly — even text the user hasn't blurred out of yet.
+  const titleInput = textInput(b.title, (v) => set({ title: v }));
+  root.append(row("Title", titleInput));
+  const docsInput = document.createElement("textarea");
+  docsInput.rows = 8;
+  docsInput.value = b.description;
+  docsInput.placeholder =
+    "Free-form Markdown — describe the endpoint, behaviour, examples…";
+  docsInput.addEventListener("change", () => set({ description: docsInput.value }));
+  const docsDiv = document.createElement("div");
+  docsDiv.className = "row row-stack";
+  const docsLabel = document.createElement("label");
+  docsLabel.textContent = "Docs";
+  docsDiv.append(docsLabel, docsInput);
+  root.append(docsDiv);
 
-  // The structured HTTP fields are OPTIONAL hints for REST-style endpoints; keep
-  // them out of the way and only spring open when they already hold something.
-  const hasHints = Boolean(
-    b.method || b.endpoint || b.language || b.parameters.length,
-  );
-  const details = document.createElement("details");
-  details.className = "doc-optional";
-  if (hasHints) details.open = true;
-  const summary = document.createElement("summary");
-  summary.textContent = "Optional API details";
-  details.append(summary);
-  details.append(
-    selectRow("Method", b.method ?? "", ["", ...HttpMethod.options], (v) =>
-      set({ method: (v || undefined) as ApiBinding["method"] }),
-    ),
-  );
-  details.append(
-    textRow("Endpoint", b.endpoint ?? "", (v) => set({ endpoint: v || undefined })),
-  );
-  details.append(
-    textRow("Language", b.language ?? "", (v) => set({ language: v || undefined })),
-  );
-  details.append(
-    textRow("Params", b.parameters.join(", "), (v) =>
-      set({
-        parameters: v
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
-      }),
-    ),
-  );
-  root.append(details);
+  // Explicit "Save documentation" — commits the current binding as a new entry in
+  // the version history (and so the History timeline's API tab). Only shown when
+  // the source can record history (`onDocument` provided).
+  if (onDocument) {
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "doc-save";
+    save.textContent = "Save documentation";
+    // preventDefault on mousedown keeps the textarea focused, so its `change`
+    // doesn't fire a panel rebuild between mousedown and click (which would drop
+    // this handler). We then read the live values straight off the inputs.
+    save.addEventListener("mousedown", (e) => e.preventDefault());
+    save.addEventListener("click", () => {
+      onDocument({
+        ...b,
+        title: titleInput.value.trim() || el.name || el.id,
+        description: docsInput.value,
+      });
+    });
+    root.append(save);
+  }
 
   const remove = document.createElement("button");
   remove.className = "doc-remove";

@@ -1,4 +1,5 @@
 import type {
+  ApiBinding,
   Checkpoint,
   CheckpointInput,
   DesignElement,
@@ -13,6 +14,7 @@ import type {
 import * as api from "forward-core/api";
 import type {
   CanvasSource,
+  ConnectionStatus,
   ElementSnapshot,
   EntitySnapshot,
   InfraSnapshot,
@@ -48,6 +50,10 @@ export class ServerSource implements CanvasSource {
   private lastCheckpointsJson = "";
   private timelineTimer: ReturnType<typeof setInterval> | undefined;
   private lastTimelineJson = "";
+  /** Connection health, driven by the primary (elements) poll loop. Optimistic
+   * until the first failure so the indicator doesn't flicker on mount. */
+  private status: ConnectionStatus = "online";
+  private statusListeners = new Set<(status: ConnectionStatus) => void>();
 
   constructor(
     private readonly baseUrl: string,
@@ -63,16 +69,35 @@ export class ServerSource implements CanvasSource {
     return { baseUrl: this.baseUrl, projectId: this.projectId, token };
   }
 
+  /** The elements loop is the connection heartbeat: it always runs, so its
+   * success/failure is the single source of truth for the status indicator.
+   * Other poll loops stay quiet on error to avoid the indicator flapping. */
+  private setStatus(next: ConnectionStatus): void {
+    if (next === this.status) return;
+    this.status = next;
+    for (const fn of this.statusListeners) fn(next);
+  }
+
+  subscribeStatus(onChange: (status: ConnectionStatus) => void): () => void {
+    this.statusListeners.add(onChange);
+    onChange(this.status); // emit current state immediately
+    return () => {
+      this.statusListeners.delete(onChange);
+    };
+  }
+
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void {
     const tick = async () => {
       try {
         const snapshots = await this.fetchAll();
+        this.setStatus("online");
         const json = JSON.stringify(snapshots);
         if (json !== this.lastJson) {
           this.lastJson = json;
           onChange(snapshots);
         }
       } catch (err) {
+        this.setStatus("offline");
         console.warn("[server-source] poll failed:", err);
       }
     };
@@ -222,6 +247,21 @@ export class ServerSource implements CanvasSource {
 
   async saveElement(element: DesignElement): Promise<void> {
     await api.saveElement(await this.cfg(), element);
+  }
+
+  async documentElement(
+    elementId: string,
+    binding: ApiBinding,
+    version: { version: string; changeLog: string; action: "created" | "modified" },
+  ): Promise<void> {
+    // The server stamps author + timestamp and derives the endpoint snapshot, so
+    // only the label/log/action travel; author here is a placeholder it ignores.
+    await api.bindApiToElement(await this.cfg(), elementId, binding, {
+      version: version.version,
+      changeLog: version.changeLog,
+      action: version.action,
+      author: "canvas",
+    });
   }
 
   async deleteElement(elementId: string): Promise<void> {

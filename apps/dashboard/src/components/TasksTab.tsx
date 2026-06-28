@@ -11,6 +11,7 @@ import {
 import { useApi, type Member } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
 import { useProject } from "../api/ProjectContext.js";
+import { Loading, RetryError } from "./AsyncStates.js";
 import { Avatar, AvatarStack } from "./Avatar.js";
 import { TaskGantt } from "./TaskGantt.js";
 import {
@@ -66,7 +67,7 @@ export function TasksTab() {
   return (
     <section className="tab-body">
       {mutateError && <p className="error">{mutateError}</p>}
-      {error && <p className="error">{error}</p>}
+      {error && <RetryError message={error} onRetry={reload} />}
 
       {selected ? (
         <TaskDetail
@@ -228,7 +229,7 @@ function TaskList({
         </span>
       </div>
 
-      {loading && !tasks && <p className="muted">Loading tasks…</p>}
+      {loading && !tasks && <Loading>Loading tasks…</Loading>}
       {tasks && visible.length === 0 && (
         <p className="muted">No tasks{filter === "all" ? " yet" : " in this view"}.</p>
       )}

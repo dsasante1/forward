@@ -76,18 +76,14 @@ export async function bindApiToElement(
   );
 
   // 3. Append to the append-only timeline (POST = push id under the list path).
-  //    Snapshot the endpoint (title/method/path) onto the entry so the timeline
-  //    can still label this change after the binding is later deleted. The
-  //    caller supplies `action` (created vs modified — it knows which); default
-  //    covers any caller that doesn't.
+  //    Snapshot the endpoint title onto the entry so the timeline can still
+  //    label this change after the binding is later deleted. The caller supplies
+  //    `action` (created vs modified — it knows which); default covers any caller
+  //    that doesn't.
   const entry: VersionEntry = VersionEntry.parse({
     ...version,
     timestamp: Date.now(),
-    endpoint: version.endpoint ?? {
-      title: binding.title,
-      ...(binding.method ? { method: binding.method } : {}),
-      ...(binding.endpoint ? { path: binding.endpoint } : {}),
-    },
+    endpoint: version.endpoint ?? { title: binding.title },
   });
   await post(url(cfg, paths.timeline(cfg.projectId, elementId)), entry);
 }

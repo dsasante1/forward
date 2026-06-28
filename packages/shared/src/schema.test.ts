@@ -111,17 +111,15 @@ describe("DesignElement contract", () => {
       height: 200,
       apiBinding: {
         title: "Log in",
-        endpoint: "/api/v1/users/login",
-        method: "POST",
+        description: "Body: email, password.",
       },
       updatedAt: "2026-05-28T11:45:00Z",
     });
     expect(el.apiBinding?.title).toBe("Log in");
-    expect(el.apiBinding?.method).toBe("POST");
-    expect(el.apiBinding?.parameters).toEqual([]);
+    expect(el.apiBinding?.description).toBe("Body: email, password.");
   });
 
-  it("accepts a framework-agnostic binding with no HTTP fields", () => {
+  it("defaults the binding description to an empty string", () => {
     const el = DesignElement.parse({
       id: "el_resolver",
       type: "rectangle",
@@ -129,16 +127,11 @@ describe("DesignElement contract", () => {
       y: 0,
       width: 100,
       height: 40,
-      apiBinding: {
-        title: "createOrder mutation",
-        language: "GraphQL",
-        description: "Places an order for the current cart.",
-      },
+      apiBinding: { title: "createOrder mutation" },
       updatedAt: "2026-05-28T11:45:00Z",
     });
-    expect(el.apiBinding?.language).toBe("GraphQL");
-    expect(el.apiBinding?.method).toBeUndefined();
-    expect(el.apiBinding?.endpoint).toBeUndefined();
+    expect(el.apiBinding?.title).toBe("createOrder mutation");
+    expect(el.apiBinding?.description).toBe("");
   });
 
   it("records hierarchy via parentId and component links", () => {
@@ -206,8 +199,6 @@ describe("DatabaseTree", () => {
             height: 200,
             apiBinding: {
               title: "Log in",
-              endpoint: "/api/v1/users/login",
-              method: "POST",
               description: "Body: email, password.",
             },
             updatedAt: "2026-05-28T11:45:00Z",
@@ -229,8 +220,8 @@ describe("DatabaseTree", () => {
       },
     });
     expect(
-      tree.design_elements.project_xyz?.el_login_card?.apiBinding?.method,
-    ).toBe("POST");
+      tree.design_elements.project_xyz?.el_login_card?.apiBinding?.title,
+    ).toBe("Log in");
   });
 });
 
