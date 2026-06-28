@@ -116,6 +116,10 @@ export function useApi() {
           method: "PUT",
           body: JSON.stringify({ favorite }),
         }),
+      // The (member-only) realtime channel name to subscribe to — the server
+      // derives an unguessable name so the broadcast bus stays tenant-scoped.
+      realtimeChannel: (projectId: string) =>
+        accountFetch<{ channel: string }>(`/projects/${projectId}/realtime`),
 
       // --- Personal Access Tokens (account-level; for the VS Code extension) ---
       listApiTokens: () => accountFetch<ApiTokenSummary[]>("/tokens"),

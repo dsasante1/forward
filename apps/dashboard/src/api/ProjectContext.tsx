@@ -9,7 +9,11 @@ import { useUser } from "@clerk/react";
 import type { ProjectRole } from "forward-core";
 import { useApi, type Member } from "./client.js";
 import { useAsync } from "./useAsync.js";
-import { useProjectRealtime, type ProjectChange } from "./realtime.js";
+import {
+  realtimeEnabled,
+  useProjectRealtime,
+  type ProjectChange,
+} from "./realtime.js";
 
 interface ProjectCtx {
   projectId: string;
@@ -58,7 +62,13 @@ export function ProjectProvider({
   } = useAsync(() => api.listMembers(projectId), [api, projectId]);
   const [lastChange, setLastChange] = useState<ProjectChange | null>(null);
 
-  useProjectRealtime(projectId, (e) => {
+  // Resolve the project's (member-only) realtime channel name, then subscribe to
+  // it — only when realtime is configured, so we don't make a wasted request.
+  const { data: rt } = useAsync(
+    () => (realtimeEnabled() ? api.realtimeChannel(projectId) : Promise.resolve(null)),
+    [api, projectId],
+  );
+  useProjectRealtime(rt?.channel, (e) => {
     setLastChange(e);
     if (e.resource === "members") reload();
   });
