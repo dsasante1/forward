@@ -1,3 +1,4 @@
+export * from "./api-diff.js";
 export * from "./entity.js";
 export * from "./infra-flow.js";
 export * from "./rtdb.js";

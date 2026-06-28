@@ -260,12 +260,22 @@ async function documentElement(
   });
   if (changeLog === undefined) return;
 
+  // Only an edit can break clients; let the author flag it (left blank = none).
+  // The structured doc diff is computed by the writer — we just supply the flag.
+  const breaking = existing
+    ? await vscode.window.showInputBox({
+        prompt: "Breaking change? Describe it for clients, or leave blank.",
+        placeHolder: "e.g. removed the `token` field from the response",
+      })
+    : undefined;
+
   try {
     await bindApiToElement(cfg, elementId, binding, {
       version: new Date().toISOString(),
       author: process.env.USER ?? "unknown",
       action: existing ? "modified" : "created",
       changeLog,
+      ...(breaking ? { breaking } : {}),
     });
     vscode.window.showInformationMessage(
       `Documented ${elementId}: ${binding.title}`,

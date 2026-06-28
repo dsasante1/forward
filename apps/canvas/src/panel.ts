@@ -32,9 +32,13 @@ export function renderPanel(
    * When omitted (source has no history), the button is hidden.
    */
   onDocument?: (binding: ApiBinding) => void,
+  /** Close the inspector drawer (the header's ✕). When omitted, no close button
+   * is shown. */
+  onClose?: () => void,
 ): void {
   root.replaceChildren();
   if (!el) {
+    if (onClose) root.append(emptyHeader(onClose));
     const p = document.createElement("p");
     p.className = "empty";
     p.textContent = "Select or draw an element.";
@@ -43,7 +47,7 @@ export function renderPanel(
   }
 
   // --- header: type chip + name + type subtitle ---
-  root.append(inspectorHeader(el));
+  root.append(inspectorHeader(el, onClose));
 
   // --- Position & size (2-col floating-label grid) ---
   const pos = section("Position & size");
@@ -673,7 +677,7 @@ function numField(
 }
 
 /** Panel header: a generic element glyph chip + the element name and its type. */
-function inspectorHeader(el: DesignElement): HTMLElement {
+function inspectorHeader(el: DesignElement, onClose?: () => void): HTMLElement {
   const head = document.createElement("div");
   head.className = "insp-head";
   const chip = document.createElement("div");
@@ -686,7 +690,28 @@ function inspectorHeader(el: DesignElement): HTMLElement {
   meta.append(h("div", el.name || el.id, "insp-name"));
   meta.append(h("div", el.type.charAt(0).toUpperCase() + el.type.slice(1), "insp-type"));
   head.append(chip, meta);
+  if (onClose) head.append(inspectorCloseButton(onClose));
   return head;
+}
+
+/** Header for the empty (no selection) state — just the ✕ close button so the
+ * inspector can still be dismissed when nothing is selected. */
+function emptyHeader(onClose: () => void): HTMLElement {
+  const head = document.createElement("div");
+  head.className = "insp-head insp-head-empty";
+  head.append(inspectorCloseButton(onClose));
+  return head;
+}
+
+/** The ✕ button that closes the inspector drawer, pinned to the header's right. */
+function inspectorCloseButton(onClose: () => void): HTMLButtonElement {
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "insp-close";
+  close.title = "Close inspector";
+  close.textContent = "✕";
+  close.addEventListener("click", onClose);
+  return close;
 }
 
 type StyleObj = NonNullable<DesignElement["style"]>;

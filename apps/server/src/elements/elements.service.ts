@@ -4,6 +4,7 @@ import {
   ApiBinding,
   DesignElement,
   VersionEntry,
+  diffBindings,
   descendantIds,
 } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -185,6 +186,9 @@ export class ElementsService {
         action: version.action,
         changeLog: version.changeLog,
         endpoint: { title: clean.title },
+        // Structured doc diff (prior binding → new) so the History viewer can
+        // expand the change, mirroring what rtdb-rest writes for the extension/MCP.
+        diff: diffBindings(current.apiBinding, clean),
       });
       await this.timeline.record(tx, projectId, actor, {
         domain: "api",
@@ -231,6 +235,8 @@ export class ElementsService {
         action: "deleted",
         changeLog: version.changeLog,
         ...(version.title ? { endpoint: { title: version.title } } : {}),
+        // All-removed diff — what the timeline shows for a documentation deletion.
+        diff: diffBindings(current.apiBinding, undefined),
       });
       await this.timeline.record(tx, projectId, actor, {
         domain: "api",

@@ -1,6 +1,7 @@
 import { flowToMermaid, infraToComponentMermaid } from "./infra-flow.js";
 import type {
   Checkpoint,
+  CheckpointChange,
   DesignElement,
   DiffSection,
   ElementType,
@@ -270,6 +271,13 @@ function checkpointDomain(cp: Checkpoint): TimelineDomain {
  * canvas owns colours/markup, this owns selection/sorting/counting so it can be
  * unit-tested. Checkpoints become rows too (tagged by their dominant layer) so
  * restore stays reachable from the same timeline.
+ *
+ * The design layer is represented in the History view by manual checkpoints (the
+ * "Save design checkpoint" button), NOT by the per-edit `design` events: those
+ * are auto-logged on every drag/resize/retype and stay in the feed to back
+ * undo/redo, but they're too noisy to surface here, so they're filtered out.
+ * `api`/`infra`/`uml` events remain — the API doc layer already only records on
+ * an explicit save.
  */
 export function buildHistoryTimeline(
   events: ProjectTimelineEvent[],
@@ -277,19 +285,21 @@ export function buildHistoryTimeline(
   opts: { view: HistoryView; sort: HistorySort },
 ): HistoryTimeline {
   const rows: HistoryRow[] = [
-    ...events.map(
-      (e): HistoryRow => ({
-        id: `e${e.seq}`,
-        kind: "event",
-        domain: e.domain,
-        action: e.action,
-        title: e.title,
-        detail: e.detail,
-        author: e.author,
-        timestamp: e.timestamp,
-        targetId: e.targetId,
-      }),
-    ),
+    ...events
+      .filter((e) => e.domain !== "design")
+      .map(
+        (e): HistoryRow => ({
+          id: `e${e.seq}`,
+          kind: "event",
+          domain: e.domain,
+          action: e.action,
+          title: e.title,
+          detail: e.detail,
+          author: e.author,
+          timestamp: e.timestamp,
+          targetId: e.targetId,
+        }),
+      ),
     ...checkpoints.map(
       (c): HistoryRow => ({
         id: `c${c.id}`,
@@ -352,6 +362,13 @@ export interface HistorySources {
   infraNodes?: Map<string, InfraNode>;
   infraEdges?: InfraEdge[];
   infraFlows?: Map<string, InfraFlow>;
+  /**
+   * The project's manual checkpoints — the only historical record of *design*
+   * geometry (each freezes a full `snapshot.elements`). A design event has no
+   * geometry of its own, so its preview is resolved against the nearest
+   * checkpoint at-or-before the event; a checkpoint row previews its own snapshot.
+   */
+  checkpoints?: Checkpoint[];
 }
 
 /** A labelled property in the Design detail table. */
@@ -369,6 +386,29 @@ export interface UmlDetailStep {
   kind: InfraStepKind;
 }
 
+/** Where a design preview's geometry was sourced from (and when). */
+export interface DesignBasis {
+  /** `checkpoint` = a true as-of snapshot; `live` = the element's current state. */
+  kind: "live" | "checkpoint";
+  /** The checkpoint's title (for the `checkpoint` basis). */
+  label?: string;
+  /** The checkpoint's epoch-ms timestamp (for the `checkpoint` basis). */
+  at?: number;
+}
+
+/**
+ * A drawable design composition: the focused element plus its descendants (for a
+ * design row), or a whole snapshot (for a checkpoint row). The host renders these
+ * to SVG; the model only decides *what* is shown and from *which* basis.
+ */
+export interface DesignPreview {
+  /** The focused element to accent; absent for a whole-project (checkpoint) view. */
+  rootId?: string;
+  /** The elements to draw, in paint order (root first, then descendants). */
+  elements: DesignElement[];
+  basis: DesignBasis;
+}
+
 export interface DesignDetail {
   kind: "design";
   /** False when the element no longer exists (a deletion event). */
@@ -379,6 +419,16 @@ export interface DesignDetail {
   fill?: string;
   /** Text content, for text elements. */
   text?: string;
+  /** The element-as-drawn (resolved as-of the nearest checkpoint when possible). */
+  preview?: DesignPreview;
+}
+
+export interface CheckpointDetail {
+  kind: "checkpoint";
+  /** Per-layer change counts captured on the checkpoint, for the chips. */
+  changes: CheckpointChange[];
+  /** The frozen design composition this checkpoint captured. */
+  preview?: DesignPreview;
 }
 
 export interface ApiDetail {
@@ -433,6 +483,7 @@ export interface GenericDetail {
 
 export type HistoryDetail =
   | DesignDetail
+  | CheckpointDetail
   | ApiDetail
   | InfraDetail
   | UmlDetail
@@ -450,7 +501,7 @@ export function buildHistoryDetail(
   row: HistoryRow,
   src: HistorySources,
 ): HistoryDetail {
-  if (row.kind === "checkpoint") return { kind: "generic" };
+  if (row.kind === "checkpoint") return checkpointDetail(row, src);
   switch (row.domain) {
     case "design":
       return designDetail(row, src);
@@ -465,14 +516,72 @@ export function buildHistoryDetail(
   }
 }
 
+/** Root element + all its transitive descendants, in paint order (root first). */
+function composeFrom(rootId: string, byId: Map<string, DesignElement>): DesignElement[] {
+  const root = byId.get(rootId);
+  if (!root) return [];
+  const childrenByParent = new Map<string, DesignElement[]>();
+  for (const el of byId.values()) {
+    if (!el.parentId) continue;
+    const arr = childrenByParent.get(el.parentId);
+    if (arr) arr.push(el);
+    else childrenByParent.set(el.parentId, [el]);
+  }
+  const out: DesignElement[] = [root];
+  const stack = [rootId];
+  for (;;) {
+    const id = stack.pop();
+    if (id === undefined) break;
+    for (const child of childrenByParent.get(id) ?? []) {
+      out.push(child);
+      stack.push(child.id);
+    }
+  }
+  return out;
+}
+
+/**
+ * The most recent checkpoint saved at-or-before `ts` whose snapshot still holds
+ * `mustHave` — i.e. the closest true historical record of that element. Undefined
+ * when no earlier checkpoint captured it (the caller then falls back to live).
+ */
+function nearestCheckpoint(
+  checkpoints: Checkpoint[],
+  ts: number,
+  mustHave: string,
+): Checkpoint | undefined {
+  let best: Checkpoint | undefined;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const cp of checkpoints) {
+    const at = Date.parse(cp.createdAt) || 0;
+    if (at > ts) continue;
+    if (!cp.snapshot.elements.some((e) => e.id === mustHave)) continue;
+    if (at > bestAt) {
+      best = cp;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
 function designDetail(row: HistoryRow, src: HistorySources): DesignDetail {
-  const el = row.targetId ? src.elements?.get(row.targetId) : undefined;
+  const id = row.targetId ?? "";
+  // Prefer a true as-of snapshot (nearest checkpoint ≤ the event) over the live
+  // element, since a design event carries no geometry of its own.
+  const cp = nearestCheckpoint(src.checkpoints ?? [], row.timestamp, id);
+  const byId: Map<string, DesignElement> = cp
+    ? new Map(cp.snapshot.elements.map((e) => [e.id, e] as const))
+    : (src.elements ?? new Map<string, DesignElement>());
+  const basis: DesignBasis = cp
+    ? { kind: "checkpoint", label: cp.title, at: Date.parse(cp.createdAt) || 0 }
+    : { kind: "live" };
+  const el = byId.get(id);
   if (!el) return { kind: "design", found: false, props: [] };
   const props: DetailProp[] = [
     { label: "Position", value: `${round(el.x)}, ${round(el.y)}` },
     { label: "Size", value: `${round(el.width)} × ${round(el.height)}` },
   ];
-  const parent = el.parentId ? src.elements?.get(el.parentId) : undefined;
+  const parent = el.parentId ? byId.get(el.parentId) : undefined;
   if (parent) props.push({ label: "Parent", value: parent.name || parent.type });
   if (el.rotation) props.push({ label: "Rotation", value: `${round(el.rotation)}°` });
   return {
@@ -482,6 +591,25 @@ function designDetail(row: HistoryRow, src: HistorySources): DesignDetail {
     props,
     ...(el.style?.fill ? { fill: el.style.fill } : {}),
     ...(el.text ? { text: el.text } : {}),
+    preview: { rootId: id, elements: composeFrom(id, byId), basis },
+  };
+}
+
+function checkpointDetail(row: HistoryRow, src: HistorySources): CheckpointDetail {
+  const cp = (src.checkpoints ?? []).find((c) => c.id === row.checkpointId);
+  if (!cp) return { kind: "checkpoint", changes: [] };
+  const at = Date.parse(cp.createdAt) || 0;
+  return {
+    kind: "checkpoint",
+    changes: cp.changes,
+    ...(cp.snapshot.elements.length
+      ? {
+          preview: {
+            elements: cp.snapshot.elements,
+            basis: { kind: "checkpoint", label: cp.title, at },
+          },
+        }
+      : {}),
   };
 }
 

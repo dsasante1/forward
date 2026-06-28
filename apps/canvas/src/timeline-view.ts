@@ -3,7 +3,11 @@ import {
   buildHistoryDetail,
   buildHistoryTimeline,
   type Checkpoint,
+  type CheckpointDetail,
   type DesignDetail,
+  type DesignPreview,
+  type DiffRow,
+  type DiffSection,
   type HistoryDetail,
   type HistoryRow,
   type HistorySort,
@@ -301,7 +305,9 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   card.append(h("div", r.title, "tl2-stage-title"));
   card.append(h("div", actionLine(r), "tl2-stage-detail"));
 
-  const detail = buildHistoryDetail(r, lastSources);
+  // Design/checkpoint previews resolve geometry against the checkpoints, which
+  // arrive on their own param — merge them into the sources for the resolver.
+  const detail = buildHistoryDetail(r, { ...lastSources, checkpoints: lastCheckpoints });
   const body = detailBody(detail, color, cb);
   if (body) card.append(body);
   else if (r.detail) card.append(h("div", r.detail, "tl2-stage-note"));
@@ -329,6 +335,8 @@ function detailBody(
   switch (detail.kind) {
     case "design":
       return designBody(detail);
+    case "checkpoint":
+      return checkpointBody(detail);
     case "api":
       return apiBody(detail, color);
     case "infra":
@@ -345,6 +353,10 @@ function designBody(d: DesignDetail): HTMLElement {
   if (!d.found) {
     wrap.append(h("div", "This element no longer exists on the canvas.", "tl2-detail-empty"));
     return wrap;
+  }
+  if (d.preview?.elements.length) {
+    wrap.append(previewEl(d.preview));
+    wrap.append(h("div", basisCaption(d.preview.basis), "tl2-preview-cap"));
   }
   const grid = div("tl2-proptable");
   if (d.elementType) grid.append(propRow("Type", d.elementType));
@@ -399,16 +411,7 @@ function apiBody(d: ApiDetail, color: string): HTMLElement {
   for (const sec of d.sections) {
     if (!sec.rows.length) continue;
     wrap.append(h("div", sec.label, "tl2-detail-h"));
-    const table = div("tl2-difftable");
-    for (const dr of sec.rows) {
-      const line = div(`tl2-diffrow ${dr.op}`);
-      line.style.setProperty("--accent", color);
-      const sign = dr.op === "added" ? "+" : dr.op === "removed" ? "−" : " ";
-      line.append(span(sign, "tl2-diffsign"));
-      for (const cell of dr.cols) line.append(span(cell, "tl2-diffcell"));
-      table.append(line);
-    }
-    wrap.append(table);
+    wrap.append(diffTable(sec, color));
   }
 
   if (d.description) {
@@ -420,6 +423,78 @@ function apiBody(d: ApiDetail, color: string): HTMLElement {
     wrap.append(h("div", "No documentation diff recorded for this change.", "tl2-detail-empty"));
   }
   return wrap;
+}
+
+// How many unchanged lines of context to keep beside each change, and the
+// shortest run of hidden lines worth folding (folding 1–3 lines saves nothing).
+const DIFF_CONTEXT = 2;
+const DIFF_MIN_FOLD = 4;
+
+/**
+ * Render one diff section as a unified-diff table: changed rows in colour with
+ * a couple of context lines either side, and long runs of untouched lines folded
+ * behind a click-to-expand "⋯ N unchanged lines" row (git's `@@` hunks).
+ */
+function diffTable(sec: DiffSection, color: string): HTMLElement {
+  const table = div("tl2-difftable");
+  const rows = sec.rows;
+
+  // Keep every changed row plus DIFF_CONTEXT rows of context around it.
+  const keep = new Set<number>();
+  rows.forEach((r, i) => {
+    if (r.op === "unchanged") return;
+    for (let k = i - DIFF_CONTEXT; k <= i + DIFF_CONTEXT; k++) {
+      if (k >= 0 && k < rows.length) keep.add(k);
+    }
+  });
+
+  let i = 0;
+  while (i < rows.length) {
+    if (keep.has(i)) {
+      table.append(diffRowEl(rows[i] as DiffRow, color));
+      i++;
+      continue;
+    }
+    // A run of out-of-context unchanged lines — fold it when long enough.
+    const hidden: DiffRow[] = [];
+    while (i < rows.length && !keep.has(i)) hidden.push(rows[i++] as DiffRow);
+    if (hidden.length >= DIFF_MIN_FOLD) table.append(diffFold(hidden, color));
+    else for (const r of hidden) table.append(diffRowEl(r, color));
+  }
+  return table;
+}
+
+/** One unified-diff line: a `+`/`−`/space gutter then the cells. */
+function diffRowEl(dr: DiffRow, color: string): HTMLElement {
+  const line = div(`tl2-diffrow ${dr.op}`);
+  line.style.setProperty("--accent", color);
+  const sign = dr.op === "added" ? "+" : dr.op === "removed" ? "−" : " ";
+  line.append(span(sign, "tl2-diffsign"));
+  for (const cell of dr.cols) line.append(span(cell, "tl2-diffcell"));
+  return line;
+}
+
+/** A collapsed run of unchanged lines; click/Enter expands it in place. */
+function diffFold(hidden: DiffRow[], color: string): HTMLElement {
+  const fold = div("tl2-difffold");
+  fold.tabIndex = 0;
+  fold.setAttribute("role", "button");
+  fold.append(span("⋯", "tl2-difffold-ic"));
+  const n = hidden.length;
+  fold.append(span(`${n} unchanged line${n === 1 ? "" : "s"}`, "tl2-difffold-tx"));
+  const expand = () => {
+    const frag = document.createDocumentFragment();
+    for (const r of hidden) frag.append(diffRowEl(r, color));
+    fold.replaceWith(frag);
+  };
+  fold.addEventListener("click", expand);
+  fold.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      expand();
+    }
+  });
+  return fold;
 }
 
 function infraBody(d: InfraDetail, cb: TimelineCallbacks): HTMLElement {
@@ -483,6 +558,134 @@ function diagram(src: string, cb: TimelineCallbacks): HTMLElement {
       box.replaceChildren(h("div", "Couldn't render diagram.", "tl2-detail-empty"));
     });
   return box;
+}
+
+function checkpointBody(d: CheckpointDetail): HTMLElement {
+  const wrap = div("tl2-detail");
+  if (d.preview?.elements.length) {
+    wrap.append(previewEl(d.preview));
+    wrap.append(h("div", basisCaption(d.preview.basis), "tl2-preview-cap"));
+  } else {
+    wrap.append(h("div", "This checkpoint captured no design elements.", "tl2-detail-empty"));
+  }
+  const chips = div("tl2-changechips");
+  for (const c of d.changes) {
+    if (!c.n) continue;
+    chips.append(span(`${c.layer} ${c.n}`, "tl2-changechip"));
+  }
+  if (chips.childElementCount) {
+    wrap.append(h("div", "Changed in this checkpoint", "tl2-detail-h"));
+    wrap.append(chips);
+  }
+  return wrap;
+}
+
+// --------------------------------------------------------------------------
+// Design preview — the element (and its descendants) drawn as a fitted SVG, so
+// a design/checkpoint event shows the actual artefact, not just its numbers.
+// --------------------------------------------------------------------------
+function previewEl(preview: DesignPreview): HTMLElement {
+  const wrap = div("tl2-preview");
+  const els = preview.elements;
+  const b = boundsOf(els);
+  const pad = Math.max(8, Math.max(b.w, b.h) * 0.06);
+  const view = svgNode("svg", {
+    viewBox: `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}`,
+    preserveAspectRatio: "xMidYMid meet",
+    class: "tl2-preview-svg",
+  });
+  for (const el of els) {
+    const node = previewShape(el, preview.rootId);
+    if (node) view.append(node);
+  }
+  wrap.append(view);
+  return wrap;
+}
+
+/** A short line saying whether the preview is a true as-of snapshot or live. */
+function basisCaption(b: DesignPreview["basis"]): string {
+  if (b.kind === "checkpoint") {
+    const when = b.at
+      ? ` · ${MONTHS[new Date(b.at).getMonth()]} ${new Date(b.at).getDate()}, ${new Date(b.at).getFullYear()}`
+      : "";
+    return `As of checkpoint “${b.label ?? "?"}”${when}`;
+  }
+  return "Current state on the canvas (no earlier checkpoint to reconstruct from)";
+}
+
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+function boundsOf(els: { x: number; y: number; width: number; height: number }[]): Box {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const e of els) {
+    minX = Math.min(minX, e.x);
+    minY = Math.min(minY, e.y);
+    maxX = Math.max(maxX, e.x + e.width);
+    maxY = Math.max(maxY, e.y + e.height);
+  }
+  if (!Number.isFinite(minX)) return { x: 0, y: 0, w: 1, h: 1 };
+  return { x: minX, y: minY, w: Math.max(1, maxX - minX), h: Math.max(1, maxY - minY) };
+}
+
+/** Draw one element as a clean SVG primitive (no selection/doc chrome). */
+function previewShape(
+  el: DesignPreview["elements"][number],
+  rootId?: string,
+): SVGElement | null {
+  const style = el.style ?? {};
+  const fill = style.fill ?? (el.type === "frame" ? "transparent" : "rgba(255,255,255,0.07)");
+  const stroke = style.stroke ?? (el.type === "frame" ? "rgba(255,255,255,0.22)" : "");
+  const strokeAttrs: Record<string, string> = stroke
+    ? { stroke, "stroke-width": String(style.strokeWidth ?? 1) }
+    : {};
+
+  if (el.type === "text") {
+    const t = svgNode("text", {
+      x: String(el.x),
+      y: String(el.y + (style.fontSize ?? 14)),
+      "font-size": String(style.fontSize ?? 14),
+      "font-weight": String(style.fontWeight ?? 400),
+      fill: style.color ?? "#cfccc4",
+      class: "tl2-preview-text",
+    });
+    t.textContent = el.text ?? "Text";
+    return t;
+  }
+  if (el.type === "ellipse") {
+    return svgNode("ellipse", {
+      cx: String(el.x + el.width / 2),
+      cy: String(el.y + el.height / 2),
+      rx: String(el.width / 2),
+      ry: String(el.height / 2),
+      fill,
+      ...strokeAttrs,
+    });
+  }
+  const rect = svgNode("rect", {
+    x: String(el.x),
+    y: String(el.y),
+    width: String(el.width),
+    height: String(el.height),
+    rx: String(style.radius ?? 0),
+    fill,
+    ...strokeAttrs,
+  });
+  if (el.id === rootId) rect.classList.add("tl2-preview-focus");
+  return rect;
+}
+
+/** Namespaced SVG element with attributes (the preview's tiny builder). */
+function svgNode(name: string, attrs: Record<string, string>): SVGElement {
+  const node = document.createElementNS(SVG_NS, name);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
 }
 
 // ---- detail builders ------------------------------------------------------

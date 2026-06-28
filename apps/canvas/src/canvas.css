@@ -227,6 +227,38 @@
 .fwd-savebtn[hidden] { display: none; }
 .fwd-savebtn:hover { filter: brightness(1.06); }
 .fwd-savebtn svg { display: block; }
+/* "Save design checkpoint" only applies while editing the design canvas. The
+   other workspaces (infra, data model, UML, history, tasks, members) hide it —
+   along with its "saved …" stamp. */
+.fwd-canvas-root[data-view="infra"] .fwd-savebtn,
+.fwd-canvas-root[data-view="data"] .fwd-savebtn,
+.fwd-canvas-root[data-view="uml"] .fwd-savebtn,
+.fwd-canvas-root[data-view="history"] .fwd-savebtn,
+.fwd-canvas-root[data-view="tasks"] .fwd-savebtn,
+.fwd-canvas-root[data-view="member"] .fwd-savebtn,
+.fwd-canvas-root[data-view="infra"] .fwd-saved,
+.fwd-canvas-root[data-view="data"] .fwd-saved,
+.fwd-canvas-root[data-view="uml"] .fwd-saved,
+.fwd-canvas-root[data-view="history"] .fwd-saved,
+.fwd-canvas-root[data-view="tasks"] .fwd-saved,
+.fwd-canvas-root[data-view="member"] .fwd-saved { display: none; }
+/* Inspector toggle: an overlay icon button floating at the top-right of the
+   stage that reveals/hides the right inspector drawer. Only meaningful in the
+   design view, so it's hidden elsewhere. */
+.fwd-inspbtn {
+  position: absolute; right: 16px; top: 16px; z-index: 10;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0;
+  background: var(--surface); color: var(--text-2);
+  border: 1px solid var(--line-2); border-radius: 9px; cursor: pointer;
+}
+.fwd-inspbtn:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+.fwd-inspbtn .tb-icon { width: 18px; height: 18px; }
+/* While the inspector is open it carries `.active`; the panel's own ✕ closes it,
+   so the floating canvas button steps out of the way. Likewise hidden outside
+   the design view. */
+.fwd-inspbtn.active,
+.fwd-canvas-root:not([data-view="design"]) .fwd-inspbtn { display: none; }
 
 /* --- save-checkpoint modal --- */
 #savemodal[hidden] { display: none; }
@@ -608,6 +640,17 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 /* === Floating-label inspector (the design element panel) =============== */
 /* Header: glyph chip + element name + type. */
 .insp-head { display: flex; align-items: center; gap: 11px; margin-bottom: 4px; }
+.insp-head-empty { justify-content: flex-end; }
+/* ✕ close button, pinned to the right of the inspector header. */
+.insp-close {
+  margin-left: auto; flex: none;
+  width: 28px; height: 28px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--text-2);
+  border: 1px solid var(--line-2); border-radius: 7px; cursor: pointer;
+  font-size: 13px; line-height: 1;
+}
+.insp-close:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
 .insp-chip {
   width: 32px; height: 32px; border-radius: 8px; flex: none;
   background: var(--surface-3); display: flex; align-items: center; justify-content: center;
@@ -907,10 +950,20 @@ code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-
 .tl2-diffrow { display: flex; gap: 8px; padding: 4px 8px; border-radius: 5px; }
 .tl2-diffrow.added { background: rgba(76, 175, 114, 0.12); color: #b6e2c6; }
 .tl2-diffrow.removed { background: rgba(214, 112, 95, 0.12); color: #ecc1b8; }
-.tl2-diffrow.unchanged { color: var(--text-3); }
+.tl2-diffrow.unchanged { color: var(--text-3); opacity: 0.72; }
 .tl2-diffsign { width: 9px; flex: none; opacity: 0.8; }
+.tl2-diffrow.added .tl2-diffsign, .tl2-diffrow.removed .tl2-diffsign { font-weight: 700; opacity: 1; }
 .tl2-diffcell { white-space: pre-wrap; }
 .tl2-diffcell + .tl2-diffcell { color: inherit; opacity: 0.78; }
+.tl2-difffold {
+  display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-radius: 5px;
+  font-family: var(--mono); font-size: 11px; color: var(--faint); cursor: pointer;
+  background: var(--surface-3); border: 1px dashed transparent;
+}
+.tl2-difffold:hover, .tl2-difffold:focus-visible {
+  color: var(--accent); border-color: var(--accent); outline: none;
+}
+.tl2-difffold-ic { letter-spacing: 1px; opacity: 0.8; }
 
 .tl2-steps { display: flex; flex-direction: column; gap: 4px; }
 .tl2-step-row { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
@@ -926,6 +979,24 @@ code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-
   border: 1px solid var(--line); overflow: auto;
 }
 .tl2-diagram svg { max-width: 100%; height: auto; }
+
+/* design / checkpoint element preview */
+.tl2-preview {
+  padding: 14px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 16px 16px; display: flex; justify-content: center;
+}
+.tl2-preview-svg { width: 100%; max-height: 260px; height: auto; }
+.tl2-preview-focus { stroke: var(--design, #7a8190); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.tl2-preview-text { font-family: var(--mono); }
+.tl2-preview-cap {
+  font-family: var(--mono); font-size: 10px; color: var(--faint); margin-top: 8px; text-align: center;
+}
+.tl2-changechips { display: flex; flex-wrap: wrap; gap: 6px; }
+.tl2-changechip {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .04em; color: var(--text-2);
+  padding: 3px 8px; border-radius: 5px; border: 1px solid var(--line-3);
+}
 #history h3 {
   margin: 0 0 8px; font-family: var(--mono); font-size: 10.5px;
   letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
