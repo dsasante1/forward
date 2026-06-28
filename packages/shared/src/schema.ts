@@ -32,21 +32,13 @@ export type HttpMethod = z.infer<typeof HttpMethod>;
 /**
  * Documentation a backend dev attaches to a design element from VS Code.
  *
- * Docs-first and framework-agnostic. `title` + Markdown `description` are the
- * core and carry the meaning; `language`, `method`, `endpoint` and `parameters`
- * are OPTIONAL structured hints for REST-style HTTP endpoints. A GraphQL, gRPC,
- * CLI or background-job binding just fills in `title` + `language` + the docs
- * and leaves the HTTP fields blank — nothing here assumes Express or JavaScript.
+ * Docs-first and framework-agnostic: `title` + Markdown `description` carry the
+ * meaning for any kind of binding (REST, GraphQL, gRPC, CLI, a background job…).
+ * Nothing here assumes Express or JavaScript.
  */
 export const ApiBinding = z.object({
   title: z.string().min(1),
   description: z.string().default(""),
-  /** Free-form language/framework tag, e.g. "Python/FastAPI", "Go", "GraphQL". */
-  language: z.string().optional(),
-  /** Optional HTTP hints — present for REST endpoints, omitted otherwise. */
-  method: HttpMethod.optional(),
-  endpoint: z.string().optional(),
-  parameters: z.array(z.string()).default([]),
 });
 export type ApiBinding = z.infer<typeof ApiBinding>;
 

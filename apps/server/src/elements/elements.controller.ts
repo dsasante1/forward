@@ -109,10 +109,13 @@ export class ElementsController {
     return { ok: true };
   }
 
-  // --- timeline (read-only; history is append-only server-side) ---
-
-  @Get("timeline")
-  timeline(@Param("projectId") projectId: string, @CurrentUser() user: AuthUser) {
+  // --- per-element version histories (read-only; append-only server-side) ---
+  // NB: distinct path from the unified project feed at `GET /timeline`
+  // (TimelineController). This returns a Record<elementId, VersionEntry[]>;
+  // colliding the two on `/timeline` shadowed the project feed and emptied the
+  // History view's Design/API/Infra/UML tabs.
+  @Get("timelines")
+  timelines(@Param("projectId") projectId: string, @CurrentUser() user: AuthUser) {
     return this.elements.timelines(projectId, user.id);
   }
 }

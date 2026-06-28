@@ -10,3 +10,11 @@ export { mountCanvas } from "./canvas.js";
 export type { MountOptions, CanvasHandle } from "./canvas.js";
 export { ServerSource } from "./server-source.js";
 export type { TokenProvider } from "./server-source.js";
+// The data contract a host can implement to drive the editor itself — e.g. the
+// VS Code extension bridges this over postMessage instead of using ServerSource.
+export type {
+  CanvasSource,
+  ElementSnapshot,
+  EntitySnapshot,
+  InfraSnapshot,
+} from "./source.js";

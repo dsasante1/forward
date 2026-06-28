@@ -209,6 +209,40 @@ button.danger:hover:not(:disabled) {
   font-weight: 500;
 }
 
+/* Inline "Try again" affordance inside a load error. */
+.link.retry {
+  font-weight: 500;
+}
+
+/* First-load row: a small spinner next to the loading label. */
+.loading-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}
+
 .cards {
   list-style: none;
   padding: 0;

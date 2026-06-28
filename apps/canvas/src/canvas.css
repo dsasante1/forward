@@ -208,6 +208,11 @@
   animation: fwdpulse 2s ease-in-out infinite;
 }
 @keyframes fwdpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* Offline: the poll loop can't reach the backend. Warm the dot/label to the
+   error tone and swap the calm pulse for an urgent blink. */
+.fwd-live.offline { color: var(--err); }
+.fwd-live.offline .fwd-live-dot { background: var(--err); animation: fwdblink 1s steps(2, jump-none) infinite; }
+@keyframes fwdblink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
 /* right cluster of the top strip: saved stamp + Save + live indicator */
 .fwd-topright { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 .fwd-topright .fwd-live { margin-left: 0; }
@@ -275,6 +280,8 @@
 .fwd-modal-cancel { flex: 1; border: 1px solid var(--line-3); background: transparent; color: var(--text-2); }
 .fwd-modal-save { flex: 1.4; border: none; background: var(--accent); color: #15161b; font-weight: 600; }
 .fwd-modal-save:disabled { opacity: 0.5; cursor: default; }
+.fwd-modal-danger { background: #e0507a; color: #fff; }
+.fwd-modal-message { display: block; color: var(--text-2); font-size: 13.5px; line-height: 1.5; }
 
 /* --- stage / canvas --- */
 #stage { flex: 1; position: relative; overflow: hidden; }
@@ -426,7 +433,9 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 /* --- rendered UML view (full-stage backdrop + centered card) --- */
 #umlpanel {
   position: absolute; inset: 0; z-index: 30;
-  display: flex; padding: 14px; background: rgba(8, 10, 14, 0.92);
+  /* Scrim follows the active theme background (dark in dark themes, paper in
+     light ones) so it never shows as a black frame around the card. */
+  display: flex; padding: 14px; background: color-mix(in srgb, var(--bg) 92%, transparent);
 }
 #umlpanel[hidden] { display: none; }
 .uml-card {
@@ -523,13 +532,32 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
   font-family: var(--mono); font-size: 12px;
 }
 
-/* --- API doc leader line (callout) --- */
+/* --- API doc leader line + callout card --- */
 .doc-leader { cursor: pointer; }
 .doc-leader-line { fill: none; stroke: var(--accent); stroke-width: 1.4; }
 .doc-leader-dot { fill: var(--accent); }
-.doc-leader-bg { fill: var(--surface); stroke: var(--accent); stroke-width: 1; }
-.doc-leader-label { fill: var(--text); font-size: 12px; font-weight: 700; pointer-events: none; }
-.doc-leader-sub { fill: var(--muted); font-size: 10px; pointer-events: none; }
+.doc-card-fo { overflow: visible; }
+.doc-card {
+  box-sizing: border-box; width: max-content; max-width: 250px;
+  background: var(--surface); border: 1px solid var(--line-3);
+  border-radius: 10px; padding: 13px 15px;
+  font-family: var(--sans); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+.doc-card-head { display: flex; align-items: center; gap: 7px; }
+.doc-card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+.doc-card-method {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  color: var(--accent); background: rgba(208, 106, 64, 0.16);
+  padding: 1px 6px; border-radius: 4px;
+}
+.doc-card-path {
+  font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.doc-card-desc {
+  margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
 
 /* --- right panel: properties + drawers --- */
 #panel { background: var(--bg-panel); border-left: 1px solid var(--line); overflow: auto; padding: 22px 20px; }
@@ -667,17 +695,15 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 .doc-add:hover { border-color: var(--accent); color: #fff; }
 .doc-remove { background: transparent; color: var(--err); border-color: rgba(210, 96, 62, 0.35); }
 .doc-remove:hover { border-color: var(--err); }
+.doc-save {
+  margin-top: 10px; width: 100%; padding: 10px; border-radius: 8px;
+  background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  cursor: pointer; font: inherit; font-size: 13px; font-weight: 600;
+}
+.doc-save:hover { filter: brightness(1.07); }
 .doc-add.active { border-color: var(--accent); color: #fff; background: rgba(208, 106, 64, 0.13); }
 .infra-actions { display: flex; flex-direction: column; gap: 9px; margin: 12px 0; }
 .infra-actions .doc-add { margin-top: 0; }
-.doc-optional { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
-.doc-optional > summary {
-  cursor: pointer; list-style: revert; font-family: var(--mono); font-size: 10.5px;
-  letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
-  padding: 4px 0; user-select: none;
-}
-.doc-optional > summary:hover { color: var(--muted); }
-.doc-optional[open] > summary { margin-bottom: 4px; }
 table { width: 100%; border-collapse: collapse; margin: 8px 0; }
 td, th { text-align: left; padding: 6px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 .timeline { list-style: none; padding: 0; }

@@ -6,6 +6,7 @@ import {
   type ProjectMemberPreview,
 } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
+import { Loading, RetryError } from "../components/AsyncStates.js";
 import { relTime } from "../components/tasks-format.js";
 
 type View = "grid" | "list";
@@ -260,8 +261,8 @@ export function ProjectsPage() {
         </div>
       </div>
 
-      {loading && !projects && <p className="muted">Loading projects…</p>}
-      {error && <p className="error">{error}</p>}
+      {loading && !projects && <Loading>Loading projects…</Loading>}
+      {error && <RetryError message={error} onRetry={reload} />}
 
       {isEmpty && (
         <div className="pj-empty">

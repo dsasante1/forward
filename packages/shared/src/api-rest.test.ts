@@ -105,10 +105,7 @@ describe("api-rest client", () => {
       "el1",
       {
         title: "Log in",
-        endpoint: "/api/v1/login",
-        method: "POST",
         description: "",
-        parameters: [],
       },
       { version: "v1.0.0", author: "ignored-by-server", changeLog: "first" },
     );
@@ -121,7 +118,7 @@ describe("api-rest client", () => {
       version: "v1.0.0",
       changeLog: "first",
       action: "modified",
-      binding: { title: "Log in", method: "POST" },
+      binding: { title: "Log in" },
     });
     // The client does NOT send author/timestamp — the server stamps identity.
     expect(call?.body).not.toHaveProperty("author");

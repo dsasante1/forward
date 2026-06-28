@@ -1,4 +1,5 @@
 import {
+  type ApiBinding,
   type Checkpoint,
   type CheckpointInput,
   type CheckpointTag,
@@ -34,6 +35,7 @@ import {
 import canvasCss from "./canvas.css?inline";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const XHTML_NS = "http://www.w3.org/1999/xhtml";
 
 /** The static DOM the editor renders into. Injected into the canvas Shadow DOM so
  * its styles (and generic selectors like `code`/`table`/`.row`) stay isolated
@@ -57,8 +59,8 @@ const SKELETON = `
       </div>
       <div class="fwd-topright">
         <span id="savedLabel" class="fwd-saved"></span>
-        <button id="saveCheckpoint" class="fwd-savebtn" type="button" title="Save a checkpoint (⌘S)" hidden></button>
-        <div class="fwd-live"><span class="fwd-live-dot"></span><span>LIVE SYNC</span></div>
+        <button id="saveCheckpoint" class="fwd-savebtn" type="button" title="Save design checkpoint (⌘S)" hidden></button>
+        <div class="fwd-live" id="liveSync" title="Live sync with the Forward backend"><span class="fwd-live-dot"></span><span class="fwd-live-label">LIVE SYNC</span></div>
       </div>
     </div>
     <div id="stage">
@@ -80,6 +82,7 @@ const SKELETON = `
   <aside id="panel"><p class="empty">Select or draw an element.</p></aside>
   <div id="ctxmenu" hidden></div>
   <div id="savemodal" hidden></div>
+  <div id="dialog" hidden></div>
 </div>`;
 
 export interface MountOptions {
@@ -118,6 +121,7 @@ let umlPanelEl!: HTMLElement;
 let tasksEl!: HTMLElement;
 let ctxMenuEl!: HTMLElement;
 let saveModalEl!: HTMLElement;
+let dialogEl!: HTMLElement;
 let savedLabelEl: HTMLElement | null = null;
 let saveBtnEl: HTMLButtonElement | null = null;
 let canvasRootEl: HTMLElement | null = null;
@@ -172,6 +176,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   tasksEl = uiRoot.querySelector("#tasks") as HTMLElement;
   ctxMenuEl = uiRoot.querySelector("#ctxmenu") as HTMLElement;
   saveModalEl = uiRoot.querySelector("#savemodal") as HTMLElement;
+  dialogEl = uiRoot.querySelector("#dialog") as HTMLElement;
   savedLabelEl = uiRoot.querySelector("#savedLabel") as HTMLElement | null;
   saveBtnEl = uiRoot.querySelector("#saveCheckpoint") as HTMLButtonElement | null;
   canvasRootEl = uiRoot.querySelector(".fwd-canvas-root") as HTMLElement | null;
@@ -379,6 +384,17 @@ function subscribeAll(): void {
       if (umlOpen) void renderUmlPanel(); // keep an open diagram in sync with new data
     }),
   );
+  // Connection health: flip the LIVE SYNC pill to a "reconnecting" state when the
+  // poll loop can't reach the backend, so a dropped connection isn't silent.
+  const unsubStatus = source.subscribeStatus?.((status) => {
+    const pill = uiRoot?.querySelector("#liveSync");
+    const label = pill?.querySelector(".fwd-live-label");
+    if (!pill || !label) return;
+    const offline = status === "offline";
+    pill.classList.toggle("offline", offline);
+    label.textContent = offline ? "RECONNECTING…" : "LIVE SYNC";
+  });
+  if (unsubStatus) disposers.push(unsubStatus);
   // ER / data-model graph (pillar 3c) — read-only render in the UML panel; only
   // sources that expose it (ServerSource) drive this, others simply never fire.
   const unsubEntities = source.subscribeEntities?.((snapshot) => {
@@ -863,7 +879,14 @@ async function addInfraNodeOnCanvas(): Promise<void> {
     return;
   }
   if (!showInfra) toggleInfra(); // reveal the overlay so the new node shows
-  const label = window.prompt("New infrastructure node name:")?.trim();
+  const label = (
+    await promptText({
+      title: "New infrastructure node",
+      label: "NAME",
+      placeholder: "e.g. PostgreSQL, Redis, API Gateway",
+      okText: "Add node",
+    })
+  )?.trim();
   if (!label) return;
   // Screen centre → world coords, minus the overlay's own translation.
   const box = svg.getBoundingClientRect();
@@ -895,9 +918,13 @@ async function deleteSelectedInfra(): Promise<void> {
   const id = selectedInfraId;
   if (!id || !source.deleteInfraNode) return;
   const n = infraNodes.get(id);
-  if (!window.confirm(`Remove infra node "${n?.label ?? id}" and its connections?`)) {
-    return;
-  }
+  const ok = await confirmAction({
+    title: "Remove infra node",
+    message: `Remove infra node "${n?.label ?? id}" and its connections?`,
+    okText: "Remove",
+    danger: true,
+  });
+  if (!ok) return;
   selectedInfraId = null;
   try {
     await source.deleteInfraNode(id);
@@ -953,7 +980,12 @@ async function completeLink(fromId: string, toId: string): Promise<void> {
     notify("Pick a different target node.");
     return;
   }
-  const label = window.prompt("Edge label (optional):", "");
+  const label = await promptText({
+    title: "Link nodes",
+    label: "EDGE LABEL (OPTIONAL)",
+    placeholder: "e.g. reads/writes, publishes, calls",
+    okText: "Create link",
+  });
   if (label === null) {
     cancelLink();
     return; // cancelled
@@ -1138,7 +1170,14 @@ async function addEntityOnCanvas(): Promise<void> {
     return;
   }
   if (!showEntities) toggleEntities();
-  const name = window.prompt("New entity (table/model) name:")?.trim();
+  const name = (
+    await promptText({
+      title: "New entity",
+      label: "TABLE / MODEL NAME",
+      placeholder: "e.g. Invoice, VehicleOwnerProfile",
+      okText: "Add entity",
+    })
+  )?.trim();
   if (!name) return;
   const box = svg.getBoundingClientRect();
   const cx = (box.width / 2 - panX) / zoom - entityPanX;
@@ -1170,9 +1209,13 @@ async function deleteSelectedEntity(): Promise<void> {
   const id = selectedEntityId;
   if (!id || !source.deleteEntity) return;
   const e = entities.get(id);
-  if (!window.confirm(`Remove entity "${e?.name ?? id}" and its relations?`)) {
-    return;
-  }
+  const ok = await confirmAction({
+    title: "Remove entity",
+    message: `Remove entity "${e?.name ?? id}" and its relations?`,
+    okText: "Remove",
+    danger: true,
+  });
+  if (!ok) return;
   selectedEntityId = null;
   try {
     await source.deleteEntity(id);
@@ -1187,7 +1230,13 @@ async function deleteSelectedEntity(): Promise<void> {
 async function deleteSelectedRelation(): Promise<void> {
   const id = selectedRelationId;
   if (!id || !source.deleteEntityRelation) return;
-  if (!window.confirm("Remove this relation?")) return;
+  const ok = await confirmAction({
+    title: "Remove relation",
+    message: "Remove this relation? The entities it joins are left intact.",
+    okText: "Remove",
+    danger: true,
+  });
+  if (!ok) return;
   selectedRelationId = null;
   try {
     await source.deleteEntityRelation(id);
@@ -1243,7 +1292,12 @@ async function completeEntityRelation(fromId: string, toId: string): Promise<voi
     notify("Pick a different target entity.");
     return;
   }
-  const label = window.prompt('Relationship verb (e.g. "places"), optional:', "");
+  const label = await promptText({
+    title: "Relate entities",
+    label: "RELATIONSHIP VERB (OPTIONAL)",
+    placeholder: 'e.g. places, holds, billed',
+    okText: "Create relation",
+  });
   if (label === null) {
     cancelEntityLink();
     return; // cancelled
@@ -1393,12 +1447,7 @@ function drawElement(raw: DesignElement): SVGGElement {
 
   // API documentation indicator — shown only while the "Docs" toggle is on.
   if (raw.apiBinding && showDocs) {
-    const b = raw.apiBinding;
-    const label =
-      b.method || b.endpoint
-        ? [b.method, b.endpoint].filter(Boolean).join(" ")
-        : b.title;
-    g.append(badge(label, el.x + 6, el.y + 14));
+    g.append(badge(raw.apiBinding.title, el.x + 6, el.y + 14));
   }
   return g;
 }
@@ -1644,54 +1693,77 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
   const el = resolved(raw);
   const b = raw.apiBinding;
   if (!b) return svgEl("g", {}) as SVGGElement;
-  const primary =
-    b.method || b.endpoint
-      ? [b.method, b.endpoint].filter(Boolean).join(" ")
-      : b.title;
-  const secondary = b.method || b.endpoint ? b.title : (b.language ?? "");
 
-  // Anchor at the right-edge midpoint, elbow out and up to lift the label clear.
+  // Docs-first: the binding only carries { title, description }. We render the
+  // title as a method + path header when it reads like one ("POST /api/checkout"),
+  // otherwise the whole title is the heading. The Markdown body fills the card.
+  const title = b.title.trim();
+  const m = /^(GET|POST|PUT|PATCH|DELETE)\b\s*(.*)$/i.exec(title);
+  const method = m ? (m[1] ?? "").toUpperCase() : "";
+  const heading = (m ? (m[2] ?? "").trim() : title) || title;
+  const desc = b.description.trim();
+
+  // Anchor at the right-edge midpoint; a short horizontal stub leads to the card,
+  // whose left edge meets the line. World-space, so it pans/zooms with the design.
   const ax = el.x + el.width;
   const ay = el.y + el.height / 2;
-  const stub = ax + 28;
-  const labelY = ay - 24;
-  const labelX = stub + 34;
+  const stub = ax + 30;
+  const cardW = 262;
+  const cardX = stub;
+  const cardY = ay - 34;
+  const cardH = 150;
 
   const g = svgEl("g", { class: "doc-leader" }) as SVGGElement;
   g.dataset.id = raw.id;
 
-  const path = svgEl("polyline", {
-    points: `${ax},${ay} ${stub},${ay} ${stub},${labelY} ${labelX - 6},${labelY}`,
-    class: "doc-leader-line",
+  g.append(
+    svgEl("polyline", {
+      points: `${ax},${ay} ${stub},${ay} ${cardX},${ay}`,
+      class: "doc-leader-line",
+    }),
+  );
+  g.append(
+    svgEl("circle", { cx: String(ax), cy: String(ay), r: "3", class: "doc-leader-dot" }),
+  );
+
+  // The card is HTML (clean text wrapping for the body) inside a foreignObject.
+  const fo = svgEl("foreignObject", {
+    x: String(cardX),
+    y: String(cardY),
+    width: String(cardW),
+    height: String(cardH),
+    class: "doc-card-fo",
   });
-  g.append(path);
+  const card = document.createElementNS(XHTML_NS, "div");
+  card.setAttribute("class", "doc-card");
+  card.dataset.id = raw.id;
 
-  const dot = svgEl("circle", {
-    cx: String(ax),
-    cy: String(ay),
-    r: "3",
-    class: "doc-leader-dot",
-  });
-  g.append(dot);
+  const head = document.createElementNS(XHTML_NS, "div");
+  head.setAttribute("class", "doc-card-head");
+  const dot = document.createElementNS(XHTML_NS, "span");
+  dot.setAttribute("class", "doc-card-dot");
+  head.append(dot);
+  if (method) {
+    const badge = document.createElementNS(XHTML_NS, "span");
+    badge.setAttribute("class", "doc-card-method");
+    badge.textContent = method;
+    head.append(badge);
+  }
+  const path = document.createElementNS(XHTML_NS, "span");
+  path.setAttribute("class", "doc-card-path");
+  path.textContent = heading;
+  head.append(path);
+  card.append(head);
 
-  // Approximate width from the longer line (bold ~7px/char, sub ~6px/char).
-  const w = Math.max(primary.length * 7, secondary.length * 6) + 16;
-  const hasSub = secondary.length > 0;
-  const boxH = hasSub ? 34 : 22;
-  const bg = svgEl("rect", {
-    x: String(labelX - 6),
-    y: String(labelY - boxH / 2),
-    width: String(w),
-    height: String(boxH),
-    rx: "5",
-    class: "doc-leader-bg",
-  });
-  g.append(bg);
+  if (desc) {
+    const body = document.createElementNS(XHTML_NS, "div");
+    body.setAttribute("class", "doc-card-desc");
+    body.textContent = desc;
+    card.append(body);
+  }
 
-  const title = text(primary, labelX, hasSub ? labelY - 2 : labelY + 4, "doc-leader-label");
-  g.append(title);
-  if (hasSub) g.append(text(secondary, labelX, labelY + 12, "doc-leader-sub"));
-
+  fo.append(card);
+  g.append(fo);
   return g;
 }
 
@@ -2556,15 +2628,40 @@ function renderSelectionPanel(): void {
   setPanelHidden(!selectedId);
   const el = selectedId ? elements.get(selectedId) : undefined;
   const tl = selectedId ? (timelines.get(selectedId) ?? []) : [];
-  renderPanel(panel, el, tl, (patch) => {
-    if (!selectedId) return;
-    const current = elements.get(selectedId);
-    if (!current) return;
-    const updated = { ...current, ...patch, updatedAt: now() };
-    elements.set(selectedId, updated);
-    void source.saveElement(updated);
-    render();
-  });
+  // Explicit "Save documentation" — only offered when the source records history.
+  const doc = source.documentElement?.bind(source);
+  const onDocument = doc
+    ? (binding: ApiBinding) => {
+        const id = selectedId;
+        if (!id) return;
+        const current = elements.get(id);
+        if (!current) return;
+        // First-ever doc save → "created"; any prior entry → "modified".
+        const action = (timelines.get(id) ?? []).length === 0 ? "created" : "modified";
+        const version = `v${(timelines.get(id) ?? []).length + 1}`;
+        const changeLog =
+          action === "created" ? "Documented API" : "Updated API documentation";
+        // Keep the in-memory binding in step with what we version, then persist.
+        elements.set(id, { ...current, apiBinding: binding, updatedAt: now() });
+        void doc(id, binding, { version, changeLog, action });
+        render();
+      }
+    : undefined;
+  renderPanel(
+    panel,
+    el,
+    tl,
+    (patch) => {
+      if (!selectedId) return;
+      const current = elements.get(selectedId);
+      if (!current) return;
+      const updated = { ...current, ...patch, updatedAt: now() };
+      elements.set(selectedId, updated);
+      void source.saveElement(updated);
+      render();
+    },
+    onDocument,
+  );
 }
 
 // ========================================================================
@@ -2710,7 +2807,7 @@ function wireSaveButton(): void {
     return;
   }
   saveBtnEl.hidden = false;
-  saveBtnEl.replaceChildren(saveGlyph(), document.createTextNode("Save"));
+  saveBtnEl.replaceChildren(saveGlyph(), document.createTextNode("Save design checkpoint"));
   saveBtnEl.addEventListener("click", openSaveModal);
   updateSavedLabel();
 }
@@ -2795,6 +2892,152 @@ const TAG_OPTS: Array<{ key: CheckpointTag; label: string }> = [
   { key: "checkpoint", label: "Checkpoint" },
   { key: "wip", label: "WIP" },
 ];
+
+// ------------------------------------------------------------------------
+// Async dialogs (a webview-safe replacement for window.prompt/confirm)
+//
+// VS Code webviews block the synchronous window.prompt/confirm/alert, and a
+// synchronous modal can't work in any case. These render a small modal into
+// #dialog (in the Shadow DOM, reusing the .fwd-modal styles) and resolve a
+// Promise on OK / Cancel / Escape / backdrop — so the canvas authors infra,
+// entities and flows the same way whether it's embedded in the dashboard or in
+// the VS Code extension.
+// ------------------------------------------------------------------------
+
+/** Tear down whatever dialog is open. */
+function closeDialog(): void {
+  dialogEl.hidden = true;
+  dialogEl.replaceChildren();
+}
+
+/**
+ * Build the shared modal chrome (backdrop + card + head). `onResolve` is invoked
+ * (once) with the dialog's result for the dismiss paths (backdrop, Escape); the
+ * caller wires OK/Cancel buttons into the returned body/footer.
+ */
+function dialogShell<T>(
+  title: string,
+  dismissValue: T,
+  resolve: (v: T) => void,
+): { body: HTMLElement; foot: HTMLElement } {
+  dialogEl.hidden = false;
+  dialogEl.replaceChildren();
+
+  let done = false;
+  const finish = (v: T): void => {
+    if (done) return;
+    done = true;
+    closeDialog();
+    document.removeEventListener("keydown", onKey, true);
+    resolve(v);
+  };
+  const onKey = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      finish(dismissValue);
+    }
+  };
+  document.addEventListener("keydown", onKey, true);
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "fwd-modal-backdrop";
+  backdrop.addEventListener("mousedown", (e) => {
+    if (e.target === backdrop) finish(dismissValue);
+  });
+  const card = document.createElement("div");
+  card.className = "fwd-modal";
+  const head = document.createElement("div");
+  head.className = "fwd-modal-head";
+  const titleEl = document.createElement("div");
+  titleEl.className = "fwd-modal-title";
+  titleEl.append(spanEl("", "fwd-modal-dot"), spanEl(title));
+  head.append(titleEl, spanEl("forward / canvas", "fwd-modal-sub"));
+
+  const body = document.createElement("div");
+  body.className = "fwd-modal-body";
+  const foot = document.createElement("div");
+  foot.className = "fwd-modal-foot";
+
+  card.append(head, body, foot);
+  backdrop.append(card);
+  dialogEl.append(backdrop);
+
+  // Expose finish to the caller through the body/foot closures below.
+  (body as HTMLElement & { _finish?: (v: T) => void })._finish = finish;
+  (foot as HTMLElement & { _finish?: (v: T) => void })._finish = finish;
+  return { body, foot };
+}
+
+/** Ask for a line of text. Resolves the trimmed string, or null if cancelled. */
+function promptText(opts: {
+  title: string;
+  label?: string;
+  value?: string;
+  placeholder?: string;
+  okText?: string;
+}): Promise<string | null> {
+  return new Promise((resolve) => {
+    const { body, foot } = dialogShell<string | null>(opts.title, null, resolve);
+    const finish = (foot as HTMLElement & { _finish: (v: string | null) => void })._finish;
+
+    if (opts.label) body.append(fieldLabel(opts.label));
+    const input = document.createElement("input");
+    input.className = "fwd-modal-input";
+    input.value = opts.value ?? "";
+    if (opts.placeholder) input.placeholder = opts.placeholder;
+    // OK/Enter resolve the entered string (possibly empty, for optional fields);
+    // only the dismiss paths (Cancel / Escape / backdrop) resolve null.
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        finish(input.value.trim());
+      }
+    });
+    body.append(input);
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "fwd-modal-cancel";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => finish(null));
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = "fwd-modal-save";
+    ok.textContent = opts.okText ?? "OK";
+    ok.addEventListener("click", () => finish(input.value.trim()));
+    foot.append(cancel, ok);
+    requestAnimationFrame(() => input.focus());
+  });
+}
+
+/** Ask a yes/no question. Resolves true on confirm, false otherwise. */
+function confirmAction(opts: {
+  title: string;
+  message: string;
+  okText?: string;
+  danger?: boolean;
+}): Promise<boolean> {
+  return new Promise((resolve) => {
+    const { body, foot } = dialogShell<boolean>(opts.title, false, resolve);
+    const finish = (foot as HTMLElement & { _finish: (v: boolean) => void })._finish;
+
+    body.append(spanEl(opts.message, "fwd-modal-message"));
+
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "fwd-modal-cancel";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => finish(false));
+    const ok = document.createElement("button");
+    ok.type = "button";
+    ok.className = opts.danger ? "fwd-modal-save fwd-modal-danger" : "fwd-modal-save";
+    ok.textContent = opts.okText ?? "OK";
+    ok.addEventListener("click", () => finish(true));
+    foot.append(cancel, ok);
+    requestAnimationFrame(() => ok.focus());
+  });
+}
 
 /** Build the save-checkpoint modal imperatively into #savemodal. */
 function renderSaveModal(): void {
@@ -3250,7 +3493,7 @@ async function renderUmlPanel(): Promise<void> {
     const newBtn = document.createElement("button");
     newBtn.className = "uml-action";
     newBtn.textContent = "+ New flow";
-    newBtn.addEventListener("click", createFlow);
+    newBtn.addEventListener("click", () => void createFlow());
     const editBtn = document.createElement("button");
     editBtn.className = umlEdit ? "uml-action active" : "uml-action";
     editBtn.textContent = "Edit";
@@ -3351,9 +3594,16 @@ function closeUml(): void {
 // ------------------------------------------------------------------------
 
 /** Create a new (empty) flow, select it, and open the editor on it. */
-function createFlow(): void {
+async function createFlow(): Promise<void> {
   if (!source.saveInfraFlow) return;
-  const name = window.prompt("New flow name:")?.trim();
+  const name = (
+    await promptText({
+      title: "New flow",
+      label: "FLOW NAME",
+      placeholder: "e.g. User login, Checkout, Webhook delivery",
+      okText: "Create flow",
+    })
+  )?.trim();
   if (!name) return;
   const flow: InfraFlow = {
     id: `flow_${Date.now().toString(36)}`,
@@ -3382,11 +3632,17 @@ function updateFlow(patch: Partial<InfraFlow>): void {
 }
 
 /** Delete the selected flow after confirmation (its nodes/edges stay). */
-function deleteFlow(): void {
+async function deleteFlow(): Promise<void> {
   const id = selectedFlowId;
   if (!id || !source.deleteInfraFlow) return;
   const f = infraFlows.get(id);
-  if (!window.confirm(`Delete flow "${f?.name ?? id}"?`)) return;
+  const ok = await confirmAction({
+    title: "Delete flow",
+    message: `Delete flow "${f?.name ?? id}"? Its nodes and edges are left intact.`,
+    okText: "Delete",
+    danger: true,
+  });
+  if (!ok) return;
   infraFlows.delete(id);
   selectedFlowId = null;
   umlEdit = false;
@@ -3477,7 +3733,7 @@ function buildUmlEditor(flow: InfraFlow): HTMLElement {
   del.className = "doc-remove";
   del.textContent = "Delete flow";
   del.disabled = !source.deleteInfraFlow;
-  del.addEventListener("click", deleteFlow);
+  del.addEventListener("click", () => void deleteFlow());
   aside.append(del);
   return aside;
 }

@@ -120,11 +120,7 @@ async function loadTimelineEvents(cfg: FirebaseConfig) {
   const current: Record<string, CurrentLabel> = {};
   for (const el of elements) {
     if (el.apiBinding) {
-      current[el.id] = {
-        title: el.apiBinding.title,
-        ...(el.apiBinding.method ? { method: el.apiBinding.method } : {}),
-        ...(el.apiBinding.endpoint ? { path: el.apiBinding.endpoint } : {}),
-      };
+      current[el.id] = { title: el.apiBinding.title };
     }
   }
   return flattenTimelines(timelinesResult?.timelines ?? {}, current);
@@ -297,22 +293,15 @@ server.registerTool(
     title: "Write documentation onto an element",
     description:
       "Attach (or replace) API documentation on one design element, linking the design to the " +
-      "code you just wrote. title + Markdown description carry the meaning; language/method/" +
-      "endpoint/parameters are optional structured hints for REST endpoints (omit them for " +
-      "GraphQL/gRPC/CLI/jobs). The change is appended to the element's version history. The " +
-      "canvas updates live.",
+      "code you just wrote. title + Markdown description carry the meaning, for any kind of " +
+      "binding (REST, GraphQL, gRPC, CLI, jobs). The change is appended to the element's version " +
+      "history. The canvas updates live.",
     inputSchema: {
       elementId: z.string().min(1).describe("Target design element id (from find_element)."),
       title: ApiBinding.shape.title.describe("Short label for the endpoint/feature."),
       description: ApiBinding.shape.description.describe(
         "Markdown docs: what it does, params, request/response, gotchas.",
       ),
-      language: ApiBinding.shape.language.describe(
-        'Language/framework tag, e.g. "Python/FastAPI", "Go", "GraphQL".',
-      ),
-      method: ApiBinding.shape.method.describe("HTTP method, for REST endpoints only."),
-      endpoint: ApiBinding.shape.endpoint.describe("HTTP path, e.g. /api/v1/users/login."),
-      parameters: ApiBinding.shape.parameters.describe("Named parameters, if any."),
       changeLog: z
         .string()
         .optional()

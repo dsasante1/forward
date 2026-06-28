@@ -1,4 +1,5 @@
 import type {
+  ApiBinding,
   Checkpoint,
   CheckpointInput,
   DesignElement,
@@ -43,13 +44,38 @@ export interface EntitySnapshot {
   relations: EntityRelation[];
 }
 
+/**
+ * Whether the source's polling currently reaches the backend. A read-only or
+ * offline-fixture source has no remote to lose, so it simply never reports
+ * `"offline"` (the canvas treats the absence of `subscribeStatus` as online).
+ */
+export type ConnectionStatus = "online" | "offline";
+
 export interface CanvasSource {
   /** Subscribe to all elements in the project; fires on every change. */
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
+  /**
+   * Subscribe to the source's connection health. Fires immediately with the
+   * current status, then on every change — so the canvas can surface a
+   * "reconnecting" state instead of silently freezing when polling fails.
+   */
+  subscribeStatus?(onChange: (status: ConnectionStatus) => void): () => void;
   /** Subscribe to the infrastructure graph; fires on every change. */
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
   /** Create or update an element (the editor persists geometry/style here). */
   saveElement(element: DesignElement): Promise<void>;
+  /**
+   * Attach/replace the element's API documentation AND append an immutable entry
+   * to its version history — the explicit "Save documentation" action. Distinct
+   * from `saveElement` (which silently upserts the binding with no history), this
+   * is what populates the History timeline's API tab. Optional: read-only or
+   * history-less sources omit it and the panel hides the button.
+   */
+  documentElement?(
+    elementId: string,
+    binding: ApiBinding,
+    version: { version: string; changeLog: string; action: "created" | "modified" },
+  ): Promise<void>;
   /** Remove an element. */
   deleteElement(elementId: string): Promise<void>;
   /** Create or update one infra node. */

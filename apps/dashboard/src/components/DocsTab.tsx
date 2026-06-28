@@ -1,6 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
+import { AsyncStates } from "./AsyncStates.js";
 
 /**
  * The project's API documentation: every design element that has an `apiBinding`
@@ -11,12 +12,8 @@ import { useAsync } from "../api/useAsync.js";
 export function DocsTab({ projectId }: { projectId: string }) {
   const api = useApi();
   const navigate = useNavigate();
-  const { data: elements, loading, error } = useAsync(
-    () => api.listElements(projectId),
-    [api, projectId],
-  );
-
-  const documented = elements?.filter((el) => el.apiBinding) ?? [];
+  const state = useAsync(() => api.listElements(projectId), [api, projectId]);
+  const documented = state.data?.filter((el) => el.apiBinding) ?? [];
 
   /**
    * Open the embedded web canvas for this project, focusing one element when
@@ -40,14 +37,17 @@ export function DocsTab({ projectId }: { projectId: string }) {
         </button>
       </div>
 
-      {loading && <p className="muted">Loading documentation…</p>}
-      {error && <p className="error">{error}</p>}
-      {elements && documented.length === 0 && (
-        <p className="muted">
-          No documented endpoints yet. Backend devs attach API docs to design
-          elements from the VS Code extension or the MCP server.
-        </p>
-      )}
+      <AsyncStates
+        state={state}
+        loadingText="Loading documentation…"
+        isEmpty={() => documented.length === 0}
+        empty={
+          <p className="muted">
+            No documented endpoints yet. Backend devs attach API docs to design
+            elements from the VS Code extension or the MCP server.
+          </p>
+        }
+      />
 
       <ul className="list">
         {documented.map((el) => {
@@ -55,9 +55,7 @@ export function DocsTab({ projectId }: { projectId: string }) {
           return (
             <li key={el.id} className="doc-row">
               <div className="doc-head">
-                {b.method && <span className="method">{b.method}</span>}
                 <span className="doc-title">{b.title}</span>
-                {b.endpoint && <code className="endpoint">{b.endpoint}</code>}
                 <button
                   type="button"
                   className="link canvas-link"
@@ -68,11 +66,6 @@ export function DocsTab({ projectId }: { projectId: string }) {
                 </button>
               </div>
               {b.description && <p className="doc-desc">{b.description}</p>}
-              {b.parameters.length > 0 && (
-                <p className="muted small">
-                  Params: {b.parameters.join(", ")}
-                </p>
-              )}
             </li>
           );
         })}
