@@ -1,11 +1,18 @@
 import {
+  type ApiDetail,
+  buildHistoryDetail,
   buildHistoryTimeline,
   type Checkpoint,
+  type DesignDetail,
+  type HistoryDetail,
   type HistoryRow,
   type HistorySort,
+  type HistorySources,
   type HistoryView,
+  type InfraDetail,
   type ProjectTimelineEvent,
   type TimelineDomain,
+  type UmlDetail,
 } from "forward-core";
 
 /**
@@ -26,6 +33,8 @@ export interface TimelineCallbacks {
   onRestore: (checkpointId: string) => void;
   /** Delete a checkpoint (from the event viewer). Omitted on read-only sources. */
   onDelete?: (checkpointId: string) => void;
+  /** Render a Mermaid source to an SVG string (the infra/UML detail diagrams). */
+  renderMermaid?: (src: string) => Promise<string>;
   onClose: () => void;
 }
 
@@ -50,6 +59,7 @@ let pickId: string | null = null;
 
 let lastEvents: ProjectTimelineEvent[] = [];
 let lastCheckpoints: Checkpoint[] = [];
+let lastSources: HistorySources = {};
 let lastRoot: HTMLElement | null = null;
 let lastCb: TimelineCallbacks | null = null;
 
@@ -57,10 +67,12 @@ export function renderTimelineView(
   root: HTMLElement,
   events: ProjectTimelineEvent[],
   checkpoints: Checkpoint[],
+  sources: HistorySources,
   cb: TimelineCallbacks,
 ): void {
   lastEvents = events;
   lastCheckpoints = checkpoints;
+  lastSources = sources;
   lastRoot = root;
   lastCb = cb;
   paint();
@@ -171,6 +183,7 @@ function rowEl(r: HistoryRow): HTMLElement {
   const initial = (r.author || "?").charAt(0).toUpperCase();
   foot.append(span(initial, "tl2-avatar"));
   foot.append(span(r.author || "unknown", "tl2-author"));
+  foot.append(span(fmtTime(r.timestamp), "tl2-time"));
   const link = div("tl2-view-link");
   link.style.color = color;
   link.append(eyeIcon(), document.createTextNode("View"));
@@ -223,7 +236,7 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   titles.append(
     h(
       "div",
-      `${MONTHS[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()} · ${r.author || "unknown"}`,
+      `${MONTHS[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")}, ${d.getFullYear()} · ${fmtTime(r.timestamp)} · ${r.author || "unknown"}`,
       "tl2-viewer-stamp",
     ),
   );
@@ -278,19 +291,209 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   head.append(acts);
   viewer.append(head);
 
-  // The honest "snapshot": the real recorded event — domain, title, detail.
-  // (We don't fabricate a reconstructed drawing; the data we hold is the change.)
+  // The recorded change, rendered for what it actually is: a design-element
+  // edit, an API doc diff, an infra node/edge, or a narrated UML flow. The body
+  // is resolved purely (forward-core) against the live project state; this only
+  // draws each variant. Checkpoints / unresolved targets keep the plain card.
   const stage = div("tl2-stage");
   const card = div("tl2-stage-card");
-  const dchip = domainChip(r, color);
-  card.append(dchip);
+  card.append(domainChip(r, color));
   card.append(h("div", r.title, "tl2-stage-title"));
-  card.append(
-    h("div", r.detail || "No further detail recorded for this change.", "tl2-stage-detail"),
-  );
+  card.append(h("div", actionLine(r), "tl2-stage-detail"));
+
+  const detail = buildHistoryDetail(r, lastSources);
+  const body = detailBody(detail, color, cb);
+  if (body) card.append(body);
+  else if (r.detail) card.append(h("div", r.detail, "tl2-stage-note"));
+
   stage.append(card);
   viewer.append(stage);
   return viewer;
+}
+
+/** A human "verb + what" line from the row's action (e.g. "Updated · design"). */
+function actionLine(r: HistoryRow): string {
+  const verb =
+    r.action === "created" ? "Created" : r.action === "deleted" ? "Deleted" : "Updated";
+  return r.detail || `${verb} ${DOMAIN[r.domain].label.toLowerCase()}`;
+}
+
+// --------------------------------------------------------------------------
+// Per-domain detail bodies
+// --------------------------------------------------------------------------
+function detailBody(
+  detail: HistoryDetail,
+  color: string,
+  cb: TimelineCallbacks,
+): HTMLElement | null {
+  switch (detail.kind) {
+    case "design":
+      return designBody(detail);
+    case "api":
+      return apiBody(detail, color);
+    case "infra":
+      return infraBody(detail, cb);
+    case "uml":
+      return umlBody(detail, cb);
+    default:
+      return null;
+  }
+}
+
+function designBody(d: DesignDetail): HTMLElement {
+  const wrap = div("tl2-detail");
+  if (!d.found) {
+    wrap.append(h("div", "This element no longer exists on the canvas.", "tl2-detail-empty"));
+    return wrap;
+  }
+  const grid = div("tl2-proptable");
+  if (d.elementType) grid.append(propRow("Type", d.elementType));
+  for (const p of d.props) grid.append(propRow(p.label, p.value));
+  if (d.fill) {
+    const v = span("", "tl2-prop-v");
+    const sw = span("", "tl2-swatch");
+    sw.style.background = d.fill;
+    v.append(sw, document.createTextNode(d.fill));
+    grid.append(propRowEl("Fill", v));
+  }
+  wrap.append(grid);
+  if (d.text) {
+    wrap.append(h("div", "Text", "tl2-detail-h"));
+    wrap.append(h("div", d.text, "tl2-detail-text"));
+  }
+  return wrap;
+}
+
+function apiBody(d: ApiDetail, color: string): HTMLElement {
+  const wrap = div("tl2-detail");
+
+  const pills = div("tl2-pills");
+  if (d.method) {
+    const m = span(d.method, "tl2-method");
+    m.dataset.method = d.method;
+    pills.append(m);
+  }
+  if (d.path) pills.append(span(d.path, "tl2-endpoint"));
+  if (d.version) {
+    pills.append(
+      span(d.previousVersion ? `${d.previousVersion} → ${d.version}` : d.version, "tl2-version"),
+    );
+  }
+  if (d.added || d.removed) {
+    const badge = span("", "tl2-diffcount");
+    if (d.added) badge.append(span(`+${d.added}`, "tl2-add"));
+    if (d.removed) badge.append(span(`−${d.removed}`, "tl2-rem"));
+    pills.append(badge);
+  }
+  if (pills.childElementCount) wrap.append(pills);
+
+  if (d.breaking) {
+    const warn = div("tl2-breaking");
+    warn.append(span("⚠ Breaking", "tl2-breaking-tag"));
+    warn.append(document.createTextNode(d.breaking));
+    wrap.append(warn);
+  }
+
+  if (d.changeLog) wrap.append(h("div", d.changeLog, "tl2-detail-text"));
+
+  for (const sec of d.sections) {
+    if (!sec.rows.length) continue;
+    wrap.append(h("div", sec.label, "tl2-detail-h"));
+    const table = div("tl2-difftable");
+    for (const dr of sec.rows) {
+      const line = div(`tl2-diffrow ${dr.op}`);
+      line.style.setProperty("--accent", color);
+      const sign = dr.op === "added" ? "+" : dr.op === "removed" ? "−" : " ";
+      line.append(span(sign, "tl2-diffsign"));
+      for (const cell of dr.cols) line.append(span(cell, "tl2-diffcell"));
+      table.append(line);
+    }
+    wrap.append(table);
+  }
+
+  if (d.description) {
+    wrap.append(h("div", "Description", "tl2-detail-h"));
+    wrap.append(h("div", d.description, "tl2-detail-text"));
+  }
+
+  if (!wrap.childElementCount) {
+    wrap.append(h("div", "No documentation diff recorded for this change.", "tl2-detail-empty"));
+  }
+  return wrap;
+}
+
+function infraBody(d: InfraDetail, cb: TimelineCallbacks): HTMLElement {
+  const wrap = div("tl2-detail");
+  if (d.subject === "node") {
+    const grid = div("tl2-proptable");
+    if (d.nodeKind) grid.append(propRow("Kind", d.nodeKind));
+    if (d.label) grid.append(propRow("Label", d.label));
+    if (d.tech) grid.append(propRow("Tech", d.tech));
+    wrap.append(grid);
+    if (d.description) wrap.append(h("div", d.description, "tl2-detail-text"));
+  } else if (d.subject === "edge") {
+    const grid = div("tl2-proptable");
+    grid.append(propRow("Connection", `${d.fromLabel ?? "?"} → ${d.toLabel ?? "?"}`));
+    if (d.edgeLabel) grid.append(propRow("Label", d.edgeLabel));
+    wrap.append(grid);
+  } else {
+    wrap.append(h("div", "This infrastructure item no longer exists.", "tl2-detail-empty"));
+  }
+  if (d.mermaid) wrap.append(diagram(d.mermaid, cb));
+  return wrap;
+}
+
+function umlBody(d: UmlDetail, cb: TimelineCallbacks): HTMLElement {
+  const wrap = div("tl2-detail");
+  if (!d.found) {
+    wrap.append(h("div", "This flow no longer exists.", "tl2-detail-empty"));
+    return wrap;
+  }
+  if (d.description) wrap.append(h("div", d.description, "tl2-detail-text"));
+  if (!d.steps.length) {
+    wrap.append(h("div", "This flow has no steps yet.", "tl2-detail-empty"));
+    return wrap;
+  }
+  const list = div("tl2-steps");
+  for (const s of d.steps) {
+    const row = div("tl2-step-row");
+    row.append(span(String(s.n), "tl2-step-n"));
+    row.append(span(`${s.fromLabel} → ${s.toLabel}`, "tl2-step-nodes"));
+    if (s.label) row.append(span(s.label, "tl2-step-label"));
+    list.append(row);
+  }
+  wrap.append(list);
+  if (d.mermaid) wrap.append(diagram(d.mermaid, cb));
+  return wrap;
+}
+
+/** A Mermaid diagram host; renders async via the host's `renderMermaid`. */
+function diagram(src: string, cb: TimelineCallbacks): HTMLElement {
+  const box = div("tl2-diagram");
+  if (!cb.renderMermaid) return box;
+  box.append(h("div", "Rendering…", "tl2-detail-empty"));
+  const token = pickId; // bail if the user navigates to another event meanwhile
+  void cb
+    .renderMermaid(src)
+    .then((svg) => {
+      if (pickId !== token) return;
+      box.innerHTML = svg;
+    })
+    .catch(() => {
+      box.replaceChildren(h("div", "Couldn't render diagram.", "tl2-detail-empty"));
+    });
+  return box;
+}
+
+// ---- detail builders ------------------------------------------------------
+function propRow(label: string, value: string): HTMLElement {
+  return propRowEl(label, span(value, "tl2-prop-v"));
+}
+function propRowEl(label: string, value: HTMLElement): HTMLElement {
+  const row = div("tl2-prop");
+  row.append(span(label, "tl2-prop-k"));
+  row.append(value);
+  return row;
 }
 
 function stepBtn(glyph: string, onClick: () => void): HTMLButtonElement {
@@ -312,6 +515,12 @@ function fmtRange(first?: number, last?: number, order: HistorySort = "new"): st
   if (lo === hi) return lo;
   // Read in the direction the list is sorted (newest-first shows hi → lo).
   return order === "new" ? `${hi} → ${lo}` : `${lo} → ${hi}`;
+}
+
+/** Epoch ms → 24h `HH:MM`, the time alongside the date on every event. */
+function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 /** Hex (#rrggbb) → rgba() string, for the translucent chip backgrounds. */

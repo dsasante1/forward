@@ -15,10 +15,12 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  ProjectRole,
   ProjectTimelineEvent,
   Task,
   VersionEntry,
 } from "forward-core";
+import type { RosterMember } from "forward-core/api";
 
 export type TokenProvider = () => Promise<string | null | undefined>;
 
@@ -57,7 +59,10 @@ export interface CanvasSource {
   deleteEntity?(entityId: string): Promise<void>;
   saveEntityRelation?(relation: EntityRelation): Promise<void>;
   deleteEntityRelation?(relationId: string): Promise<void>;
-  addMember?(uid: string): Promise<void>;
+  addMember?(uid: string, role?: ProjectRole): Promise<void>;
+  listMembers?(): Promise<RosterMember[]>;
+  updateMemberRole?(uid: string, role: ProjectRole): Promise<void>;
+  removeMember?(uid: string): Promise<void>;
   subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
   saveTask?(task: Task): Promise<void>;
   deleteTask?(taskId: string): Promise<void>;

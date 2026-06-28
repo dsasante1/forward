@@ -1,15 +1,21 @@
 import { describe, it, expect } from "vitest";
 import type {
   Checkpoint,
+  DesignElement,
+  InfraEdge,
+  InfraFlow,
+  InfraNode,
   ProjectTimelineEvent,
   VersionEntry,
 } from "./schema.js";
 import {
   actionOf,
+  buildHistoryDetail,
   buildHistoryTimeline,
   computeLanes,
   digest,
   flattenTimelines,
+  type HistoryRow,
   laneCount,
   type TimelineEvent,
 } from "./timeline.js";
@@ -228,5 +234,153 @@ describe("buildHistoryTimeline", () => {
       sort: "new",
     });
     expect(infra.rows).toHaveLength(1);
+  });
+});
+
+describe("buildHistoryDetail", () => {
+  function row(part: Partial<HistoryRow> & { domain: HistoryRow["domain"] }): HistoryRow {
+    return {
+      id: "e1",
+      kind: "event",
+      action: "modified",
+      title: "t",
+      detail: "",
+      author: "maya",
+      timestamp: 1000,
+      ...part,
+    };
+  }
+  function el(part: Partial<DesignElement> & { id: string }): DesignElement {
+    return {
+      type: "rectangle",
+      name: "",
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+      parentId: null,
+      rotation: 0,
+      updatedAt: new Date(0).toISOString(),
+      ...part,
+    };
+  }
+
+  it("checkpoint rows fall back to generic", () => {
+    const d = buildHistoryDetail(row({ domain: "design", kind: "checkpoint" }), {});
+    expect(d.kind).toBe("generic");
+  });
+
+  it("design: resolves geometry, parent name and fill", () => {
+    const elements = new Map<string, DesignElement>([
+      ["frame-1", el({ id: "frame-1", type: "frame", name: "Signup" })],
+      [
+        "rect-1",
+        el({ id: "rect-1", x: 10.4, y: 20.6, width: 120, height: 48, parentId: "frame-1", style: { fill: "#abc" } }),
+      ],
+    ]);
+    const d = buildHistoryDetail(row({ domain: "design", targetId: "rect-1" }), { elements });
+    expect(d).toMatchObject({ kind: "design", found: true, elementType: "rectangle", fill: "#abc" });
+    if (d.kind !== "design") throw new Error("expected design");
+    expect(d.props).toEqual(
+      expect.arrayContaining([
+        { label: "Position", value: "10, 21" },
+        { label: "Size", value: "120 × 48" },
+        { label: "Parent", value: "Signup" },
+      ]),
+    );
+  });
+
+  it("design: marks a vanished element (deletion) as not found", () => {
+    const d = buildHistoryDetail(row({ domain: "design", targetId: "gone" }), { elements: new Map() });
+    expect(d).toMatchObject({ kind: "design", found: false });
+  });
+
+  it("api: surfaces the time-matched entry's endpoint, version and diff", () => {
+    const entries: VersionEntry[] = [
+      entry({ timestamp: 100, version: "v1", endpoint: { title: "Checkout", method: "POST", path: "/checkout" } }),
+      entry({
+        timestamp: 1000,
+        version: "v2",
+        previousVersion: "v1",
+        endpoint: { title: "Checkout", method: "POST", path: "/checkout" },
+        diff: { added: 2, removed: 1, breaking: "drops `token`", sections: [{ label: "request", rows: [] }] },
+      }),
+    ];
+    const d = buildHistoryDetail(row({ domain: "api", targetId: "rect-1", timestamp: 1000 }), {
+      timelines: new Map([["rect-1", entries]]),
+    });
+    expect(d).toMatchObject({
+      kind: "api",
+      method: "POST",
+      path: "/checkout",
+      version: "v2",
+      previousVersion: "v1",
+      added: 2,
+      removed: 1,
+      breaking: "drops `token`",
+    });
+    if (d.kind !== "api") throw new Error("expected api");
+    expect(d.sections).toHaveLength(1);
+  });
+
+  it("api: empty when the element has no history", () => {
+    const d = buildHistoryDetail(row({ domain: "api", targetId: "rect-1" }), {});
+    expect(d).toMatchObject({ kind: "api", added: 0, removed: 0 });
+    if (d.kind !== "api") throw new Error("expected api");
+    expect(d.sections).toHaveLength(0);
+  });
+
+  it("infra: a node resolves kind/label plus a neighbourhood diagram", () => {
+    const infraNodes = new Map<string, InfraNode>([
+      ["svc", { id: "svc", kind: "backend", label: "checkout-svc", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
+      ["db", { id: "db", kind: "database", label: "payments-db", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
+    ]);
+    const infraEdges: InfraEdge[] = [{ id: "e1", from: "svc", to: "db", label: "writes", updatedAt: new Date(0).toISOString() }];
+    const d = buildHistoryDetail(row({ domain: "infra", targetId: "svc" }), { infraNodes, infraEdges });
+    expect(d).toMatchObject({ kind: "infra", subject: "node", nodeKind: "backend", label: "checkout-svc" });
+    if (d.kind !== "infra") throw new Error("expected infra");
+    expect(d.mermaid).toContain("flowchart");
+    expect(d.mermaid).toContain("payments-db"); // the one-hop neighbour is pulled in
+  });
+
+  it("infra: an edge resolves endpoint labels", () => {
+    const infraNodes = new Map<string, InfraNode>([
+      ["svc", { id: "svc", kind: "backend", label: "checkout-svc", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
+      ["db", { id: "db", kind: "database", label: "payments-db", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
+    ]);
+    const infraEdges: InfraEdge[] = [{ id: "e1", from: "svc", to: "db", label: "writes", updatedAt: new Date(0).toISOString() }];
+    const d = buildHistoryDetail(row({ domain: "infra", targetId: "e1" }), { infraNodes, infraEdges });
+    expect(d).toMatchObject({ kind: "infra", subject: "edge", fromLabel: "checkout-svc", toLabel: "payments-db", edgeLabel: "writes" });
+  });
+
+  it("uml: a flow resolves numbered steps and a sequence diagram", () => {
+    const infraNodes = new Map<string, InfraNode>([
+      ["svc", { id: "svc", kind: "backend", label: "checkout-svc", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
+      ["db", { id: "db", kind: "database", label: "payments-db", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
+    ]);
+    const flow: InfraFlow = {
+      id: "flow-1",
+      name: "payment",
+      description: "",
+      steps: [{ from: "svc", to: "db", label: "charge card", kind: "sync" }],
+      updatedAt: new Date(0).toISOString(),
+    };
+    const d = buildHistoryDetail(row({ domain: "uml", targetId: "flow-1" }), {
+      infraNodes,
+      infraFlows: new Map([["flow-1", flow]]),
+    });
+    expect(d).toMatchObject({ kind: "uml", found: true, flowName: "payment" });
+    if (d.kind !== "uml") throw new Error("expected uml");
+    expect(d.steps).toEqual([{ n: 1, fromLabel: "checkout-svc", toLabel: "payments-db", label: "charge card", kind: "sync" }]);
+    expect(d.mermaid).toContain("sequenceDiagram");
+  });
+
+  it("uml: an empty flow has no diagram", () => {
+    const flow: InfraFlow = { id: "flow-1", name: "payment", description: "", steps: [], updatedAt: new Date(0).toISOString() };
+    const d = buildHistoryDetail(row({ domain: "uml", targetId: "flow-1" }), { infraFlows: new Map([["flow-1", flow]]) });
+    expect(d).toMatchObject({ kind: "uml", found: true });
+    if (d.kind !== "uml") throw new Error("expected uml");
+    expect(d.mermaid).toBeUndefined();
+    expect(d.steps).toHaveLength(0);
   });
 });
