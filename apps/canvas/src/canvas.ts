@@ -21,11 +21,17 @@ import {
   infraViewToMermaid,
   newTask,
 } from "forward-core";
-import type { CanvasSource, ElementSnapshot } from "./source.js";
+import type {
+  CanvasSource,
+  ElementSnapshot,
+  ProjectRole,
+  RosterMember,
+} from "./source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
 import { renderEntityPanel, renderInfraPanel, renderPanel } from "./panel.js";
 import { renderTimelineView } from "./timeline-view.js";
 import { renderTasksView } from "./tasks-view.js";
+import { renderMemberView } from "./member-view.js";
 import {
   type CanvasTheme,
   type ThemePreset,
@@ -41,7 +47,7 @@ const XHTML_NS = "http://www.w3.org/1999/xhtml";
  * its styles (and generic selectors like `code`/`table`/`.row`) stay isolated
  * from any host page (e.g. the dashboard). */
 const SKELETON = `
-<div class="fwd-canvas-root layers-open">
+<div class="fwd-canvas-root layers-open" data-view="design">
   <nav id="toolbar"></nav>
   <aside id="layers">
     <div class="fwd-layers-head">
@@ -77,6 +83,8 @@ const SKELETON = `
       <div id="umlpanel" hidden></div>
       <div id="history" hidden></div>
       <div id="tasks" hidden></div>
+      <div id="viewtools" hidden></div>
+      <div id="member" hidden></div>
     </div>
   </div>
   <aside id="panel"><p class="empty">Select or draw an element.</p></aside>
@@ -119,6 +127,8 @@ let zoomLabel: HTMLElement | null = null;
 let historyEl!: HTMLElement;
 let umlPanelEl!: HTMLElement;
 let tasksEl!: HTMLElement;
+let viewToolsEl!: HTMLElement;
+let memberEl!: HTMLElement;
 let ctxMenuEl!: HTMLElement;
 let saveModalEl!: HTMLElement;
 let dialogEl!: HTMLElement;
@@ -174,6 +184,8 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   historyEl = uiRoot.querySelector("#history") as HTMLElement;
   umlPanelEl = uiRoot.querySelector("#umlpanel") as HTMLElement;
   tasksEl = uiRoot.querySelector("#tasks") as HTMLElement;
+  viewToolsEl = uiRoot.querySelector("#viewtools") as HTMLElement;
+  memberEl = uiRoot.querySelector("#member") as HTMLElement;
   ctxMenuEl = uiRoot.querySelector("#ctxmenu") as HTMLElement;
   saveModalEl = uiRoot.querySelector("#savemodal") as HTMLElement;
   dialogEl = uiRoot.querySelector("#dialog") as HTMLElement;
@@ -297,6 +309,25 @@ let showTimeline = false; // show/hide the project endpoint-timeline panel
 let showTasks = false; // show/hide the project task-tracker panel
 let showTheme = false; // show/hide the theme editor drawer
 let taskFilterLinked = false; // restrict the task list to the current selection
+
+// The rail behaves as a set of mutually-exclusive workspace modes. `view` is the
+// single source of truth; the legacy `show*`/`umlOpen` booleans above are derived
+// from it inside setView() so the many existing read-sites keep working. `showDocs`
+// (decoration, design-only) and `showTheme` (drawer overlay, allowed in any view)
+// stay independent.
+type PrimaryView =
+  | "design"
+  | "infra"
+  | "data"
+  | "uml"
+  | "history"
+  | "tasks"
+  | "member";
+let view: PrimaryView = "design";
+// Member roster (the Member view), loaded lazily on entry from source.listMembers.
+let members: RosterMember[] = [];
+let membersLoading = false;
+let membersError: string | undefined;
 
 // Local-only view theme (full UI palette + grid). Persisted to localStorage per
 // project — never written to the project data, and never touches canvas shapes.
@@ -512,96 +543,140 @@ function buildToolbar(): void {
   // Membership management only applies to the live (auth-gated) source; a
   // read-only source omits addMember and the tool simply doesn't appear.
   if (source.addMember) {
-    toolbar.append(iconButton(memberIcon(), "Member", addMember));
+    const memberBtn = iconButton(memberIcon(), "Member", toggleMember);
+    memberBtn.dataset.toggle = "member";
+    toolbar.append(memberBtn);
   }
   refreshToolbar();
+  syncRailActive();
 }
 
 /**
  * Enrol another collaborator by uid. They get their uid from the access banner
  * shown when they're locked out of the project; pasting it here grants access.
  */
-async function addMember(): Promise<void> {
-  if (!source.addMember) return;
-  const uid = window
-    .prompt(
-      "Add a collaborator by their user id (uid).\nThey see it in the banner when they're locked out of this project:",
-    )
-    ?.trim();
-  if (!uid) return;
-  try {
-    await source.addMember(uid);
-    notify(`Added ${uid} to this project.`);
-  } catch (err) {
-    notify(`Couldn't add member: ${(err as Error).message}`);
-  }
-}
+/**
+ * Switch the active workspace mode. The one place mutual exclusivity lives: it
+ * derives the legacy `show*`/`umlOpen` booleans from `next`, clears the transient
+ * state of the mode being left, drives the per-view chrome (which surfaces the
+ * CSS shows), and repaints. Re-clicking the active mode's rail button returns to
+ * the design view.
+ */
+function setView(next: PrimaryView): void {
+  if (view === next) return;
+  const prev = view;
+  view = next;
 
-/** Show or hide the project's infrastructure diagram overlay. */
-function toggleInfra(): void {
-  showInfra = !showInfra;
-  // Infra and the ER overlay both take over the canvas + drawer, so only one is
-  // shown at a time — opening infra closes entities.
-  if (showInfra && showEntities) toggleEntities();
-  toolbar
-    .querySelector('[data-toggle="infra"]')
-    ?.classList.toggle("active", showInfra);
-  if (!showInfra) {
-    selectedFlowId = null; // hiding the overlay clears the highlight
+  // Legacy flags kept in step so the existing read-sites stay correct.
+  showInfra = next === "infra";
+  showEntities = next === "data";
+  showTimeline = next === "history";
+  showTasks = next === "tasks";
+
+  // Leaving infra/data drops their transient selections + armed link tools.
+  if (prev === "infra") {
+    selectedFlowId = null;
     selectedInfraId = null;
-    if (linkMode) cancelLink();
+    if (linkMode) {
+      linkMode = false;
+      linkSourceId = null;
+    }
   }
-  render();
-}
-
-/** Show or hide the project's ER (data-model) diagram overlay. */
-function toggleEntities(): void {
-  showEntities = !showEntities;
-  if (showEntities && showInfra) toggleInfra(); // mutually exclusive with infra
-  toolbar
-    .querySelector('[data-toggle="entities"]')
-    ?.classList.toggle("active", showEntities);
-  if (!showEntities) {
+  if (prev === "data") {
     selectedEntityId = null;
     selectedRelationId = null;
-    if (entityLinkMode) cancelEntityLink();
+    if (entityLinkMode) {
+      entityLinkMode = false;
+      entityLinkSourceId = null;
+    }
   }
-  render();
+
+  // UML owns an async surface; open/close it explicitly here.
+  if (next === "uml") {
+    umlOpen = true;
+    umlZoom = 1; // open at fit
+    umlEdit = false; // open in view mode
+  } else if (umlOpen) {
+    umlOpen = false;
+    umlEdit = false;
+    umlPanelEl.replaceChildren();
+  }
+
+  // The Member view loads its roster lazily on entry.
+  if (next === "member") void loadMembers();
+
+  if (canvasRootEl) canvasRootEl.dataset.view = next;
+  // The Layers sidebar only applies in the design view.
+  canvasRootEl?.classList.toggle("layers-open", next === "design" && layersOpen);
+
+  syncRailActive();
+  render(); // repaints the canvas + refreshes the drawer/view-tools/panels
+  renderMemberPanel();
+  void renderUmlPanel();
 }
 
-/** Show or hide the project endpoint-timeline panel (git-graph + digest). */
+/** Reflect the active view + flags on the rail buttons' `.active` state. */
+function syncRailActive(): void {
+  const set = (toggle: string, on: boolean) =>
+    toolbar
+      .querySelector(`[data-toggle="${toggle}"]`)
+      ?.classList.toggle("active", on);
+  set("layers", view === "design" && layersOpen);
+  set("docs", view === "design" && showDocs);
+  set("infra", view === "infra");
+  set("entities", view === "data");
+  set("uml", view === "uml");
+  set("timeline", view === "history");
+  set("tasks", view === "tasks");
+  set("member", view === "member");
+  set("theme", showTheme);
+}
+
+/** Open the full-area infra graph (or return to design when re-clicked). */
+function toggleInfra(): void {
+  setView(view === "infra" ? "design" : "infra");
+}
+
+/** Open the full-area ER / data-model graph (or return to design). */
+function toggleEntities(): void {
+  setView(view === "data" ? "design" : "data");
+}
+
+/** Open the full-area History timeline (or return to design). */
 function toggleTimeline(): void {
-  showTimeline = !showTimeline;
-  toolbar
-    .querySelector('[data-toggle="timeline"]')
-    ?.classList.toggle("active", showTimeline);
-  renderTimelinePanel();
+  setView(view === "history" ? "design" : "history");
 }
 
-/** Show or hide the project task-tracker panel (pillar 4). */
+/** Open the full-area task tracker (or return to design). */
 function toggleTasks(): void {
-  showTasks = !showTasks;
-  toolbar
-    .querySelector('[data-toggle="tasks"]')
-    ?.classList.toggle("active", showTasks);
-  renderTasksPanel();
+  setView(view === "tasks" ? "design" : "tasks");
 }
 
-/** Show or hide the theme editor, which takes over the right drawer. */
+/** Open the full-area member roster (or return to design). */
+function toggleMember(): void {
+  setView(view === "member" ? "design" : "member");
+}
+
+/** Show or hide the theme editor, which takes over the right drawer in any view. */
 function toggleTheme(): void {
   showTheme = !showTheme;
-  toolbar
-    .querySelector('[data-toggle="theme"]')
-    ?.classList.toggle("active", showTheme);
+  syncRailActive();
   renderSelectionPanel();
 }
 
-/** Show or hide the minimized API indicators on every documented element. */
+/**
+ * The Docs rail button: from another view it returns to the design workspace with
+ * decoration on; within the design view it toggles the documented-element
+ * indicators / leader line.
+ */
 function toggleDocs(): void {
+  if (view !== "design") {
+    showDocs = true;
+    setView("design");
+    return;
+  }
   showDocs = !showDocs;
-  toolbar
-    .querySelector('[data-toggle="docs"]')
-    ?.classList.toggle("active", showDocs);
+  syncRailActive();
   render();
 }
 
@@ -627,25 +702,35 @@ function render(): void {
     transform: `translate(${panX} ${panY}) scale(${zoom})`,
   }) as SVGGElement;
 
-  // Design layer in its own group so an overlay can dim it as a unit.
-  const design = svgEl("g", {}) as SVGGElement;
-  if (showInfra || showEntities) design.setAttribute("opacity", "0.35");
-  for (const el of ordered()) {
-    if (isHidden(el)) continue; // hidden via the layers eye toggle (or a hidden ancestor)
-    design.append(drawElement(el));
+  // The design elements only render in the design view — the infra/data views are
+  // standalone (no design beneath), so the graph reads on its own.
+  if (view === "design") {
+    const design = svgEl("g", {}) as SVGGElement;
+    for (const el of ordered()) {
+      if (isHidden(el)) continue; // hidden via the layers eye toggle (or a hidden ancestor)
+      design.append(drawElement(el));
+    }
+    if (selectedId) {
+      const sel = elements.get(selectedId);
+      // Don't draw selection handles over a hidden element (nothing is painted there).
+      if (sel && !isHidden(sel)) design.append(...handles(sel));
+    }
+    for (const x of guides.v) design.append(line(x, 0, x, 4000));
+    for (const y of guides.h) design.append(line(0, y, 4000, y));
+    vp.append(design);
+
+    // Focus-mode doc leader: the selected (or hovered) element draws one leader
+    // line out to its documentation.
+    if (showDocs) {
+      const focusId = selectedId ?? hoverId;
+      const focus = focusId ? elements.get(focusId) : undefined;
+      if (focus?.apiBinding) vp.append(drawDocLeader(focus));
+    }
   }
-  if (selectedId) {
-    const sel = elements.get(selectedId);
-    // Don't draw selection handles over a hidden element (nothing is painted there).
-    if (sel && !isHidden(sel)) design.append(...handles(sel));
-  }
-  for (const x of guides.v) design.append(line(x, 0, x, 4000));
-  for (const y of guides.h) design.append(line(0, y, 4000, y));
-  vp.append(design);
 
   if (showInfra) {
     const infra = drawInfraLayer();
-    // Independent translation: the overlay drags around without touching design.
+    // Independent translation: the graph drags around inside the viewport.
     infra.setAttribute("transform", `translate(${infraPanX} ${infraPanY})`);
     vp.append(infra);
   }
@@ -656,18 +741,10 @@ function render(): void {
     vp.append(er);
   }
 
-  // Focus-mode doc leader: the selected (or hovered) element draws one leader
-  // line out to its documentation. Appended to the viewport AFTER the design
-  // group so it stays full-opacity even when the infra overlay dims the design.
-  if (showDocs) {
-    const focusId = selectedId ?? hoverId;
-    const focus = focusId ? elements.get(focusId) : undefined;
-    if (focus?.apiBinding) vp.append(drawDocLeader(focus));
-  }
-
   svg.append(vp);
   updateZoomLabel();
   renderSelectionPanel();
+  renderViewTools();
   renderTimelinePanel();
   renderTasksPanel();
   renderLayers();
@@ -2440,11 +2517,16 @@ function layerTypeIcon(type: ElementType): SVGElement {
 
 /** Show or hide the left Layers sidebar, reflowing the grid to match. */
 function toggleLayers(): void {
+  // From another view, the Layers button returns to the design workspace with
+  // the sidebar open; within the design view it toggles the sidebar.
+  if (view !== "design") {
+    layersOpen = true;
+    setView("design");
+    return;
+  }
   layersOpen = !layersOpen;
   canvasRootEl?.classList.toggle("layers-open", layersOpen);
-  toolbar
-    .querySelector('[data-toggle="layers"]')
-    ?.classList.toggle("active", layersOpen);
+  syncRailActive();
   renderLayers();
 }
 
@@ -2571,13 +2653,10 @@ function setPanelHidden(hidden: boolean): void {
 }
 
 function renderSelectionPanel(): void {
-  // The right drawer is hidden when there's nothing to inspect; the takeover
-  // modes below (theme/infra/ER) and a live design selection re-show it. A draw
-  // tool that's mid-stroke has already `select()`-ed its new element, so
-  // `selectedId` covers both "selected" and "drawing" in the design path.
+  // The right drawer carries only the design inspector and the Theme editor now.
+  // Theme is allowed to take it over in *any* view; every other non-design view
+  // suppresses the drawer entirely (their tools live in the view itself).
   setPanelHidden(false);
-  // Theme mode takes over the right drawer (like infra), swapping the inspector
-  // for the UI palette / accent editor.
   if (showTheme) {
     renderThemeView(panel, theme, {
       onClose: toggleTheme,
@@ -2587,40 +2666,8 @@ function renderSelectionPanel(): void {
     });
     return;
   }
-  // Infra mode takes over the right drawer — the infra analogue of the design
-  // properties panel, where the add-node / link tools and the node editor live.
-  if (showInfra) {
-    renderInfraPanel(panel, {
-      canEdit: Boolean(source.saveInfraNode),
-      canLink: Boolean(source.saveInfraEdge),
-      linking: linkMode,
-      node: selectedInfraId ? infraNodes.get(selectedInfraId) : undefined,
-      onAddNode: () => void addInfraNodeOnCanvas(),
-      onToggleLink: toggleLink,
-      onChangeNode: updateInfraNode,
-      onRemoveNode: () => void deleteSelectedInfra(),
-    });
-    return;
-  }
-  // ER mode takes over the drawer too — the data-model analogue: add-entity /
-  // relate tools, plus an editor for the selected entity (its fields) or relation.
-  if (showEntities) {
-    renderEntityPanel(panel, {
-      canEdit: Boolean(source.saveEntity),
-      canRelate: Boolean(source.saveEntityRelation),
-      relating: entityLinkMode,
-      entity: selectedEntityId ? entities.get(selectedEntityId) : undefined,
-      relation: selectedRelationId
-        ? entityRelations.find((r) => r.id === selectedRelationId)
-        : undefined,
-      entityName: (id) => entities.get(id)?.name ?? id,
-      onAddEntity: () => void addEntityOnCanvas(),
-      onToggleRelate: toggleEntityLink,
-      onChangeEntity: updateEntity,
-      onRemoveEntity: () => void deleteSelectedEntity(),
-      onChangeRelation: updateRelation,
-      onRemoveRelation: () => void deleteSelectedRelation(),
-    });
+  if (view !== "design") {
+    setPanelHidden(true);
     return;
   }
   // Design mode: only show the inspector when an element is selected (drawing a
@@ -2662,6 +2709,134 @@ function renderSelectionPanel(): void {
     },
     onDocument,
   );
+}
+
+/**
+ * The infra / data editing tools. They used to live in the right drawer; now
+ * that those views are full-area takeovers they ride in a floating panel inside
+ * the view itself. Reuses the same renderInfraPanel / renderEntityPanel builders,
+ * just retargeted to the in-stage `#viewtools` container.
+ */
+function renderViewTools(): void {
+  if (!viewToolsEl) return;
+  const show = view === "infra" || view === "data";
+  viewToolsEl.hidden = !show;
+  if (!show) {
+    viewToolsEl.replaceChildren();
+    return;
+  }
+  if (view === "infra") {
+    renderInfraPanel(viewToolsEl, {
+      canEdit: Boolean(source.saveInfraNode),
+      canLink: Boolean(source.saveInfraEdge),
+      linking: linkMode,
+      node: selectedInfraId ? infraNodes.get(selectedInfraId) : undefined,
+      onAddNode: () => void addInfraNodeOnCanvas(),
+      onToggleLink: toggleLink,
+      onChangeNode: updateInfraNode,
+      onRemoveNode: () => void deleteSelectedInfra(),
+    });
+  } else {
+    renderEntityPanel(viewToolsEl, {
+      canEdit: Boolean(source.saveEntity),
+      canRelate: Boolean(source.saveEntityRelation),
+      relating: entityLinkMode,
+      entity: selectedEntityId ? entities.get(selectedEntityId) : undefined,
+      relation: selectedRelationId
+        ? entityRelations.find((r) => r.id === selectedRelationId)
+        : undefined,
+      entityName: (id) => entities.get(id)?.name ?? id,
+      onAddEntity: () => void addEntityOnCanvas(),
+      onToggleRelate: toggleEntityLink,
+      onChangeEntity: updateEntity,
+      onRemoveEntity: () => void deleteSelectedEntity(),
+      onChangeRelation: updateRelation,
+      onRemoveRelation: () => void deleteSelectedRelation(),
+    });
+  }
+}
+
+// ========================================================================
+// Member roster (the Member view)
+// ========================================================================
+
+/** Fetch the project's member roster for the Member view. */
+async function loadMembers(): Promise<void> {
+  if (!source.listMembers) {
+    members = [];
+    renderMemberPanel();
+    return;
+  }
+  membersLoading = true;
+  membersError = undefined;
+  renderMemberPanel();
+  try {
+    members = await source.listMembers();
+  } catch (err) {
+    membersError = (err as Error).message;
+  } finally {
+    membersLoading = false;
+    renderMemberPanel();
+  }
+}
+
+function renderMemberPanel(): void {
+  if (!memberEl) return;
+  const show = view === "member";
+  memberEl.hidden = !show;
+  if (!show) {
+    memberEl.replaceChildren();
+    return;
+  }
+  renderMemberView(
+    memberEl,
+    {
+      members,
+      loading: membersLoading,
+      error: membersError,
+      canManage: Boolean(source.addMember),
+    },
+    {
+      onClose: () => setView("design"),
+      onReload: () => void loadMembers(),
+      onAdd: (uid, role) => void addMemberUid(uid, role),
+      onChangeRole: (uid, role) => void changeMemberRole(uid, role),
+      onRemove: (uid) => void removeMemberUid(uid),
+    },
+  );
+}
+
+/** Enrol a collaborator by uid; they get their uid from the locked-out banner. */
+async function addMemberUid(uid: string, role: ProjectRole): Promise<void> {
+  if (!source.addMember) return;
+  try {
+    await source.addMember(uid, role);
+    notify(`Added ${uid} to this project.`);
+    await loadMembers();
+  } catch (err) {
+    notify(`Couldn't add member: ${(err as Error).message}`);
+  }
+}
+
+async function changeMemberRole(uid: string, role: ProjectRole): Promise<void> {
+  if (!source.updateMemberRole) return;
+  try {
+    await source.updateMemberRole(uid, role);
+    await loadMembers();
+  } catch (err) {
+    notify(`Couldn't update role: ${(err as Error).message}`);
+  }
+}
+
+async function removeMemberUid(uid: string): Promise<void> {
+  if (!source.removeMember) return;
+  try {
+    await source.removeMember(uid);
+    notify(`Removed ${uid} from this project.`);
+    await loadMembers();
+  } catch (err) {
+    notify(`Couldn't remove member: ${(err as Error).message}`);
+  }
 }
 
 // ========================================================================
@@ -3304,15 +3479,7 @@ function saveTaskOptimistic(
  * nothing on a second click.
  */
 function toggleUml(): void {
-  if (umlOpen) {
-    closeUml();
-    return;
-  }
-  umlOpen = true;
-  umlZoom = 1; // open at fit
-  umlEdit = false; // open in view mode
-  toolbar.querySelector('[data-toggle="uml"]')?.classList.add("active");
-  void renderUmlPanel();
+  setView(view === "uml" ? "design" : "uml");
 }
 
 /**
@@ -3580,11 +3747,9 @@ async function renderUmlPanel(): Promise<void> {
 
 /** Close the rendered UML view. */
 function closeUml(): void {
-  umlOpen = false;
-  umlEdit = false;
-  umlPanelEl.hidden = true;
-  umlPanelEl.replaceChildren();
-  toolbar.querySelector('[data-toggle="uml"]')?.classList.remove("active");
+  // The UML panel's own close affordances (backdrop / ✕) route back to design;
+  // setView() handles tearing the panel down + syncing the rail.
+  setView("design");
 }
 
 // ------------------------------------------------------------------------

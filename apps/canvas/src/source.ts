@@ -8,10 +8,14 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  ProjectRole,
   ProjectTimelineEvent,
   Task,
   VersionEntry,
 } from "forward-core";
+import type { RosterMember } from "forward-core/api";
+
+export type { ProjectRole, RosterMember };
 
 /**
  * The data contract the canvas editor renders against. The only implementation
@@ -99,7 +103,13 @@ export interface CanvasSource {
   /** Remove one entity relation (the entities it joined are left intact). */
   deleteEntityRelation?(relationId: string): Promise<void>;
   /** Enrol another uid into the project's member roster (membership-gated hosts). */
-  addMember?(uid: string): Promise<void>;
+  addMember?(uid: string, role?: ProjectRole): Promise<void>;
+  /** The project's member roster (membership-gated hosts); drives the Member view. */
+  listMembers?(): Promise<RosterMember[]>;
+  /** Change a member's role. */
+  updateMemberRole?(uid: string, role: ProjectRole): Promise<void>;
+  /** Remove a member from the roster. */
+  removeMember?(uid: string): Promise<void>;
   /** Subscribe to the project's tasks (pillar 4); fires on every change. */
   subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
   /** Create or update one task. */

@@ -8,6 +8,7 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  ProjectRole,
   ProjectTimelineEvent,
   Task,
 } from "forward-core";
@@ -312,7 +313,19 @@ export class ServerSource implements CanvasSource {
     await api.deleteTask(await this.cfg(), taskId);
   }
 
-  async addMember(uid: string): Promise<void> {
-    await api.addMember(await this.cfg(), uid);
+  async addMember(uid: string, role: ProjectRole = "editor"): Promise<void> {
+    await api.addMember(await this.cfg(), uid, role);
+  }
+
+  async listMembers(): Promise<api.RosterMember[]> {
+    return api.listMembers(await this.cfg());
+  }
+
+  async updateMemberRole(uid: string, role: ProjectRole): Promise<void> {
+    await api.updateMemberRole(await this.cfg(), uid, role);
+  }
+
+  async removeMember(uid: string): Promise<void> {
+    await api.removeMember(await this.cfg(), uid);
   }
 }

@@ -296,6 +296,18 @@
 #canvas.panning { cursor: grabbing; }
 #canvas.no-grid { background-image: none; }
 
+/* The non-SVG views (UML / History / Tasks / Member) replace the canvas entirely,
+   so hide the design surface + its zoom controls behind their full-area panels.
+   The infra/data views still draw into #canvas, so they keep it. */
+.fwd-canvas-root[data-view="uml"] #canvas,
+.fwd-canvas-root[data-view="history"] #canvas,
+.fwd-canvas-root[data-view="tasks"] #canvas,
+.fwd-canvas-root[data-view="member"] #canvas,
+.fwd-canvas-root[data-view="uml"] #zoombar,
+.fwd-canvas-root[data-view="history"] #zoombar,
+.fwd-canvas-root[data-view="tasks"] #zoombar,
+.fwd-canvas-root[data-view="member"] #zoombar { display: none; }
+
 /* --- zoom controls (overlay, bottom-left of stage) --- */
 #zoombar {
   position: absolute; left: 16px; bottom: 16px; z-index: 10;
@@ -1225,3 +1237,82 @@ button.tk-chip:hover { border-color: var(--accent); color: #fff; }
   border-radius: 50%; background: #fff; transition: transform .16s;
 }
 .th-toggle.on .th-knob { transform: translateX(16px); }
+
+/* ======================================================================
+   #viewtools — the floating infra / data editing panel (the tools that used
+   to live in the right drawer), now riding inside the full-area graph view.
+   ====================================================================== */
+#viewtools {
+  position: absolute; top: 12px; left: 12px; bottom: 12px; width: 320px; z-index: 20;
+  background: var(--bg-panel); border: 1px solid var(--line); border-radius: 12px;
+  overflow: auto; padding: 18px 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, .45);
+}
+#viewtools[hidden] { display: none; }
+#viewtools h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; color: var(--text); }
+
+/* ======================================================================
+   #member — the full-area project member roster (the Member view).
+   ====================================================================== */
+#member {
+  position: absolute; inset: 0; z-index: 20;
+  background: var(--bg); display: flex; flex-direction: column;
+}
+#member[hidden] { display: none; }
+.mb-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 22px; border-bottom: 1px solid var(--line);
+}
+.mb-head h2 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
+.mb-close {
+  width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--line);
+  background: transparent; color: var(--text-2); cursor: pointer; font-size: 14px;
+}
+.mb-close:hover { color: var(--text); border-color: var(--line-2); }
+.mb-body { flex: 1; overflow: auto; padding: 18px 22px; max-width: 640px; }
+.mb-add { display: flex; gap: 8px; margin-bottom: 8px; }
+.mb-input {
+  flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg-panel); color: var(--text); font-size: 13.5px;
+}
+.mb-input:focus { outline: none; border-color: var(--accent); }
+.mb-add-role { flex: 0 0 auto; }
+.mb-add-btn {
+  flex: 0 0 auto; padding: 0 16px; border-radius: 8px; border: none; cursor: pointer;
+  background: var(--accent); color: #fff; font-size: 13.5px; font-weight: 600;
+}
+.mb-hint { margin: 0 0 16px; font-size: 12px; color: var(--text-3); }
+.mb-empty { color: var(--text-3); font-size: 13.5px; }
+.mb-error { display: flex; align-items: center; gap: 12px; color: var(--task); font-size: 13.5px; }
+.mb-retry {
+  padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line);
+  background: transparent; color: var(--text); cursor: pointer; font-size: 12.5px;
+}
+.mb-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 4px; border-bottom: 1px solid var(--line);
+}
+.mb-avatar {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border: 1px solid var(--line);
+  font-size: 12px; font-weight: 600; color: var(--text-2);
+  background-size: cover; background-position: center;
+}
+.mb-avatar-img { border: none; }
+.mb-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mb-name { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-sub { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mb-role-select {
+  flex: 0 0 auto; padding: 5px 8px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--bg-panel); color: var(--text); font-size: 12.5px;
+}
+.mb-role-badge {
+  flex: 0 0 auto; padding: 3px 9px; border-radius: 999px;
+  background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font-size: 12px;
+}
+.mb-del {
+  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
+  border: 1px solid var(--line); background: transparent; color: var(--text-3); cursor: pointer; font-size: 13px;
+}
+.mb-del:hover { color: var(--task); border-color: var(--task); }
