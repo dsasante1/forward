@@ -53,7 +53,7 @@ export class ProjectsController {
     @CurrentUser() user: AuthUser,
     @Body(new ZodBody(CreateProject)) body: z.infer<typeof CreateProject>,
   ) {
-    return this.projects.create(user.id, body.name);
+    return this.projects.create(user.id, body.name, user.orgId);
   }
 
   /**
@@ -100,7 +100,7 @@ export class ProjectsController {
     @Param("projectId") projectId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.projects.duplicate(projectId, user.id);
+    return this.projects.duplicate(projectId, user.id, user.orgId);
   }
 
   /** Set/clear the caller's favorite flag on a project they belong to. */

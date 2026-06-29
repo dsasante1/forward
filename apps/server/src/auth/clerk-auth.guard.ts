@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   Logger,
   UnauthorizedException,
@@ -11,6 +12,7 @@ import { verifyToken } from "@clerk/backend";
 import { IS_PUBLIC_KEY } from "./public.decorator.js";
 import type { AuthUser } from "./current-user.decorator.js";
 import { PAT_PREFIX, TokensService } from "../tokens/tokens.service.js";
+import { PrismaService } from "../prisma/prisma.service.js";
 
 /**
  * Authenticates every request and attaches the principal to `req.user`. This is
@@ -36,6 +38,7 @@ export class ClerkAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly tokens: TokensService,
+    private readonly prisma: PrismaService,
     config: ConfigService,
   ) {
     this.secretKey = config.getOrThrow<string>("CLERK_SECRET_KEY");
@@ -62,6 +65,7 @@ export class ClerkAuthGuard implements CanActivate {
     if (token.startsWith(PAT_PREFIX)) {
       const userId = await this.tokens.verify(token);
       if (!userId) throw new UnauthorizedException("Invalid or revoked token");
+      await this.assertNotSuspended(userId);
       req.user = { id: userId };
       return true;
     }
@@ -73,12 +77,43 @@ export class ClerkAuthGuard implements CanActivate {
           ? { authorizedParties: this.authorizedParties }
           : {}),
       });
-      req.user = { id: claims.sub, sessionId: claims.sid };
+      // Clerk adds the active-org claims when an organization is selected on the
+      // session; they are absent for a personal (no-org) session.
+      const c = claims as typeof claims & { org_id?: string; org_role?: string };
+      await this.assertNotSuspended(claims.sub);
+      req.user = {
+        id: claims.sub,
+        sessionId: claims.sid,
+        ...(c.org_id ? { orgId: c.org_id } : {}),
+        ...(c.org_role ? { orgRole: c.org_role } : {}),
+      };
       return true;
     } catch (err) {
+      if (err instanceof ForbiddenException) throw err;
       this.logger.debug(`Token verification failed: ${(err as Error).message}`);
       throw new UnauthorizedException("Invalid or expired session token");
     }
+  }
+
+  /**
+   * Reject a suspended account at the single auth chokepoint. A brand-new user
+   * has no `User` row yet (it is created lazily on first project touch), so a
+   * missing row is allowed — only an existing, flagged row is denied.
+   */
+  private async assertNotSuspended(userId: string): Promise<void> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { suspendedAt: true },
+    });
+    if (row?.suspendedAt) {
+      throw new ForbiddenException("Account suspended");
+    }
+    // Stamp "last seen" fire-and-forget (no row for brand-new users yet → no-op).
+    // updateMany never throws on zero matches, and we never await it, so this
+    // tracking write can't slow or fail a request.
+    void this.prisma.user
+      .updateMany({ where: { id: userId }, data: { lastSeenAt: new Date() } })
+      .catch(() => undefined);
   }
 }
 

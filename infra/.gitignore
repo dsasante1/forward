@@ -1,0 +1,13 @@
+# Terraform local state & caches — never commit (state may contain secrets).
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+
+# Local-only var overrides. envs/*.tfvars ARE committed (no secrets in them).
+*.local.tfvars
+*.auto.tfvars
+
+# Keep the provider lock file committed:
+!.terraform.lock.hcl

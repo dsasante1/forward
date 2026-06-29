@@ -11,6 +11,9 @@ import { TasksModule } from "./tasks/tasks.module.js";
 import { CheckpointsModule } from "./checkpoints/checkpoints.module.js";
 import { TimelineModule } from "./timeline/timeline.module.js";
 import { TokensModule } from "./tokens/tokens.module.js";
+import { WebhooksModule } from "./webhooks/webhooks.module.js";
+import { OrgsModule } from "./orgs/orgs.module.js";
+import { AdminModule } from "./admin/admin.module.js";
 import { HealthController } from "./health.controller.js";
 
 @Module({
@@ -27,6 +30,9 @@ import { HealthController } from "./health.controller.js";
     CheckpointsModule,
     TimelineModule,
     TokensModule,
+    WebhooksModule,
+    OrgsModule,
+    AdminModule,
   ],
   controllers: [HealthController],
 })

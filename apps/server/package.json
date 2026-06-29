@@ -36,6 +36,7 @@
     "isomorphic-dompurify": "^2.16.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "svix": "^1.96.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
