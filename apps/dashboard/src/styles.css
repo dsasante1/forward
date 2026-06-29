@@ -1972,3 +1972,80 @@ textarea.tk-desc-edit:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- Org Admin portal --- */
+.org-admin {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+.org-admin h1 {
+  margin-bottom: 1rem;
+}
+.tab-panel {
+  margin-top: 1.25rem;
+}
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 1rem;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem;
+  border: 1px solid var(--border, #2a2a35);
+  border-radius: 10px;
+}
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+.stat-label {
+  font-size: 0.85rem;
+  opacity: 0.7;
+}
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+.admin-table th,
+.admin-table td {
+  text-align: left;
+  padding: 0.6rem 0.5rem;
+  border-bottom: 1px solid var(--border, #2a2a35);
+  vertical-align: middle;
+}
+.admin-table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.6;
+}
+.row-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+.link.danger {
+  color: #ff6b6b;
+}
+.feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.feed li {
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid var(--border, #2a2a35);
+  font-size: 0.9rem;
+}
+.badge-design { background: #3b5bdb; }
+.badge-api { background: #2b8a3e; }
+.badge-infra { background: #9c36b5; }
+.badge-uml { background: #e67700; }

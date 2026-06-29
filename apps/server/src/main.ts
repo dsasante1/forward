@@ -11,7 +11,13 @@ import { AppModule } from "./app.module.js";
 };
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: false });
+  // rawBody: keep the unparsed request buffer around so the Clerk webhook route
+  // can verify its Svix signature over the exact bytes (a re-serialized JSON body
+  // would not match the signature).
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: false,
+    rawBody: true,
+  });
 
   app.use(helmet());
   app.enableShutdownHooks();

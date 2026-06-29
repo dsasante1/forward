@@ -39,6 +39,79 @@ export interface ListProjectsOptions {
 /** A roster member — exactly the shared client's listMembers row shape. */
 export type Member = Awaited<ReturnType<typeof api.listMembers>>[number];
 
+/** A profile snippet the server joins onto admin rows (any field may be null). */
+export interface ProfileSnippet {
+  email: string | null;
+  name: string | null;
+  imageUrl: string | null;
+}
+
+// --- Org Admin portal shapes (mirror apps/server OrgsService return types) ---
+
+export interface OrgProject {
+  id: string;
+  name: string;
+  ownerId: string;
+  owner: ProfileSnippet;
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrgMember {
+  userId: string;
+  role: "admin" | "member";
+  email: string | null;
+  name: string | null;
+  imageUrl: string | null;
+  addedAt: string;
+}
+
+export interface OrgToken {
+  id: string;
+  name: string;
+  prefix: string;
+  userId: string;
+  ownerEmail: string | null;
+  ownerName: string | null;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+}
+
+export interface OrgActivityEvent {
+  seq: number;
+  projectId: string;
+  projectName: string;
+  domain: string;
+  action: string;
+  targetId: string;
+  title: string;
+  detail: string;
+  author: string;
+  ts: number;
+}
+
+export interface OrgUsage {
+  projectCount: number;
+  memberCount: number;
+  elementCount: number;
+  eventCount: number;
+  tokenCount: number;
+}
+
+export interface AdminAuditEvent {
+  id: string;
+  scope: "org" | "platform";
+  orgId: string | null;
+  actorId: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  detail: string;
+  ts: number;
+}
+
 /** A pending email invitation — the shared client's invite shape. */
 export type Invite = InviteSummary;
 
@@ -116,6 +189,10 @@ export function useApi() {
           method: "PUT",
           body: JSON.stringify({ favorite }),
         }),
+      // The (member-only) realtime channel name to subscribe to — the server
+      // derives an unguessable name so the broadcast bus stays tenant-scoped.
+      realtimeChannel: (projectId: string) =>
+        accountFetch<{ channel: string }>(`/projects/${projectId}/realtime`),
 
       // --- Personal Access Tokens (account-level; for the VS Code extension) ---
       listApiTokens: () => accountFetch<ApiTokenSummary[]>("/tokens"),
@@ -132,6 +209,37 @@ export function useApi() {
         }),
       revokeApiToken: (id: string) =>
         accountFetch<{ ok: true }>(`/tokens/${id}`, { method: "DELETE" }),
+
+      // --- Org Admin portal (org-scoped; backend OrgAdminGuard enforces admin) ---
+      orgProjects: (orgId: string) =>
+        accountFetch<OrgProject[]>(`/orgs/${orgId}/projects`),
+      transferOrgProject: (orgId: string, projectId: string, userId: string) =>
+        accountFetch<{ ok: true }>(
+          `/orgs/${orgId}/projects/${projectId}/transfer`,
+          { method: "POST", body: JSON.stringify({ userId }) },
+        ),
+      deleteOrgProject: (orgId: string, projectId: string) =>
+        accountFetch<{ ok: true }>(`/orgs/${orgId}/projects/${projectId}`, {
+          method: "DELETE",
+        }),
+      orgMembers: (orgId: string) =>
+        accountFetch<OrgMember[]>(`/orgs/${orgId}/members`),
+      orgTokens: (orgId: string) =>
+        accountFetch<OrgToken[]>(`/orgs/${orgId}/tokens`),
+      revokeOrgToken: (orgId: string, tokenId: string) =>
+        accountFetch<{ ok: true }>(`/orgs/${orgId}/tokens/${tokenId}`, {
+          method: "DELETE",
+        }),
+      orgActivity: (orgId: string, limit?: number) =>
+        accountFetch<OrgActivityEvent[]>(
+          `/orgs/${orgId}/activity${limit ? `?limit=${limit}` : ""}`,
+        ),
+      orgUsage: (orgId: string) =>
+        accountFetch<OrgUsage>(`/orgs/${orgId}/usage`),
+      orgAudit: (orgId: string, limit?: number) =>
+        accountFetch<AdminAuditEvent[]>(
+          `/orgs/${orgId}/audit${limit ? `?limit=${limit}` : ""}`,
+        ),
 
       // --- membership roster (project-scoped, via forward-core/api) ---
       listMembers: async (projectId: string): Promise<Member[]> =>

@@ -35,10 +35,15 @@ function supabase(): SupabaseClient | null {
 /**
  * Subscribe to a project's live change feed. `onChange` fires for every event;
  * the newest handler is always used (kept in a ref) so callers can close over
- * fresh state without re-subscribing. Unsubscribes on unmount / project change.
+ * fresh state without re-subscribing. Unsubscribes on unmount / channel change.
+ *
+ * `channel` is the server-issued, unguessable channel name (from
+ * `GET /projects/:id/realtime`), NOT the project id — the broadcast bus is not
+ * access-controlled, so the name itself is the membership capability. Pass
+ * undefined while it's still resolving (or when realtime is disabled) to no-op.
  */
 export function useProjectRealtime(
-  projectId: string | undefined,
+  channel: string | undefined,
   onChange: (e: ProjectChange) => void,
 ): void {
   const handler = useRef(onChange);
@@ -46,15 +51,15 @@ export function useProjectRealtime(
 
   useEffect(() => {
     const sb = supabase();
-    if (!sb || !projectId) return;
-    const channel = sb
-      .channel(`project:${projectId}`, { config: { broadcast: { ack: false } } })
+    if (!sb || !channel) return;
+    const ch = sb
+      .channel(channel, { config: { broadcast: { ack: false } } })
       .on("broadcast", { event: "change" }, (msg) => {
         handler.current(msg.payload as ProjectChange);
       })
       .subscribe();
     return () => {
-      void sb.removeChannel(channel);
+      void sb.removeChannel(ch);
     };
-  }, [projectId]);
+  }, [channel]);
 }

@@ -15,6 +15,7 @@ import { z } from "zod";
 import { ProjectRole } from "forward-core";
 import { CurrentUser, type AuthUser } from "../auth/current-user.decorator.js";
 import { MembershipGuard, RequireOwner } from "../common/membership.guard.js";
+import { RealtimeService } from "../common/realtime.service.js";
 import { ZodBody } from "../common/zod-validation.pipe.js";
 import { ProjectsService } from "./projects.service.js";
 
@@ -29,7 +30,22 @@ const UpdateMemberRole = z.object({ role: ProjectRole });
 
 @Controller()
 export class ProjectsController {
-  constructor(private readonly projects: ProjectsService) {}
+  constructor(
+    private readonly projects: ProjectsService,
+    private readonly realtime: RealtimeService,
+  ) {}
+
+  /**
+   * The realtime channel name for this project — an unguessable capability the
+   * client subscribes to (it never derives the name itself). Behind MembershipGuard
+   * so only a member can learn it, which is what keeps the broadcast bus inside the
+   * tenancy boundary (see RealtimeService.channelName).
+   */
+  @Get("projects/:projectId/realtime")
+  @UseGuards(MembershipGuard)
+  realtimeChannel(@Param("projectId") projectId: string) {
+    return { channel: this.realtime.channelName(projectId) };
+  }
 
   /** Create a project (caller becomes owner). */
   @Post("projects")
@@ -37,7 +53,7 @@ export class ProjectsController {
     @CurrentUser() user: AuthUser,
     @Body(new ZodBody(CreateProject)) body: z.infer<typeof CreateProject>,
   ) {
-    return this.projects.create(user.id, body.name);
+    return this.projects.create(user.id, body.name, user.orgId);
   }
 
   /**
@@ -84,7 +100,7 @@ export class ProjectsController {
     @Param("projectId") projectId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.projects.duplicate(projectId, user.id);
+    return this.projects.duplicate(projectId, user.id, user.orgId);
   }
 
   /** Set/clear the caller's favorite flag on a project they belong to. */

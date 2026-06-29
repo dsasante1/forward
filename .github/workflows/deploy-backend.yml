@@ -1,0 +1,74 @@
+name: Deploy backend (Cloud Run)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/server/**"
+      - "packages/shared/**"
+      - "apps/server/Dockerfile"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation
+
+env:
+  REGION: us-central1
+  SERVICE: forward-server
+  AR_REPO: forward
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_APP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${REGION}-docker.pkg.dev --quiet
+
+      - name: Build & push image
+        env:
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE }}:${{ github.sha }}
+        run: |
+          # Build from the repo root so the npm workspace (forward-core) is in context.
+          docker build -f apps/server/Dockerfile -t "$IMAGE" .
+          docker push "$IMAGE"
+
+      # Run migrations BEFORE routing traffic to the new revision. Cloud Run keeps
+      # the previous revision serving until the new one is healthy, so additive
+      # migrations are safe here.
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: ${{ secrets.MIGRATE_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.MIGRATE_DIRECT_URL }}
+        run: |
+          npm ci
+          npm run prisma:deploy -w apps/server
+
+      - name: Deploy to Cloud Run
+        env:
+          IMAGE: ${{ env.REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE }}:${{ github.sha }}
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --quiet

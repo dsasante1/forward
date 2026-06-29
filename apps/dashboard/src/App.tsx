@@ -9,6 +9,7 @@ import { ProjectsPage } from "./pages/ProjectsPage.js";
 import { ProjectPage } from "./pages/ProjectPage.js";
 import { CanvasPage } from "./pages/CanvasPage.js";
 import { AccountPage } from "./pages/AccountPage.js";
+import { OrgAdminPage } from "./pages/OrgAdminPage.js";
 
 /** Gate protected routes: Clerk redirects to /sign-in when there's no session. */
 function Protected({ children }: { children: React.ReactNode }) {
@@ -56,6 +57,7 @@ export default function App() {
       >
         <Route index element={<ProjectsPage />} />
         <Route path="projects/:projectId" element={<ProjectPage />} />
+        <Route path="org" element={<OrgAdminPage />} />
         <Route path="account" element={<AccountPage />} />
       </Route>
 

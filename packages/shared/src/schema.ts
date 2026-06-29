@@ -650,6 +650,17 @@ export type ProjectRole = z.infer<typeof ProjectRole>;
 /** Roles that may write (mutate) project data — everything above read-only. */
 export const WRITE_ROLES: readonly ProjectRole[] = ["editor", "owner"];
 
+/**
+ * Role of a user *within an organization* (the tenancy tier above the project).
+ * Distinct from {@link ProjectRole}: an org `admin` administers the org (its
+ * projects, members, tokens, billing) but is not automatically an owner of every
+ * project; a `member` simply belongs. Mirrored from Clerk Organizations, which is
+ * the source of truth for org membership (the `org_role` session claim, e.g.
+ * `org:admin`). Used by the Org Admin portal.
+ */
+export const OrgRole = z.enum(["admin", "member"]);
+export type OrgRole = z.infer<typeof OrgRole>;
+
 /** One entry in a project's member roster: `project_members/$projectId/$uid`. */
 export const ProjectMember = z.object({
   role: ProjectRole.default("editor"),

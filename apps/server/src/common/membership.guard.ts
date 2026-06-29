@@ -64,11 +64,21 @@ export class MembershipGuard implements CanActivate {
       where: {
         projectId_userId: { projectId, userId: req.user.id },
       },
-      select: { role: true },
+      select: {
+        role: true,
+        project: {
+          select: { organization: { select: { suspendedAt: true } } },
+        },
+      },
     });
     if (!member) {
       // Do not reveal whether the project exists — just deny.
       throw new ForbiddenException("Not a member of this project");
+    }
+    // A suspended org freezes all access to its projects (set from the platform
+    // admin portal); members are denied until it is restored.
+    if (member.project.organization?.suspendedAt) {
+      throw new ForbiddenException("Organization suspended");
     }
 
     const requireOwner = this.reflector.getAllAndOverride<boolean>(

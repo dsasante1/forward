@@ -1,0 +1,53 @@
+name: Infra (Terraform)
+
+on:
+  pull_request:
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  push:
+    branches: [master]
+    paths:
+      - "infra/**"
+      - ".github/workflows/infra.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+defaults:
+  run:
+    working-directory: infra
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_TF_DEPLOYER_SA }}
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Init
+        run: terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: Format check
+        run: terraform fmt -check -recursive
+
+      - name: Validate
+        run: terraform validate
+
+      - name: Plan
+        run: terraform plan -input=false -var-file=envs/prod.tfvars
+
+      # Apply only on merge to master, never on PRs.
+      - name: Apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: terraform apply -input=false -auto-approve -var-file=envs/prod.tfvars

@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createHmac } from "node:crypto";
 
 /** The layers a client can subscribe to — mirrors the old ETag pollers. */
 export type RealtimeResource =
@@ -50,8 +51,16 @@ export class RealtimeService implements OnModuleDestroy {
     string,
     Promise<ReturnType<SupabaseClient["channel"]>>
   >();
+  // Secret that turns a (guessable) project id into an unguessable channel name —
+  // see channelName(). Falls back to the Clerk secret (always present, server-only)
+  // so no new required env is introduced; set REALTIME_CHANNEL_SECRET to rotate.
+  private readonly channelSecret: string;
 
   constructor(config: ConfigService) {
+    this.channelSecret =
+      config.get<string>("REALTIME_CHANNEL_SECRET") ??
+      config.get<string>("CLERK_SECRET_KEY") ??
+      "forward-dev-realtime-secret";
     const url = config.get<string>("SUPABASE_URL");
     const key = config.get<string>("SUPABASE_SERVICE_ROLE_KEY");
     if (url && key) {
@@ -65,6 +74,28 @@ export class RealtimeService implements OnModuleDestroy {
         "Supabase Realtime not configured — change events disabled (clients refetch on demand).",
       );
     }
+  }
+
+  /**
+   * The Supabase channel a project broadcasts on. Supabase `broadcast` channels
+   * are NOT access-controlled — anyone holding the public anon key who knows the
+   * channel name can subscribe. So the name must not be the (guessable) project
+   * id: we derive an HMAC of it under a server-only secret, making the name itself
+   * a capability. Only a project member ever learns it, handed over the
+   * MembershipGuard-protected `GET /projects/:id/realtime` route — which restores
+   * the tenancy boundary the REST API enforces. The events carry only metadata
+   * (ids/actor), but that still must not leak across tenants.
+   *
+   * (A stronger model is Supabase Realtime Authorization with RLS on
+   * `realtime.messages`; this capability scheme needs no migration and no
+   * per-message identity, at the cost of no per-member revocation until the
+   * secret rotates — acceptable for metadata-only events.)
+   */
+  channelName(projectId: string): string {
+    const mac = createHmac("sha256", this.channelSecret)
+      .update(projectId)
+      .digest("hex");
+    return `project:${mac.slice(0, 32)}`;
   }
 
   /** Broadcast a change to everyone subscribed to this project's channel. */
@@ -103,7 +134,7 @@ export class RealtimeService implements OnModuleDestroy {
     let pending = this.channels.get(projectId);
     if (!pending) {
       pending = new Promise((resolve, reject) => {
-        const channel = supabase.channel(`project:${projectId}`, {
+        const channel = supabase.channel(this.channelName(projectId), {
           config: { broadcast: { ack: false } },
         });
         const timer = setTimeout(() => {

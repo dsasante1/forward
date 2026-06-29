@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { ProjectRole } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ClerkUserService } from "../common/clerk-user.service.js";
+import { OrgSyncService } from "../common/org-sync.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
 
 /** How many member avatars the list endpoint previews per project. */
@@ -25,7 +26,19 @@ export class ProjectsService {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
     private readonly users: ClerkUserService,
+    private readonly orgs: OrgSyncService,
   ) {}
+
+  /**
+   * Resolve the org a new project should be filed under: the caller's active org
+   * (from the session's `org_id` claim), if any. Ensures the local org-mirror row
+   * exists first so the FK resolves; returns null for a personal (no-org) session.
+   */
+  private async resolveOrg(orgId?: string): Promise<string | null> {
+    if (!orgId) return null;
+    await this.orgs.ensureOrg(orgId);
+    return orgId;
+  }
 
   /**
    * Lazily ensure a User row exists for a Clerk id (FK target for memberships),
@@ -36,19 +49,26 @@ export class ProjectsService {
     await this.users.sync(userId);
   }
 
-  /** Create a project; the caller becomes its `owner`. */
-  async create(userId: string, name: string) {
+  /**
+   * Create a project; the caller becomes its `owner`. If the caller has an active
+   * organization (`orgId`), the project is filed under it so it shows up in that
+   * org's admin portal.
+   */
+  async create(userId: string, name: string, orgId?: string) {
     await this.ensureUser(userId);
+    const organizationId = await this.resolveOrg(orgId);
     return this.prisma.project.create({
       data: {
         name,
         ownerId: userId,
+        ...(organizationId ? { organizationId } : {}),
         members: { create: { userId, role: "owner" } },
       },
       select: {
         id: true,
         name: true,
         ownerId: true,
+        organizationId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -179,7 +199,7 @@ export class ProjectsService {
    * task tracker come across. The append-only version history is intentionally
    * NOT copied — the copy starts its own documentation timeline.
    */
-  async duplicate(sourceId: string, userId: string) {
+  async duplicate(sourceId: string, userId: string, orgId?: string) {
     await this.ensureUser(userId);
     const source = await this.prisma.project.findUnique({
       where: { id: sourceId },
@@ -187,6 +207,7 @@ export class ProjectsService {
     });
     if (!source) throw new NotFoundException("No such project");
 
+    const organizationId = await this.resolveOrg(orgId);
     // The new project + owner membership go in first (plain client, mirroring
     // create()); the content copy then runs under the user's RLS context so the
     // child-table inserts pass the per-project membership check.
@@ -194,12 +215,14 @@ export class ProjectsService {
       data: {
         name: `${source.name} copy`,
         ownerId: userId,
+        ...(organizationId ? { organizationId } : {}),
         members: { create: { userId, role: "owner" } },
       },
       select: {
         id: true,
         name: true,
         ownerId: true,
+        organizationId: true,
         createdAt: true,
         updatedAt: true,
       },

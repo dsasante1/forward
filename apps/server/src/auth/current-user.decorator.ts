@@ -6,6 +6,18 @@ export interface AuthUser {
   id: string;
   /** Session id, if present on the token. */
   sessionId?: string;
+  /**
+   * The active organization on the session, if any (Clerk `org_id` claim). A PAT
+   * carries no org context, so this is undefined for headless callers. Drives
+   * which org a created project is filed under and OrgAdminGuard.
+   */
+  orgId?: string;
+  /**
+   * The caller's role in the active org (Clerk `org_role` claim, e.g.
+   * `org:admin`). Undefined when there is no active org. OrgAdminGuard requires
+   * the admin role.
+   */
+  orgRole?: string;
 }
 
 /**
