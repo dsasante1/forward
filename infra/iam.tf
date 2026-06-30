@@ -36,6 +36,14 @@ resource "google_service_account_iam_member" "app_deployer_actas_runtime" {
   member             = "serviceAccount:${google_service_account.app_deployer.email}"
 }
 
+# Infra deployer must also be allowed to set the runtime SA on the Cloud Run
+# service it manages (terraform create/update needs actAs on the runtime SA).
+resource "google_service_account_iam_member" "tf_deployer_actas_runtime" {
+  service_account_id = google_service_account.run_runtime.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.tf_deployer.email}"
+}
+
 # Infra deployer: project rights to manage everything in this module.
 resource "google_project_iam_member" "tf_deployer_roles" {
   for_each = toset(var.tf_deployer_roles)
