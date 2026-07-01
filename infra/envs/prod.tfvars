@@ -13,11 +13,11 @@ max_instances = 4
 
 # Non-secret runtime config for the server. Point the origins at your real
 # dashboard URL once Hosting is live (default Firebase URL shown).
+# NODE_ENV and CORS_ORIGINS are intentionally NOT here — they are sourced from
+# Secret Manager (see secret_env_names) so each environment carries its own value.
 plain_env = {
-  NODE_ENV                 = "production"
   SUPABASE_URL             = "https://yvhstswanvrkriuyuuly.supabase.co"
   CLERK_AUTHORIZED_PARTIES = "https://forward-dashboard.web.app"
-  CORS_ORIGINS             = "https://forward-dashboard.web.app"
   APP_BASE_URL             = "https://forward-dashboard.web.app"
   DEFAULT_FROM_EMAIL       = "verbgh <services@verbgh.com>"
 }

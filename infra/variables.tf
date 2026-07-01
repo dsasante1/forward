@@ -34,7 +34,7 @@ variable "hosting_site_id" {
 }
 
 variable "secret_env_names" {
-  description = "Secret Manager secrets injected into Cloud Run as env vars (same name). Values are added out-of-band — never by Terraform."
+  description = "Env vars sourced from Secret Manager and injected into Cloud Run (same name). Values are added out-of-band — never by Terraform. Includes true secrets plus a few per-environment config values (NODE_ENV, CORS_ORIGINS) kept here so each environment's project can carry its own value without a separate tfvars."
   type        = list(string)
   default = [
     "DATABASE_URL",
@@ -42,7 +42,10 @@ variable "secret_env_names" {
     "SUPABASE_SERVICE_ROLE_KEY",
     "CLERK_SECRET_KEY",
     "CLERK_WEBHOOK_SIGNING_SECRET",
+    "REALTIME_CHANNEL_SECRET",
     "MAILTRAP_API_KEY",
+    "NODE_ENV",
+    "CORS_ORIGINS",
   ]
 }
 
