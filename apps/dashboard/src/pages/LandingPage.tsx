@@ -8,7 +8,7 @@ import "../landing.css";
  *
  * Aesthetic: warm editorial / technical — a cream canvas in Space Grotesk +
  * JetBrains Mono with hand-built product mockups (canvas, VS Code panel,
- * timeline, infra graph). Ported from the "Forward Platform" design.
+ * infra graph, ER model, timeline). Ported from the "Forward Platform" design.
  */
 export function LandingPage() {
   return (
@@ -16,49 +16,50 @@ export function LandingPage() {
       <div className="l-dotgrid" aria-hidden />
 
       {/* ============ NAV ============ */}
-      <nav className="l-wrap l-nav">
-        <Link to="/" className="l-brand">
-          <span className="l-brand-mark" aria-hidden />
-          <span className="l-brand-name">FORWARD</span>
-        </Link>
-        <div className="l-nav-links">
-          <a className="l-nav-link l-nav-hide" href="#surfaces">
-            Surfaces
-          </a>
-          <a className="l-nav-link l-nav-hide" href="#layers">
-            Layers
-          </a>
-          <a className="l-nav-link l-nav-hide" href="#teams">
-            Teams
-          </a>
-          <a className="l-nav-link l-nav-hide" href="#pricing">
-            Pricing
-          </a>
-          <Show when="signed-out">
-            <Link className="l-nav-link" to="/sign-in">
-              Sign in
-            </Link>
-            <Link className="l-btn l-btn-dark" to="/sign-up">
-              Start free
-            </Link>
-          </Show>
-          <Show when="signed-in">
-            <Link className="l-btn l-btn-dark" to="/app">
-              Open app
-            </Link>
-          </Show>
-        </div>
-      </nav>
+      <div className="l-nav-bar">
+        <nav className="l-wrap l-nav">
+          <Link to="/" className="l-brand">
+            <span className="l-brand-mark" aria-hidden />
+            <span className="l-brand-name">FORWARD</span>
+          </Link>
+          <div className="l-nav-links">
+            <a className="l-nav-link l-nav-hide" href="#capabilities">
+              Capabilities
+            </a>
+            <a className="l-nav-link l-nav-hide" href="#surfaces">
+              Surfaces
+            </a>
+            <a className="l-nav-link l-nav-hide" href="#teams">
+              Teams
+            </a>
+            <a className="l-nav-link l-nav-hide" href="#pricing">
+              Pricing
+            </a>
+            <Show when="signed-out">
+              <Link className="l-nav-link" to="/sign-in">
+                Sign in
+              </Link>
+              <Link className="l-btn l-btn-dark" to="/sign-up">
+                Start free
+              </Link>
+            </Show>
+            <Show when="signed-in">
+              <Link className="l-btn l-btn-dark" to="/app">
+                Open app
+              </Link>
+            </Show>
+          </div>
+        </nav>
+      </div>
 
       {/* ============ HERO ============ */}
       <header className="l-wrap l-hero">
-        <span className="l-hero-eyebrow">Design &amp; backend, one source of truth</span>
-        <h1>Where the design and the system finally agree.</h1>
+        <span className="l-hero-eyebrow">Collaborative engineering workspace</span>
+        <h1>Design. Document. Deliver. All in sync.</h1>
         <p className="l-hero-sub">
-          Designers draw the interface on an open canvas. Backend developers
-          annotate every element with live API, infrastructure and UML docs —
-          straight from VS Code. Design, documentation and the work tracked
-          against it, in one project.
+          Forward brings your UI design, backend docs, architecture, data models,
+          and project work together in one place — so your team stays aligned and
+          ship better software, faster.
         </p>
         <div className="l-hero-cta">
           <Show when="signed-out">
@@ -71,8 +72,8 @@ export function LandingPage() {
               Go to your workspace <span className="l-arrow">→</span>
             </Link>
           </Show>
-          <a className="l-btn l-btn-lg l-btn-outline" href="#surfaces">
-            See how it works
+          <a className="l-btn l-btn-lg l-btn-outline" href="#capabilities">
+            Explore capabilities
           </a>
         </div>
       </header>
@@ -87,7 +88,9 @@ export function LandingPage() {
               <span />
             </div>
             <div className="l-winbar-url">forward · checkout-flow / canvas</div>
-            <div className="l-winbar-live">LIVE</div>
+            <div className="l-winbar-live">
+              <span className="l-live-dot" />3 EDITING
+            </div>
           </div>
           <div className="l-canvas-body">
             {/* layers rail */}
@@ -109,7 +112,7 @@ export function LandingPage() {
               <div className="l-overlays">
                 <div>
                   <i style={{ background: "var(--accent)" }} />
-                  API binding
+                  API docs
                 </div>
                 <div>
                   <i style={{ background: "var(--accent2)" }} />
@@ -150,9 +153,9 @@ export function LandingPage() {
                   <span>POST /api/checkout</span>
                 </div>
                 <div className="l-pop-tabs">
-                  <span className="on">API</span>
+                  <span className="on">DOCS</span>
                   <span>INFRA</span>
-                  <span>UML</span>
+                  <span>FLOW</span>
                 </div>
                 <div className="l-hr" style={{ margin: 0 }} />
                 <div className="l-pop-body">
@@ -180,18 +183,32 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* ============ AUDIENCE STRIP ============ */}
+      <section className="l-wrap l-audience-shell">
+        <div className="l-audience">
+          <span className="l-audience-label">A single source of truth for</span>
+          <div className="l-audience-list">
+            <span>Designers</span>
+            <span>Frontend developers</span>
+            <span>Backend developers</span>
+            <span>Engineering teams</span>
+            <span className="accent">AI coding agents</span>
+          </div>
+        </div>
+      </section>
+
       {/* ============ SURFACES ============ */}
       <section id="surfaces" className="l-wrap l-section">
         <div className="l-section-head">
           <div>
-            <p className="l-kicker">Three surfaces, one contract</p>
+            <p className="l-kicker">Three surfaces, full parity</p>
             <h2 className="l-h2" style={{ maxWidth: "15ch" }}>
-              Wherever you work, the truth follows.
+              Author from wherever you work.
             </h2>
           </div>
           <p className="l-lead" style={{ maxWidth: "38ch" }}>
-            Every surface reads and writes the same project contract, so nothing
-            drifts out of sync between design tools, your editor and your agents.
+            Web app, VS Code and MCP server all read and write the same project —
+            nothing drifts out of sync between design, editor and agents.
           </p>
         </div>
         <div className="l-surfaces">
@@ -205,44 +222,140 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* ============ FOUR LAYERS ============ */}
-      <section id="layers" className="l-wrap l-section">
-        <p className="l-kicker">Four data layers</p>
-        <h2 className="l-h2" style={{ maxWidth: "18ch", marginBottom: 22 }}>
-          Separate by design. Linked on read.
+      {/* ============ CAPABILITIES BENTO ============ */}
+      <section id="capabilities" className="l-wrap l-section">
+        <p className="l-kicker">The building blocks</p>
+        <h2 className="l-h2" style={{ maxWidth: "18ch", marginBottom: 16 }}>
+          Every engineering artifact, connected to the UI.
         </h2>
-        <p className="l-lead" style={{ maxWidth: "60ch", marginBottom: 52, fontSize: 17 }}>
-          Each layer stands on its own and stays the single source of truth for
-          itself. Tasks link softly into the others, so work tracks against what
-          it's actually about — never forced into a foreign key.
+        <p className="l-lead" style={{ maxWidth: "58ch", marginBottom: 52, fontSize: 17 }}>
+          Six kinds of knowledge, each a first-class layer on the shared canvas —
+          never scattered across separate tools, never out of date.
         </p>
-        <div className="l-layers-grid">
-          {LAYERS.map((l) => (
-            <div className="l-layer" key={l.num}>
-              <div className="l-layer-dot" style={{ background: l.dot }} />
-              <div className="l-layer-num">{l.num}</div>
-              <h3>{l.title}</h3>
-              <p>{l.body}</p>
-              <div className="l-layer-tag">{l.tag}</div>
-            </div>
-          ))}
-        </div>
-      </section>
 
-      {/* ============ FEATURE: TASKS ============ */}
-      <section className="l-wrap l-section">
-        <div className="l-feature media-left">
-          <div className="l-feature-media l-mock l-mock-soft">
-            <div className="l-list-head">
-              <span className="t">Tasks</span>
-              <span className="meta">checkout-flow · 12 open</span>
+        <div className="l-bento">
+          {/* Design canvas — wide feature */}
+          <div className="l-bento-cell span-7 row">
+            <div className="l-bento-copy">
+              <div className="l-bento-eyebrow">Design canvas</div>
+              <h3>A design editor, built in.</h3>
+              <p>
+                Frames, rectangles, ellipses, text, reusable components and
+                instances — with absolute positioning, nesting, styling and a
+                clear hierarchy, right inside the dashboard.
+              </p>
             </div>
-            <div style={{ padding: "8px 0" }}>
+            <div className="l-bento-art">
+              <svg
+                viewBox="0 0 150 130"
+                width="150"
+                fill="none"
+                stroke="rgba(28,26,21,0.4)"
+                strokeWidth="1.2"
+                role="img"
+              >
+                <title>Design canvas layout illustration</title>
+                <rect x="6" y="6" width="138" height="118" rx="3" stroke="rgba(28,26,21,0.2)" />
+                <rect x="20" y="20" width="60" height="44" rx="2" />
+                <rect x="28" y="30" width="30" height="6" rx="1" stroke="var(--accent)" />
+                <rect x="28" y="42" width="44" height="4" rx="1" stroke="rgba(28,26,21,0.3)" />
+                <rect x="28" y="50" width="36" height="4" rx="1" stroke="rgba(28,26,21,0.3)" />
+                <rect x="96" y="20" width="34" height="34" rx="2" stroke="var(--accent)" />
+                <circle cx="113" cy="37" r="7" stroke="var(--accent)" />
+                <rect x="20" y="78" width="110" height="34" rx="2" />
+                <line x1="30" y1="90" x2="120" y2="90" />
+                <line x1="30" y1="100" x2="90" y2="100" stroke="rgba(28,26,21,0.28)" />
+              </svg>
+            </div>
+          </div>
+
+          {/* API documentation */}
+          <div className="l-bento-cell span-5">
+            <Icon>
+              <path d="M8 6l-4 6 4 6" />
+              <path d="M16 6l4 6-4 6" />
+              <line x1="13" y1="5" x2="11" y2="19" />
+            </Icon>
+            <h3>API documentation</h3>
+            <p>
+              Attach framework-agnostic Markdown docs to any element — from VS Code
+              or the MCP server. Endpoints stay tied to the interface they power.
+            </p>
+          </div>
+
+          {/* Infrastructure */}
+          <div className="l-bento-cell span-4">
+            <Icon>
+              <circle cx="6" cy="7" r="2.4" />
+              <circle cx="18" cy="8" r="2.4" />
+              <circle cx="12" cy="18" r="2.4" />
+              <path d="M7.8 8.4l2.6 8M16.4 9.6l-3 7M8.2 7.3h7.6" />
+            </Icon>
+            <h3 className="sm">Infrastructure diagrams</h3>
+            <p>
+              Your architecture as a project-wide graph — apps, services,
+              databases, caches, queues, DevOps and integrations — overlaid on the
+              canvas.
+            </p>
+          </div>
+
+          {/* Narrated flows */}
+          <div className="l-bento-cell span-4">
+            <Icon>
+              <circle cx="5" cy="6" r="2" />
+              <circle cx="19" cy="6" r="2" />
+              <circle cx="12" cy="18" r="2" />
+              <path d="M7 6h10M17.4 7.7L13 16M11 16L6.6 7.7" strokeDasharray="1 3" />
+            </Icon>
+            <h3 className="sm">Narrated system flows</h3>
+            <p>
+              Step-by-step walkthroughs rendered as numbered paths across the
+              graph. Link steps to endpoints and export to Mermaid sequence
+              diagrams.
+            </p>
+          </div>
+
+          {/* Data models */}
+          <div className="l-bento-cell span-4">
+            <Icon>
+              <rect x="3" y="4" width="8" height="16" rx="1" />
+              <line x1="3" y1="9" x2="11" y2="9" />
+              <rect x="16" y="7" width="5" height="10" rx="1" />
+              <path d="M11 12h5" />
+            </Icon>
+            <h3 className="sm">Data models</h3>
+            <p>
+              Entity-relationship diagrams with tables, fields and crow's-foot
+              relationships. Export as Mermaid{" "}
+              <span className="l-code-chip">erDiagram</span>.
+            </p>
+          </div>
+
+          {/* Task management — full-width strip */}
+          <div className="l-bento-cell span-12 l-task-strip">
+            <div className="l-bento-copy">
+              <div className="l-bento-eyebrow">Task management</div>
+              <h3>Track the work next to the system it belongs to.</h3>
+              <p>
+                Status, priority, type, assignees, dependencies, comments, activity
+                history and Gantt. Every task can link to a design element, a
+                system flow or an API endpoint — full traceability from planning to
+                implementation.
+              </p>
+              <div className="l-chips">
+                <span>Dependencies</span>
+                <span>Gantt</span>
+                <span>Linked traceability</span>
+              </div>
+            </div>
+            <div className="l-task-mock">
+              <div className="l-list-head">
+                <span className="t">Tasks</span>
+                <span className="meta">checkout-flow · 12 open</span>
+              </div>
               <div className="l-task">
                 <span className="l-check open" />
-                <span className="l-task-title">
-                  Implement 402 decline state on Pay button
-                </span>
+                <span className="l-task-title">Implement 402 decline state</span>
                 <span
                   className="l-link-tag"
                   style={{
@@ -250,18 +363,12 @@ export function LandingPage() {
                     color: "var(--accent)",
                   }}
                 >
-                  → API binding
-                </span>
-                <span
-                  className="l-avatar l-avatar-md"
-                  style={{ background: "var(--accent2)" }}
-                >
-                  AR
+                  → endpoint
                 </span>
               </div>
               <div className="l-task">
                 <span className="l-check idle" />
-                <span className="l-task-title">Add payments-db to infra graph</span>
+                <span className="l-task-title">Add payments-db to graph</span>
                 <span
                   className="l-link-tag"
                   style={{
@@ -269,13 +376,7 @@ export function LandingPage() {
                     color: "var(--accent2)",
                   }}
                 >
-                  → Infrastructure
-                </span>
-                <span
-                  className="l-avatar l-avatar-md"
-                  style={{ background: "var(--layer-tasks)" }}
-                >
-                  MA
+                  → infra
                 </span>
               </div>
               <div className="l-task done">
@@ -285,53 +386,38 @@ export function LandingPage() {
                   className="l-link-tag"
                   style={{ background: "rgba(28,26,21,0.06)", color: "var(--soft)" }}
                 >
-                  → Design
-                </span>
-                <span
-                  className="l-avatar l-avatar-md"
-                  style={{ background: "var(--layer-tasks)" }}
-                >
-                  MA
+                  → design
                 </span>
               </div>
             </div>
           </div>
-          <div className="l-feature-copy">
-            <p className="l-kicker">Tasks for developers</p>
-            <h2 className="l-h2-sm">Work that points at the real thing.</h2>
-            <p>
-              Set tasks for developers and link them softly to a design element,
-              an API binding or an infra node. The tracker stays standalone, but
-              every item knows exactly what it's about — so nothing gets done in
-              the dark.
-            </p>
-          </div>
         </div>
       </section>
 
-      {/* ============ FEATURE: VS CODE ============ */}
+      {/* ============ DEEP DIVE: VS CODE ============ */}
       <section className="l-wrap l-section">
         <div className="l-feature media-right">
           <div className="l-feature-copy">
-            <p className="l-kicker">Annotate from VS&nbsp;Code</p>
+            <p className="l-kicker">Documentation where it appears in the UI</p>
             <h2 className="l-h2-sm">Backend docs, written where the backend lives.</h2>
             <p>
-              Open the design element, write Markdown next to your code, and
-              attach API, infrastructure and UML documentation in seconds. It
-              syncs to the canvas the moment you save.
+              Open a design element, write Markdown next to your code, and attach
+              documentation from the VS Code extension — or let an AI agent do it
+              through the MCP server. Every API endpoint stays associated with the
+              interface it powers.
             </p>
             <div className="l-checks">
               <div>
                 <span className="arr">→</span>
-                <span>Docs-first — HTTP method and status hints are optional.</span>
+                <span>Framework-agnostic — just a title and Markdown.</span>
               </div>
               <div>
                 <span className="arr">→</span>
-                <span>ETag-conditional polling keeps it cheap and always current.</span>
+                <span>Syncs to the canvas the moment you save.</span>
               </div>
               <div>
                 <span className="arr">→</span>
-                <span>Never leave the editor — resolve any element by id.</span>
+                <span>Resolve any element by id, without leaving the editor.</span>
               </div>
             </div>
           </div>
@@ -394,12 +480,112 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* ============ FEATURE: TIMELINE ============ */}
+      {/* ============ DEEP DIVE: INFRA + FLOWS ============ */}
+      <section className="l-wrap l-section">
+        <div className="l-feature media-right">
+          <div className="l-feature-copy">
+            <p className="l-kicker">Architecture &amp; narrated flows</p>
+            <h2 className="l-h2-sm">The distributed system, as a living overlay.</h2>
+            <p>
+              Visualize frontend apps, backend services, databases, caches, queues
+              and integrations as one project-wide graph. Then narrate a flow —
+              registration, auth, checkout — as a numbered path across it, and
+              export it as a Mermaid sequence diagram.
+            </p>
+          </div>
+          <div className="l-feature-media l-mock l-mock-soft l-infra">
+            <InfraGraph />
+          </div>
+        </div>
+      </section>
+
+      {/* ============ DEEP DIVE: DATA MODELS ============ */}
       <section className="l-wrap l-section">
         <div className="l-feature media-left">
-          <div className="l-feature-media l-mock l-mock-soft l-timeline">
+          <div className="l-feature-media l-mock l-mock-soft l-ermock">
+            <div className="l-er-head">
+              <span>DATA MODEL · COMMERCE</span>
+              <span className="l-er-export">export erDiagram</span>
+            </div>
+            <div className="l-er-row">
+              <div className="l-entity">
+                <div className="l-entity-name">users</div>
+                <div className="l-entity-fields">
+                  <div>
+                    <span className="pk">id</span>
+                    <span className="ty">uuid PK</span>
+                  </div>
+                  <div>
+                    <span>email</span>
+                    <span className="ty">text</span>
+                  </div>
+                  <div>
+                    <span>name</span>
+                    <span className="ty">text</span>
+                  </div>
+                </div>
+              </div>
+              <div className="l-er-rel">
+                <svg width="74" height="34" viewBox="0 0 74 34" fill="none" stroke="var(--accent)" strokeWidth="1.4" role="img">
+                  <title>one-to-many relationship</title>
+                  <line x1="4" y1="17" x2="58" y2="17" />
+                  <path d="M4 11v12" />
+                  <path d="M70 17L58 11M70 17L58 23M70 17H58" />
+                  <text x="30" y="12" fontFamily="var(--mono)" fontSize="10" fill="#9c9488" stroke="none" textAnchor="middle">
+                    1 : N
+                  </text>
+                </svg>
+              </div>
+              <div className="l-entity">
+                <div className="l-entity-name">orders</div>
+                <div className="l-entity-fields">
+                  <div>
+                    <span className="pk">id</span>
+                    <span className="ty">uuid PK</span>
+                  </div>
+                  <div>
+                    <span className="fk">user_id</span>
+                    <span className="ty">uuid FK</span>
+                  </div>
+                  <div>
+                    <span>total</span>
+                    <span className="ty">numeric</span>
+                  </div>
+                  <div>
+                    <span>status</span>
+                    <span className="ty">enum</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="l-feature-copy">
+            <p className="l-kicker">Data models</p>
+            <h2 className="l-h2-sm">Entities, fields and relationships that version with you.</h2>
+            <p>
+              Design and maintain entity-relationship diagrams with tables, fields
+              and crow's-foot relationships. Export them as Mermaid{" "}
+              <span className="l-code-chip" style={{ fontSize: 15 }}>
+                erDiagram
+              </span>{" "}
+              definitions — easy to review, version and drop straight into
+              technical docs.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* ============ PROJECT MEMORY ============ */}
+      <section className="l-wrap l-section">
+        <p className="l-kicker">Never lose the thread</p>
+        <h2 className="l-h2" style={{ maxWidth: "16ch", marginBottom: 46 }}>
+          The project remembers everything.
+        </h2>
+        <div className="l-memory">
+          {/* timeline mockup */}
+          <div className="l-mock l-mock-soft l-timeline">
             <div className="l-timeline-head">
-              <span>HISTORY · PAY BUTTON</span>
+              <span>HISTORY TIMELINE · PAY BUTTON</span>
               <span style={{ letterSpacing: 0 }}>8 revisions</span>
             </div>
             <div className="l-track">
@@ -414,10 +600,10 @@ export function LandingPage() {
                       color: "var(--accent)",
                     }}
                   >
-                    API
+                    DOCS
                   </span>
                 </div>
-                <div className="l-event-when">maya · 2h ago</div>
+                <div className="l-event-when">maya · 2h ago · diff +6 / −1</div>
               </div>
               <div className="l-event">
                 <span className="l-event-node" />
@@ -457,64 +643,87 @@ export function LandingPage() {
               </div>
             </div>
           </div>
-          <div className="l-feature-copy">
-            <p className="l-kicker">A timeline of every change</p>
-            <h2 className="l-h2-sm">See how the work changed — and who changed it.</h2>
-            <p>
-              Every edit to a design element or its documentation is captured as
-              a revision. Scrub the history to understand how a contract evolved,
-              what a teammate touched, and why the system looks the way it does
-              today.
-            </p>
+          {/* checkpoints + realtime */}
+          <div className="l-memory-cards">
+            <div className="l-info-card">
+              <Icon>
+                <path d="M6 3v18" />
+                <path d="M6 4h12l-2.5 4L18 12H6" />
+              </Icon>
+              <h3>Checkpoints</h3>
+              <p>
+                Capture named snapshots of the entire workspace at milestones — each
+                with notes and per-layer change summaries. Restore any previous
+                state whenever you need to.
+              </p>
+            </div>
+            <div className="l-info-card">
+              <Icon>
+                <path d="M4 4l7 16 2.5-6.5L20 11z" />
+                <path d="M14 14l5 5" />
+              </Icon>
+              <h3>Real-time collaboration</h3>
+              <p>
+                Live two-way updates between the web app, the VS Code extension and
+                AI agents. A change made on any surface is reflected everywhere at
+                once.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ============ FEATURE: INFRA GRAPH ============ */}
+      {/* ============ AI-NATIVE BAND ============ */}
       <section className="l-wrap l-section">
-        <div className="l-feature media-right">
-          <div className="l-feature-copy">
-            <p className="l-kicker">Infrastructure &amp; UML, made visible</p>
-            <h2 className="l-h2-sm">The distributed system, as a living overlay.</h2>
+        <div className="l-aiband">
+          <div className="l-aiband-dots" aria-hidden />
+          <div className="l-aiband-copy">
+            <p className="l-kicker" style={{ color: "var(--accent)" }}>
+              AI-native development
+            </p>
+            <h2 className="l-aiband-h">Agents are first-class collaborators.</h2>
             <p>
-              A project-scoped graph of nodes, edges and narrated flows sits over
-              the design. Trace a request from the button a user taps all the way
-              to the database it writes — UML and sequence docs attached to each
-              hop.
+              Through the Model Context Protocol server, AI assistants create,
+              update and maintain documentation, architecture, tasks and every
+              other artifact — exactly as human contributors do, with the same
+              tools and the same source of truth.
             </p>
           </div>
-          <div className="l-feature-media l-mock l-mock-soft l-infra">
-            <InfraGraph />
+          <div className="l-aiband-stat">
+            <div className="n">~30</div>
+            <div className="l">
+              MCP tools,
+              <br />
+              full parity
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ============ ORG / TEAMS ============ */}
+      {/* ============ TEAMS & ORG ============ */}
       <section id="teams" className="l-wrap l-section">
         <div className="l-feature media-right">
           <div className="l-feature-copy">
-            <p className="l-kicker">For organizations</p>
-            <h2 className="l-h2-sm">One place for the whole team.</h2>
+            <p className="l-kicker">Teams &amp; organizations</p>
+            <h2 className="l-h2-sm">Secure multi-tenant collaboration.</h2>
             <p>
-              Spin up an organization, invite designers and backend developers,
-              and assign roles. Set tasks, manage seats, and keep the design, its
-              documentation and the work tracked against it under one roof.
+              Run organizations with multiple projects and role-based permissions. A
+              Clerk-authenticated backend plus a platform administration console
+              with audit logging keep every workspace accountable.
             </p>
-            <div className="l-stats">
-              <div>
-                <div className="l-stat-n">SSO</div>
-                <div className="l-stat-l">&amp; ROLE-BASED ACCESS</div>
-              </div>
-              <div>
-                <div className="l-stat-n">Seats</div>
-                <div className="l-stat-l">BILLING IN ONE PLACE</div>
-              </div>
+            <div className="l-orgfeats">
+              {ORG_FEATURES.map((f) => (
+                <div className="l-orgfeat" key={f}>
+                  <span className="dot" />
+                  {f}
+                </div>
+              ))}
             </div>
           </div>
           {/* members mockup */}
           <div className="l-feature-media l-mock l-mock-soft">
             <div className="l-list-head">
-              <span className="t">Members</span>
+              <span className="t">Members · Acme</span>
               <span
                 style={{
                   background: "var(--ink)",
@@ -565,12 +774,18 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* ============ WHY SIGN UP ============ */}
+      {/* ============ WHY ============ */}
       <section className="l-wrap l-section">
-        <p className="l-kicker">Why teams move to Forward</p>
-        <h2 className="l-h2" style={{ maxWidth: "18ch" }}>
-          Docs that keep up with the product.
+        <p className="l-kicker">Why Forward</p>
+        <h2 className="l-h2" style={{ maxWidth: "20ch", marginBottom: 26 }}>
+          Make the interface the anchor for everything.
         </h2>
+        <p className="l-lead" style={{ maxWidth: "62ch", marginBottom: 0, fontSize: 17 }}>
+          Modern teams keep designs, API docs, infrastructure, data models, tasks
+          and AI workflows in disconnected tools — and as the project evolves, they
+          drift out of sync. Forward keeps every artifact connected to the interface
+          it supports.
+        </p>
         <div className="l-why">
           {BENEFITS.map((b) => (
             <div className="l-why-cell" key={b.num}>
@@ -584,7 +799,7 @@ export function LandingPage() {
 
       {/* ============ PRICING ============ */}
       <section id="pricing" className="l-wrap l-section">
-        <div className="l-section-head" style={{ marginBottom: 54 }}>
+        <div className="l-section-head" style={{ marginBottom: 52 }}>
           <div>
             <p className="l-kicker">Pricing</p>
             <h2 className="l-h2" style={{ maxWidth: "16ch" }}>
@@ -640,10 +855,10 @@ export function LandingPage() {
         <div className="l-cta">
           <div className="l-cta-dots" aria-hidden />
           <div className="l-cta-inner">
-            <h2>Put design and the system on the same page.</h2>
+            <h2>One source of truth, from design through delivery.</h2>
             <p>
-              Create a workspace, invite your team, and bring the interface, its
-              documentation and the work into one living picture.
+              Create a workspace, invite your team, and bring design, documentation,
+              architecture and the work into one living picture.
             </p>
             <div className="l-cta-actions">
               <Show when="signed-out">
@@ -674,8 +889,8 @@ export function LandingPage() {
             <span className="nm">FORWARD</span>
           </div>
           <div className="l-footer-links">
+            <a href="#capabilities">Capabilities</a>
             <a href="#surfaces">Surfaces</a>
-            <a href="#layers">Layers</a>
             <a href="#teams">Teams</a>
             <a href="#pricing">Pricing</a>
             <a href="#start">Start free</a>
@@ -684,6 +899,26 @@ export function LandingPage() {
         </div>
       </footer>
     </div>
+  );
+}
+
+/* ---------- small line icon ---------- */
+function Icon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      className="l-icon"
+      width="26"
+      height="26"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="var(--accent)"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {children}
+    </svg>
   );
 }
 
@@ -698,6 +933,7 @@ function InfraGraph() {
       role="img"
       aria-label="Infrastructure graph: web client to api-gateway to checkout service and payments database"
     >
+      <title>Infrastructure graph: web client to api-gateway to checkout service and payments database</title>
       <defs>
         <marker id="l-arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <path d="M0 0 L6 3 L0 6 Z" fill="#9c9488" />
@@ -782,14 +1018,14 @@ function InfraGraph() {
         <rect
           x="40"
           y="280"
-          width="220"
+          width="238"
           height="34"
           rx="6"
           fill="color-mix(in srgb, var(--accent) 12%, transparent)"
         />
         <circle cx="60" cy="297" r="4" fill="var(--accent)" />
         <text x="74" y="301" fontSize="12" fill="#1c1a15">
-          flow: place order · 4 hops
+          flow: place order · 4 hops → Mermaid
         </text>
       </g>
     </svg>
@@ -800,50 +1036,28 @@ function InfraGraph() {
 const SURFACES = [
   {
     idx: "01 / WEB CANVAS",
-    title: "Draw it in the browser",
-    body: "A Figma-lite editor that runs offline against a fixture or live against your database — no setup to start drawing.",
+    title: "The full dashboard",
+    body: "Draw interfaces, model architecture, run flows, design data and track work — all in the browser, in one place.",
   },
   {
     idx: "02 / VS CODE",
-    title: "Document it in your editor",
-    body: "Annotate design elements with API, infra and UML docs without leaving VS Code. ETag-conditional polling keeps it cheap and current.",
+    title: "Document in your editor",
+    body: "Backend developers attach framework-agnostic API documentation to any design element without leaving the code.",
   },
   {
     idx: "03 / MCP SERVER",
     title: "Hand it to an agent",
-    body: "Full parity for any AI agent — resolve elements, document endpoints and edit the infra graph, all through the shared contract.",
+    body: "Around 30 tools with full feature parity, so any AI assistant can create and maintain every artifact.",
   },
 ];
 
-const LAYERS = [
-  {
-    num: "01",
-    dot: "var(--layer-design)",
-    title: "Design",
-    body: "Frames, components and instances on an independent visual canvas, with absolute geometry and a parent hierarchy.",
-    tag: "Primary artefact",
-  },
-  {
-    num: "02",
-    dot: "var(--layer-api)",
-    title: "API binding",
-    body: "An optional, docs-first annotation a backend dev attaches from VS Code. Markdown carries the meaning; HTTP hints are optional.",
-    tag: "From VS Code",
-  },
-  {
-    num: "03",
-    dot: "var(--layer-infra)",
-    title: "Infrastructure",
-    body: "A project-scoped graph of nodes, edges and narrated flows — the distributed system rendered as a separate overlay.",
-    tag: "Graph overlay",
-  },
-  {
-    num: "04",
-    dot: "var(--layer-tasks)",
-    title: "Tasks",
-    body: "A standalone work tracker that links softly into the other layers, so every item tracks against the thing it's about.",
-    tag: "Linked on read",
-  },
+const ORG_FEATURES = [
+  "Multiple projects",
+  "Role-based permissions",
+  "Email invitations",
+  "API tokens",
+  "Platform admin console",
+  "Clerk authentication",
 ];
 
 const MEMBERS = [
@@ -874,12 +1088,12 @@ const BENEFITS = [
   {
     num: "01",
     title: "One source of truth",
-    body: "Design, documentation and tasks live in one project — they stop drifting apart the day you start.",
+    body: "Design, documentation, architecture and tasks live in one project — they stop drifting apart the day you start.",
   },
   {
     num: "02",
     title: "Docs that can't go stale",
-    body: "Annotations live next to the element they describe and version with it, change by change.",
+    body: "Documentation lives next to the element it describes and versions with it, change by change.",
   },
   {
     num: "03",
@@ -889,17 +1103,17 @@ const BENEFITS = [
   {
     num: "04",
     title: "AI-ready by default",
-    body: "An MCP server gives any agent full parity to read elements and edit the infra graph.",
+    body: "An MCP server gives any agent full parity to read elements and maintain every artifact.",
   },
   {
     num: "05",
-    title: "Soft links, not foreign keys",
-    body: "Each layer stays the source of truth for itself; tasks reference the others without coupling them.",
+    title: "Traceable end to end",
+    body: "Tasks link to design, flows and endpoints, so work always tracks against the thing it's about.",
   },
   {
     num: "06",
     title: "History you can trust",
-    body: "A timeline of every change — by whom and when — so decisions are never a mystery.",
+    body: "A timeline and checkpoints record every change — by whom and when — so decisions are never a mystery.",
   },
 ];
 
@@ -915,7 +1129,7 @@ const PLANS = [
     feats: [
       "1 editor, unlimited viewers",
       "2 projects",
-      "Web canvas & VS Code annotation",
+      "Canvas, docs, data models",
       "14-day change history",
     ],
   },
@@ -923,23 +1137,23 @@ const PLANS = [
     name: "Team",
     price: "$20",
     unit: "/ editor / mo",
-    desc: "For product teams keeping design, docs and tasks in sync across the whole codebase.",
+    desc: "For product teams keeping design, docs, architecture and tasks in sync across the codebase.",
     cta: "Start 14-day trial",
     featured: true,
     contact: false,
     feats: [
       "Everything in Solo, plus:",
       "Unlimited projects & editors",
-      "Infrastructure & UML graph",
-      "Tasks & member management",
-      "Full change history & MCP server",
+      "Infrastructure, flows & UML",
+      "Checkpoints & full history",
+      "MCP server & member management",
     ],
   },
   {
     name: "Enterprise",
     price: "Custom",
     unit: "",
-    desc: "For organizations that need SSO, control over data residency and a dedicated contact.",
+    desc: "For organizations that need SSO, audit logging, data residency and a dedicated contact.",
     cta: "Talk to us",
     featured: false,
     contact: true,
