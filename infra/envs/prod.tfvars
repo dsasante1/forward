@@ -6,6 +6,11 @@ region          = "us-central1"
 github_repo     = "dsasante1/forward"
 hosting_site_id = "forward-dashboard"
 
+# Cost ceiling: Cloud Run scales to zero, so idle = $0. This bounds the worst
+# case — even under load/attack you never pay for more than this many instances.
+# Lower it (e.g. 2) for a tighter cap; raise it if you need more throughput.
+max_instances = 4
+
 # Non-secret runtime config for the server. Point the origins at your real
 # dashboard URL once Hosting is live (default Firebase URL shown).
 plain_env = {
