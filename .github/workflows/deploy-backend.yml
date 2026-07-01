@@ -31,7 +31,11 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          # Pinned exact: Node 22.23.0 has an http.Agent keep-alive regression
+          # (nodejs/node#63989) that throws "Premature close" on token exchanges
+          # to *.googleapis.com; fixed in 22.23.1. Bare '22' can serve the
+          # runner-cached 22.23.0. Relax once newer 22.x are uniformly safe.
+          node-version: "22.23.1"
           cache: npm
 
       - id: auth
