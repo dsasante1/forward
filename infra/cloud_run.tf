@@ -55,6 +55,10 @@ resource "google_cloud_run_v2_service" "server" {
       template[0].containers[0].image,
       client,
       client_version,
+      # The Cloud Run API auto-populates a service-level `scaling` block we never
+      # declare (we set scaling under template), so it would otherwise show as a
+      # perpetual no-op diff on every plan/apply.
+      scaling,
     ]
   }
 
