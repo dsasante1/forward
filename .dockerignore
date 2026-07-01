@@ -18,3 +18,12 @@
 .DS_Store
 .vscode-test
 firebase-config.local.json
+
+# Terraform local artifacts — the build context is the repo root, so the 200MB+
+# provider cache and any local/backend state would otherwise be sent to the Docker
+# daemon (and state must never enter a build context). Not COPYied, just excluded.
+**/.terraform
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.*
+**/errored.tfstate

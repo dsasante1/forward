@@ -41,6 +41,7 @@ variable "secret_env_names" {
     "DIRECT_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
     "CLERK_SECRET_KEY",
+    "CLERK_WEBHOOK_SIGNING_SECRET",
     "MAILTRAP_API_KEY",
   ]
 }
