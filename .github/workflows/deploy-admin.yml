@@ -58,3 +58,4 @@ jobs:
           --config firebase.admin.json
           --project ${{ vars.GCP_PROJECT_ID }}
           --non-interactive
+          --debug
