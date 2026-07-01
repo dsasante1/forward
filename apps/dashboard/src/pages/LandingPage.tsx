@@ -578,9 +578,13 @@ export function LandingPage() {
       {/* ============ PROJECT MEMORY ============ */}
       <section className="l-wrap l-section">
         <p className="l-kicker">Never lose the thread</p>
-        <h2 className="l-h2" style={{ maxWidth: "16ch", marginBottom: 46 }}>
+        <h2 className="l-h2" style={{ maxWidth: "18ch", marginBottom: 18 }}>
           The project remembers everything.
         </h2>
+        <p className="l-lead" style={{ maxWidth: "56ch", marginBottom: 46, fontSize: 17 }}>
+          Every change to a design element or its documentation is captured as a
+          revision — and every edit to the docs is a reviewable, git-style diff.
+        </p>
         <div className="l-memory">
           {/* timeline mockup */}
           <div className="l-mock l-mock-soft l-timeline">
@@ -643,8 +647,60 @@ export function LandingPage() {
               </div>
             </div>
           </div>
-          {/* checkpoints + realtime */}
-          <div className="l-memory-cards">
+          {/* API-doc diff — the highlighted revision, expanded */}
+          <div className="l-mock l-mock-soft l-diff" aria-hidden>
+            <div className="l-diff-head">
+              <span className="l-diff-file">API BINDING · PAY BUTTON</span>
+              <div className="l-diff-meta">
+                <span className="l-diff-ver">v7 → v8</span>
+                <span className="l-diff-add">+6</span>
+                <span className="l-diff-del">−1</span>
+              </div>
+            </div>
+            <div className="l-diff-title">
+              <span className="k">title</span>
+              <span className="v">POST /api/checkout</span>
+            </div>
+            <div className="l-diff-body">
+              <div className="l-diff-line">
+                <span className="g"> </span>## Captures payment
+              </div>
+              <div className="l-diff-line">
+                <span className="g"> </span>Creates an order and captures payment.
+              </div>
+              <div className="l-diff-line add">
+                <span className="g">+</span>Idempotent on{" "}
+                <span className="l-diff-code">Idempotency-Key</span>.
+              </div>
+              <div className="l-diff-line">
+                <span className="g"> </span>Responses:
+              </div>
+              <div className="l-diff-line">
+                <span className="g"> </span>- 201 Created
+              </div>
+              <div className="l-diff-line add">
+                <span className="g">+</span>- 402 Payment required
+              </div>
+              <div className="l-diff-line del">
+                <span className="g">−</span>- 500 Server error
+              </div>
+            </div>
+            <div className="l-diff-foot">
+              <span>maya · 2h ago</span>
+              <span
+                className="l-pill"
+                style={{
+                  background: "color-mix(in srgb, var(--accent) 14%, transparent)",
+                  color: "var(--accent)",
+                }}
+              >
+                DOCS
+              </span>
+            </div>
+          </div>
+        </div>
+        {/* checkpoints + realtime — full-width row */}
+        <div className="l-memory-cards">
             <div className="l-info-card">
               <Icon>
                 <path d="M6 3v18" />
@@ -670,7 +726,6 @@ export function LandingPage() {
               </p>
             </div>
           </div>
-        </div>
       </section>
 
       {/* ============ AI-NATIVE BAND ============ */}

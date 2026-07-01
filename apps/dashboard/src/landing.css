@@ -1395,15 +1395,15 @@
 /* ---------- project memory ---------- */
 .l-memory {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
+  grid-template-columns: 1fr 1fr;
   gap: 20px;
   align-items: stretch;
-  margin-top: 46px;
 }
 .l-memory-cards {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+  margin-top: 20px;
 }
 .l-info-card {
   flex: 1;
@@ -1422,6 +1422,106 @@
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--muted);
+}
+
+/* ---------- api-doc diff card ---------- */
+.l-diff {
+  display: flex;
+  flex-direction: column;
+}
+.l-diff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--bar);
+}
+.l-diff-file {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  color: var(--soft);
+}
+.l-diff-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.l-diff-ver {
+  color: var(--faint);
+}
+.l-diff-add {
+  color: #5b8c6e;
+}
+.l-diff-del {
+  color: #b34a3a;
+}
+.l-diff-title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 11px 18px;
+  border-bottom: 1px solid var(--hair);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.l-diff-title .k {
+  color: var(--faint);
+}
+.l-diff-title .v {
+  color: var(--ink);
+}
+.l-diff-body {
+  padding: 8px 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--soft);
+}
+.l-diff-line {
+  display: flex;
+  padding: 1px 18px 1px 0;
+  white-space: pre-wrap;
+}
+.l-diff-line .g {
+  width: 30px;
+  flex: none;
+  text-align: center;
+  color: var(--faint);
+  user-select: none;
+}
+.l-diff-line.add {
+  background: color-mix(in srgb, #5b8c6e 12%, transparent);
+  color: var(--ink);
+}
+.l-diff-line.add .g {
+  color: #5b8c6e;
+}
+.l-diff-line.del {
+  background: color-mix(in srgb, #b34a3a 11%, transparent);
+  color: var(--ink);
+}
+.l-diff-line.del .g {
+  color: #b34a3a;
+}
+.l-diff-code {
+  background: rgba(28, 26, 21, 0.07);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.l-diff-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: auto;
+  padding: 12px 18px;
+  border-top: 1px solid var(--hair);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--faint);
 }
 
 /* ---------- AI-native band ---------- */
@@ -1552,7 +1652,8 @@
     grid-template-columns: 1fr;
     gap: 28px;
   }
-  .l-memory {
+  .l-memory,
+  .l-memory-cards {
     grid-template-columns: 1fr;
   }
   .l-aiband {
