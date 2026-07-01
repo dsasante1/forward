@@ -57,18 +57,29 @@ export class RealtimeService implements OnModuleDestroy {
   private readonly channelSecret: string;
 
   constructor(config: ConfigService) {
-    this.channelSecret =
+    const secret =
       config.get<string>("REALTIME_CHANNEL_SECRET") ??
-      config.get<string>("CLERK_SECRET_KEY") ??
-      "forward-dev-realtime-secret";
+      config.get<string>("CLERK_SECRET_KEY");
     const url = config.get<string>("SUPABASE_URL");
     const key = config.get<string>("SUPABASE_SERVICE_ROLE_KEY");
     if (url && key) {
+      // The bus is live, so the (unguessable) channel name is the tenancy
+      // boundary — it MUST derive from a real secret, never a shipped constant.
+      if (!secret) {
+        throw new Error(
+          "REALTIME_CHANNEL_SECRET (or CLERK_SECRET_KEY) is required when Supabase Realtime is configured.",
+        );
+      }
+      this.channelSecret = secret;
       this.supabase = createClient(url, key, {
         auth: { persistSession: false },
         realtime: { params: {} },
       });
     } else {
+      // Bus disabled (e.g. local dev): no channel is ever created, so the secret
+      // is moot — an inert placeholder, not a real-looking fallback that could be
+      // relied on by accident.
+      this.channelSecret = "realtime-disabled";
       this.supabase = null;
       this.logger.warn(
         "Supabase Realtime not configured — change events disabled (clients refetch on demand).",

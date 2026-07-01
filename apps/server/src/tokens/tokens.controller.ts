@@ -5,9 +5,11 @@ import {
   Get,
   Param,
   Post,
+  UseGuards,
 } from "@nestjs/common";
 import { z } from "zod";
 import { CurrentUser, type AuthUser } from "../auth/current-user.decorator.js";
+import { SessionOnlyGuard } from "../auth/session-only.guard.js";
 import { ZodBody } from "../common/zod-validation.pipe.js";
 import { TokensService } from "./tokens.service.js";
 
@@ -27,11 +29,13 @@ const RotateToken = z.object({
 
 /**
  * Account-level Personal Access Token management. These routes carry no
- * `:projectId`, so only the global ClerkAuthGuard applies — the dashboard calls
- * them with a Clerk session JWT (a PAT can mint nothing; you must be signed in
- * properly to manage your tokens). Every action is scoped to the caller.
+ * `:projectId`, so only the global ClerkAuthGuard applies — plus SessionOnlyGuard,
+ * which enforces that the caller signed in with a real Clerk session: a PAT can
+ * mint nothing, so a leaked token can't be used to bootstrap fresh credentials.
+ * Every action is scoped to the caller.
  */
 @Controller("tokens")
+@UseGuards(SessionOnlyGuard)
 export class TokensController {
   constructor(private readonly tokens: TokensService) {}
 

@@ -25,8 +25,19 @@ async function bootstrap(): Promise<void> {
   const origins = process.env.CORS_ORIGINS?.split(",")
     .map((o) => o.trim())
     .filter(Boolean);
+  // Fail closed: in production we must have an explicit allow-list. Reflecting
+  // every origin with credentials:true is a deploy-misconfig we refuse to boot
+  // into rather than run silently.
+  const isProd = process.env.NODE_ENV === "production" || process.env.NODE_ENV === "staging";
+  if (isProd && !origins?.length) {
+    throw new Error(
+      "CORS_ORIGINS must be set in production — refusing to reflect all origins.",
+    );
+  }
   app.enableCors({
-    origin: origins && origins.length ? origins : true,
+    // Dev convenience only: reflect the caller's origin. Prod always uses the
+    // explicit list above.
+    origin: origins?.length ? origins : true,
     credentials: true,
     allowedHeaders: ["authorization", "content-type"],
   });
