@@ -53,11 +53,14 @@ jobs:
 
       # firebase-tools honours GOOGLE_APPLICATION_CREDENTIALS for non-interactive
       # deploys, so it reuses the federated credentials from the auth step.
+      # Pinned: unpinned `npx firebase-tools` drifts onto newer versions whose
+      # non-interactive ADC/WIF auth is broken ("Failed to authenticate, have you
+      # run firebase login?"). 15.22.3 is the last version known to work here.
       - name: Deploy to Firebase Hosting
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
         run: >
-          npx firebase-tools deploy
+          npx firebase-tools@15.22.3 deploy
           --only hosting
           --config firebase.hosting.json
           --project ${{ vars.GCP_PROJECT_ID }}
