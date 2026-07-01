@@ -54,7 +54,6 @@ export function LandingPage() {
 
       {/* ============ HERO ============ */}
       <header className="l-wrap l-hero">
-        <span className="l-hero-eyebrow">Collaborative engineering workspace</span>
         <h1>Design. Document. Deliver. All in sync.</h1>
         <p className="l-hero-sub">
           Forward brings your UI design, backend docs, architecture, data models,
