@@ -53,12 +53,25 @@ jobs:
 
       # firebase-tools honours GOOGLE_APPLICATION_CREDENTIALS for non-interactive
       # deploys, so it reuses the federated credentials from the auth step.
+      # Retry: firebase-tools does its own WIF token exchange against
+      # sts.googleapis.com via its bundled google-auth-library, which
+      # intermittently fails with "Invalid response body ... Premature close"
+      # (surfaced as the misleading "Failed to authenticate"). The exchange is
+      # transient, so retry the idempotent deploy a few times before giving up.
       - name: Deploy to Firebase Hosting
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-        run: >
-          npx firebase-tools deploy
-          --only hosting
-          --config firebase.hosting.json
-          --project ${{ vars.GCP_PROJECT_ID }}
-          --non-interactive
+        run: |
+          for attempt in 1 2 3; do
+            echo "::group::firebase deploy (attempt $attempt)"
+            npx firebase-tools deploy \
+              --only hosting \
+              --config firebase.hosting.json \
+              --project "${{ vars.GCP_PROJECT_ID }}" \
+              --non-interactive && { echo "::endgroup::"; exit 0; }
+            echo "::endgroup::"
+            echo "deploy attempt $attempt failed (transient STS token exchange?); retrying in 10s" >&2
+            sleep 10
+          done
+          echo "all deploy attempts failed" >&2
+          exit 1
