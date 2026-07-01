@@ -33,6 +33,12 @@ variable "hosting_site_id" {
   default     = "forward-dashboard"
 }
 
+variable "admin_hosting_site_id" {
+  description = "Firebase Hosting site id for the internal Platform Admin SPA (apps/admin) — a separate deploy from the customer dashboard."
+  type        = string
+  default     = "forward-admin"
+}
+
 variable "secret_env_names" {
   description = "Env vars sourced from Secret Manager and injected into Cloud Run (same name). Values are added out-of-band — never by Terraform. Includes true secrets plus a few per-environment config values (NODE_ENV, CORS_ORIGINS) kept here so each environment's project can carry its own value without a separate tfvars."
   type        = list(string)

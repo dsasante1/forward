@@ -1,0 +1,57 @@
+name: Deploy admin (Firebase Hosting)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/admin/**"
+      - "firebase.admin.json"
+      - ".github/workflows/deploy-admin.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-admin
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # VITE_* values are compiled INTO the bundle here — build-time, not runtime.
+      # They are public (publishable key / URL only); no secrets.
+      - name: Build admin
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ vars.VITE_CLERK_PUBLISHABLE_KEY }}
+        run: npm run build -w apps/admin
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_APP_DEPLOYER_SA }}
+
+      # firebase-tools honours GOOGLE_APPLICATION_CREDENTIALS for non-interactive
+      # deploys, so it reuses the federated credentials from the auth step.
+      - name: Deploy to Firebase Hosting
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        run: >
+          npx firebase-tools deploy
+          --only hosting
+          --config firebase.admin.json
+          --project ${{ vars.GCP_PROJECT_ID }}
+          --non-interactive

@@ -13,6 +13,11 @@ output "hosting_site_id" {
   value       = google_firebase_hosting_site.dashboard.site_id
 }
 
+output "admin_hosting_site_id" {
+  description = "Firebase Hosting site id for the internal Platform Admin SPA."
+  value       = google_firebase_hosting_site.admin.site_id
+}
+
 output "wif_provider" {
   description = "Full WIF provider resource name — set as the GCP_WIF_PROVIDER repo variable."
   value       = google_iam_workload_identity_pool_provider.github.name
