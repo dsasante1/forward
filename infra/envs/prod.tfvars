@@ -17,7 +17,7 @@ max_instances = 4
 # Secret Manager (see secret_env_names) so each environment carries its own value.
 plain_env = {
   SUPABASE_URL             = "https://yvhstswanvrkriuyuuly.supabase.co"
-  CLERK_AUTHORIZED_PARTIES = "https://forward-dashboard.web.app"
+  CLERK_AUTHORIZED_PARTIES = "https://forward-dashboard.web.app,https://forward-dashboard.firebaseapp.com,https://forward-admin.web.app,https://forward-admin.firebaseapp.com"
   APP_BASE_URL             = "https://forward-dashboard.web.app"
   DEFAULT_FROM_EMAIL       = "verbgh <services@verbgh.com>"
 }
