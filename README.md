@@ -1,225 +1,145 @@
 # Forward
 
-A developer-first tool that keeps design and backend documentation in sync. **Designers draw UI on an independent
-visual canvas; backend developers then annotate those design elements — straight from VS Code —
-with API, infrastructure, and UML documentation, alongside a historical view of how the work
-has changed over time** — keeping frontend and backend in sync. Organizations and users sign
-up, manage members, and set up tasks for developers, so the design, its documentation, and the
-work tracked against it all live in one place.
+A developer-first tool that keeps **design and backend documentation in sync**. Designers draw UI
+on an independent visual canvas; backend developers then annotate those design elements — straight
+from VS Code or an AI agent — with API, infrastructure, data-model and UML documentation, alongside
+a historical (timeline) view of how the work has changed over time. Organizations and users sign up,
+manage members, and track tasks against the design, so the UI, its documentation and the work all
+live in one place.
 
-The product is moving to a centrally-hosted backend ([apps/server](apps/server)) that owns
-authentication, sign-up, the database, tenancy, and the realtime sync bus. The canvas,
-extension, and MCP surfaces currently sync through a Firebase Realtime Database via the shared
-`forward-core` contract; that single module is the swap point onto the new server.
+Forward runs on a **centrally-hosted backend** ([apps/server](apps/server) — NestJS · Prisma ·
+Supabase Postgres · Clerk) that owns authentication, sign-up, the database, tenancy and the realtime
+sync bus. The dashboard, canvas and VS Code extension talk to that server through the shared
+`forward-core` contract. One surface — the MCP server for AI agents — still syncs through a Firebase
+Realtime Database (the original data layer); it is the last piece being migrated onto the server.
 
 ```
-[Web Canvas: designers draw UI] --> [Realtime sync bus] <-- [VS Code: backend annotates elements]
-                                      (live two-way sync)
+   designers                backend devs                AI agents
+      │                          │                          │
+ [ web canvas ]           [ VS Code extension ]        [ MCP server ]
+      │                          │                          │
+      └──────────► apps/server (REST + Realtime) ◄──────────┘        MCP → Firebase RTDB
+                   Postgres · Clerk · Supabase                       (legacy, being migrated)
 ```
 
-## Two layers, one contract
+## Seven data layers, one contract
 
-The data model separates *design* from *API metadata*:
+The data model is deliberately layered. The **design** is the primary artefact and exists on its own;
+everything else is optional and attaches (or links) to it. All shapes live once in
+[packages/shared](packages/shared) (`forward-core`) as Zod schemas + TypeScript types, so every surface
+stays in sync.
 
-- **Design layer** — `DesignElement`s (frames, rectangles, text, components/instances) with
-  geometry, hierarchy and style. This is what the designer creates and owns.
-- **API binding** — an *optional* `apiBinding` attached to a design element by the backend.
-  Most elements never get one; an endpoint is never a canvas object on its own.
+| Layer | What it is | Attaches to |
+|---|---|---|
+| **Design** | `DesignElement`s a designer draws — frames, rectangles, ellipses, text, components/instances — with absolute geometry, `parentId` hierarchy and style | — (stands alone) |
+| **API binding** | An *optional* `{ title, description }` doc note a backend dev attaches to a design element. Docs-first and framework-agnostic (REST, GraphQL, gRPC, a job…) — an endpoint is never a first-class canvas object | one design element |
+| **Infrastructure** | A project-scoped graph of `InfraNode`s + `InfraEdge`s (frontend, backend, db, cache, queue, service, devops, external, group), rendered as an overlay | project |
+| **Flows** | Narrated `InfraFlow`s — ordered hops over the infra nodes — that serialize to a Mermaid `sequenceDiagram` and can tie a hop to an endpoint | infra graph |
+| **Entities (ER/UML)** | A project-scoped data model of `Entity` tables + crow's-foot `EntityRelation`s, serialized to a Mermaid `erDiagram` | project |
+| **Tasks** | A work tracker (`Task`: status/priority/type, assignees, `dependsOn`, activity feed) that *optionally links* into a design element / flow / endpoint, with a Gantt view | project (soft links) |
+| **Checkpoints** | Named, restorable snapshots of the whole canvas (design + infra) — a deliberate save with a note | project |
+
+On top of these sits the **History timeline**: a per-element append-only API-doc history
+(`version_timeline`) plus a unified project event feed, rendered as a git-graph with expandable
+"git-diff for API docs" and a **catch-up digest** ("since this baseline, here's what to integrate /
+modify / remove") for a returning frontend dev.
 
 ## Monorepo layout
 
-This is an npm-workspaces monorepo. The shared schema is the contract between all parts —
-change it there once and both apps stay in sync.
+npm workspaces (Node >= 20; `.nvmrc` pins 22).
 
-| Path | What it is |
-|---|---|
-| [packages/shared](packages/shared) | Zod schemas + TS types for the design/binding tree (the data contract) |
-| [apps/server](apps/server) | Central backend API (NestJS · Prisma · Supabase Postgres · Clerk): auth, sign-up, the database, tenancy, and the realtime sync bus |
-| [apps/dashboard](apps/dashboard) | React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members — and the host that embeds the canvas |
-| [apps/extension](apps/extension) | VS Code extension: pick a design element → write API docs (any language/framework) onto it |
-| [apps/canvas](apps/canvas) | Figma-lite design editor (draw/move/resize/nest/components) + API drawer + endpoint timeline, embedded by the dashboard |
-| [apps/mcp](apps/mcp) | MCP server: gives **any AI agent** full parity with the canvas — author/document design elements, map the infrastructure graph, read the timeline, and manage project access (the AI-native surface) |
+| Path | Package | What it is |
+|---|---|---|
+| [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types + `paths`, the timeline/diff/infra/entity helpers, and **two data clients** — `rtdb-rest` (Firebase, used by MCP) and `api-rest` (the central server, exported as `forward-core/api`) |
+| [apps/server](apps/server) | — | Central backend API (NestJS · Prisma · Supabase Postgres · Clerk): auth, sign-up, tenancy, RBAC, invites, tokens, the realtime bus, and CRUD for every data layer |
+| [apps/dashboard](apps/dashboard) | `forward-dashboard` | React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members — and the host that embeds the canvas. Includes the org-admin portal |
+| [apps/canvas](apps/canvas) | `forward-canvas` | Figma-lite design editor, consumed **only as an embedded library** (`forward-canvas/embed`). Renders timeline/infra/ER diagrams via Mermaid |
+| [apps/extension](apps/extension) | `forward-vscode` | VS Code extension: pick a design element → write API/infra/flow/task docs onto it. Talks to the central server with a Clerk session token |
+| [apps/mcp](apps/mcp) | `forward-mcp` | MCP server giving any AI agent full parity with the canvas (~30 tools). Still syncs through Firebase RTDB |
+| [apps/admin](apps/admin) | `forward-admin` | Platform-admin SPA — cross-tenant staff console (overview, orgs, users, projects, billing, audit) |
+| [infra](infra) | — | Terraform for the GCP deployment (Cloud Run, Firebase Hosting, Artifact Registry, Secret Manager, Workload Identity) |
 
-## Using the canvas editor
+## Commands
 
-The canvas is embedded in the dashboard ([apps/dashboard](apps/dashboard)) at `/app/projects/:projectId/canvas` — open a project's **Documentation** tab → "Open project in canvas".
-
-- **Toolbar:** Move, Frame, Rect, Text; Comp (make selection a component), Inst (place an
-  instance), Del. Against a live database, a **+Member** control enrols collaborators by
-  uid (see [Access control](#access-control-per-project-membership)).
-- **Draw:** pick a tool and drag on the canvas. **Select** to move; drag the corner handle
-  to resize. Dropping an element inside a frame nests it; edges snap to neighbours.
-- **Right panel:** edit position/size/style, view the API binding the backend attached, and
-  the endpoint's version history.
-- **Endpoint timeline:** the **History** toggle opens the project timeline — a git-graph
-  of every endpoint's *created / modified / deleted* events (one lane per endpoint, like git
-  branch columns) plus a **catch-up digest** that collapses the stream since a chosen
-  baseline ("last 24 h / 7 d / 30 d / all time") into the net *to integrate / to modify /
-  to remove* lists a frontend dev acts on. Clicking any event selects its design element.
-  The same view lives in the VS Code canvas behind its **Timeline** toolbar button.
-
-## Using with AI tools (MCP)
-
-[apps/mcp](apps/mcp) is the **AI-native surface**: a [Model Context
-Protocol](https://modelcontextprotocol.io) server that gives any MCP-capable
-agent (Claude Code, Cursor, …) **full parity with the canvas and extension** —
-every data pillar is reachable, so a backend dev can just say *"document the
-login endpoint I built"* or *"add a Redis cache to the architecture diagram"*
-and the agent does it. The server holds the Firebase credentials; the agent only
-sees the scoped tools, never the token.
-
-| Capability | Tools |
-|---|---|
-| **Find the right element** | `list_design_elements`, `find_element` (fuzzy match a feature → element), `resolve_anchors` (deterministic `@adc <id>` markers in source) |
-| **API documentation** | `get_documentation`, `write_documentation`, `remove_documentation` |
-| **Design layer (author)** | `create_element` (frame / rectangle / text / component / instance), `update_element` (move / resize / rename / restyle / re-parent), `delete_element` (cascades to nested children) |
-| **Infrastructure graph** | `list_infra` (+ a UML component diagram), `write_infra_node`, `connect_infra`, `remove_infra_node` |
-| **Infrastructure flows** | `list_flows` (steps + a UML sequence diagram), `write_flow`, `add_flow_step`, `remove_flow` |
-| **Endpoint timeline** | `get_history` (one element), `get_catchup_digest` (net to-integrate / modify / remove since 24h / 7d / 30d / all) |
-| **Access control** | `list_members`, `add_member`, `remove_member` |
-
-Designers normally own the design layer on the canvas, so an agent prefers
-documenting existing elements over drawing new ones — `create_element` is there
-for when the design is genuinely missing what you built. Writes go through the
-same `forward-core` contract the extension uses, so every change shows up live on
-the read-only canvases and is recorded in the version history.
-
-Register the built server with your agent (full config, env vars and the
-fuzzy-vs-deterministic linking flow are in [apps/mcp/README.md](apps/mcp/README.md)):
+Run from the repo root:
 
 ```bash
-npm run build -w apps/mcp
-claude mcp add forward \
-  --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
-  --env ADC_PROJECT_ID=your-project \
-  --env ADC_AUTH_TOKEN=your-token \
-  -- node /absolute/path/to/apps/mcp/dist/server.js
+npm install          # install all workspaces
+npm run build        # build every workspace (packages/shared builds before the apps)
+npm test             # run all Vitest suites
+npm run typecheck    # typecheck all workspaces
+npm run bootstrap    # install → build → setup (interactive Firebase config for the MCP path)
 ```
 
-## Install
-
-The project ships as two parts that install differently:
-
-### 1. The VS Code extension — from the Marketplace
-
-Search **"Forward"** in the VS Code Extensions view (or on
-[Open VSX](https://open-vsx.org) for Cursor / VSCodium) and click **Install**.
-Then open **Settings → Forward** and set your Firebase Realtime
-Database URL and `projectId` (see [apps/extension/README.md](apps/extension/README.md)).
-
-### 2. The canvas + tooling — clone and bootstrap
-
-Clone and bootstrap, then run the dashboard (which hosts the canvas):
+Per-workspace with `-w`, e.g. a single test file or test name:
 
 ```bash
-git clone https://github.com/dsasante1/forward
-cd forward
-npm run bootstrap            # install + build + interactive Firebase setup
-npm run dev -w apps/dashboard  # run the dashboard (and its embedded canvas)
+npm test -w packages/shared -- src/schema.test.ts
+npm test -w packages/shared -- -t "name fragment"
 ```
 
-`npm run bootstrap` chains `npm install` → `npm run build` → `npm run setup`. The
-[setup script](scripts/setup.mjs) interactively writes your `.vscode/settings.json`,
-scaffolds `firebase.json` / `.firebaserc`, and deploys the locked security rules for the
-extension/MCP. Set the **same** `projectId` here as in the extension so both sides share
-design elements.
+### Backend server ([apps/server](apps/server))
 
-> Two manual steps the setup script can't do for you: enable **Anonymous sign-in**
-> in the Firebase console (so the locked rules admit your canvas), and — only if the
-> extension needs to *write* under locked rules — put its `authToken` in your VS Code
-> **User** settings, never in committed workspace settings.
-
-## Getting started (development)
+Needs `apps/server/.env` (copy from `.env.example`): `DATABASE_URL` / `DIRECT_URL` (Supabase
+Postgres), `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + `REALTIME_CHANNEL_SECRET` (the realtime
+bus), `CLERK_SECRET_KEY` + `CLERK_AUTHORIZED_PARTIES` + `CLERK_WEBHOOK_SIGNING_SECRET`, and
+`CORS_ORIGINS` (an explicit allow-list — the server refuses to boot in production without one).
 
 ```bash
-npm install              # installs all workspaces
-npm run build            # build shared + apps (packages/shared builds first)
-npm test                 # run all unit tests (Vitest) across workspaces
-npm run typecheck        # typecheck every workspace
-npm run dev -w apps/dashboard  # run the dashboard + embedded canvas (Vite, :5173)
-npm run setup            # (re)configure the extension/MCP Firebase connection
+npm run dev -w apps/server             # watch mode, listens on :8080
+npm run prisma:migrate -w apps/server  # apply/create a migration after editing schema.prisma
+npm run prisma:deploy -w apps/server   # apply committed migrations (CI/prod)
 ```
 
-Per-workspace tests use `-w <workspace>` (e.g. `npm test -w packages/shared`); a single
-file with `-- src/schema.test.ts`, a single test with `-- -t "name fragment"`.
-
-### Backend API + database (`apps/server`)
-
-The dashboard talks to the central server ([apps/server](apps/server) — NestJS · Prisma ·
-Supabase Postgres · Clerk). Point the dashboard at it with `VITE_API_BASE_URL`
-(e.g. `http://localhost:8080`) in `apps/dashboard/.env.local`.
+### Front-ends
 
 ```bash
-cp apps/server/.env.example apps/server/.env   # fill in Supabase + Clerk values
-
-npm run prisma:migrate  -w apps/server         # apply migrations (create/update the schema)
-npm run prisma:generate -w apps/server         # regenerate the typed Prisma client
-npm run dev   -w apps/server                   # run the API in watch mode (:8080)
-# or: npm run start -w apps/server             # run the built server
+npm run dev -w apps/dashboard   # dashboard + embedded canvas (needs VITE_API_BASE_URL, VITE_CLERK_PUBLISHABLE_KEY, VITE_SUPABASE_URL/ANON_KEY)
+npm run dev -w apps/admin       # platform-admin console (needs VITE_API_BASE_URL, VITE_CLERK_PUBLISHABLE_KEY)
+npm run package -w apps/extension   # build the VS Code .vsix locally
 ```
 
-Migrations live in [apps/server/prisma/migrations](apps/server/prisma/migrations). After
-editing `schema.prisma`, create one with
-`npm run prisma:migrate -w apps/server -- --name <change_name>`; in CI/prod apply the
-committed migrations with `npm run prisma:deploy -w apps/server`. Full backend setup,
-the API surface, and deployment are in [apps/server/README.md](apps/server/README.md).
+The canvas is **not** a standalone app — open it in the dashboard at
+`/app/projects/:projectId/canvas` (a project's Documentation tab → "Open project in canvas").
 
-## Publishing the extension (maintainers)
+## Using the surfaces
 
-Publishing is automated by [.github/workflows/release.yml](.github/workflows/release.yml):
-pushing a `v*` tag builds, tests, packages a `.vsix`, publishes to the VS Code
-Marketplace **and** Open VSX, and attaches the `.vsix` to a GitHub Release.
+- **Canvas** — Toolbar (Move, Frame, Rect, Ellipse, Text, Comp, Inst, Del); drag to draw, drag a
+  handle to resize, drop inside a frame to nest. The right panel edits geometry/style, shows the API
+  binding the backend attached, and the endpoint's version history. The **History** toggle opens the
+  git-graph timeline + catch-up digest; the **Infra** overlay draws the architecture graph and flows.
+- **VS Code extension** — Sign in (`forward.signIn`) against your Forward server, then use the
+  `forward.*` commands to connect an endpoint's docs to a design element, edit the infra graph and
+  flows, and file/update tasks. Configure `forward.apiBaseUrl` and `forward.projectId` in Settings.
+- **MCP server** — Point any MCP-capable agent at it (env: `ADC_FIREBASE_DATABASE_URL`,
+  `ADC_PROJECT_ID`, `ADC_AUTH_TOKEN`). The agent gets scoped tools with full parity: author and
+  document elements, edit the infra/ER graphs and flows, read the timeline/catch-up digest, and
+  manage members.
 
-One-time setup: register a publisher on the
-[Marketplace](https://marketplace.visualstudio.com/manage) and [Open VSX](https://open-vsx.org),
-set the `publisher` field in [apps/extension/package.json](apps/extension/package.json),
-and add the repo secrets `VSCE_PAT` and `OVSX_PAT` (a store is skipped if its secret
-is absent). Then:
+A **project id** is a tenancy namespace (e.g. `project_xyz`), **not** a GCP project id. The
+extension's `forward.projectId` and the canvas's project must match to share elements.
 
-```bash
-npm version patch -w apps/extension
-git push --follow-tags
-```
+## Access control & tenancy
 
-To build a `.vsix` locally without publishing: `npm run package -w apps/extension`.
+The server is the trust boundary. **Organizations** (mirrored from Clerk) are the top tenancy tier;
+**projects** are the unit of isolation, each with a member roster and per-project roles —
+`viewer` (read), `editor` (read/write the data layers), `owner` (also manages the roster + invites).
+Ownership is claimed on create and enforced server-side (a `FOR UPDATE` lock guards the
+"can't remove the last owner" rule). Owners invite by email (a tokenized link); the extension
+authenticates with either a Clerk session token or a project **API token**. A separate
+**platform-admin** tier ([apps/admin](apps/admin)) sees across all tenants and writes every mutation
+to an audit trail.
 
-## Data & privacy
+The realtime bus is Supabase Realtime: after each write the server broadcasts a compact change event
+on a per-project channel whose name is an HMAC of the project id (a capability handed only to
+members), so clients re-fetch without touching the database directly.
 
-Firebase config and tokens are read from local settings / env and are **never committed**
-(see [.gitignore](.gitignore)). On the current Firebase path, lock the database down with the
-security rules in [apps/canvas/firebase.rules.json](apps/canvas/firebase.rules.json); once a
-surface is repointed at [apps/server](apps/server), auth and tenancy are enforced there
-(Clerk + per-project membership + Postgres RLS).
+The legacy MCP path still reads/writes Firebase directly; that path is gated by the per-project
+membership ACL in [apps/canvas/firebase.rules.json](apps/canvas/firebase.rules.json).
 
-### Access control (per-project membership)
+## Publishing
 
-The locked rules enforce a **per-project membership ACL** — every project subtree
-(`design_elements`, `version_timeline`, `infra_nodes`, `infra_edges`, `infra_flows`) is
-readable and writable only by uids listed in that project's `project_members` roster:
-
-- **Claim on first use** — the first authenticated user to open a fresh project claims it
-  as `owner` (the canvas seeds the roster automatically after anonymous sign-in).
-- **Enrolling collaborators** — anyone else opening that project is locked out and sees a
-  banner with their **uid**. An existing member pastes that uid into the canvas toolbar's
-  **+Member** control to grant access. (Onboarding is deliberately explicit — there's no
-  open self-join.)
-- **The VS Code extension is a trusted admin client.** It authenticates over REST with a
-  privileged token; a Firebase **DB secret bypasses the rules as admin**, so it needs no
-  roster entry. If you instead give it a uid-scoped ID token, add that uid to each project's
-  roster like any other member.
-
-On the current Firebase path the trust boundary is the **database** (one team per DB); the
-membership roster adds isolation *between projects* within that database. Test-mode (open)
-rules have no auth and skip membership entirely.
-
-## Status
-
-Working end-to-end: the Figma-lite editor (embedded in the dashboard, backed by the
-server REST API), the VS Code documentation bridge (ETag-conditional polling over the RTDB
-REST API), the infrastructure overlay, the MCP server, and the project **endpoint
-timeline** (git-graph history + catch-up digest, rendered in both the web canvas and the
-VS Code viewer). The MCP server now reaches **every feature** an AI agent could want —
-authoring/documenting design elements, editing the infrastructure graph, reading the
-timeline, and managing project access — at parity with the canvas and extension. 63 unit
-tests across the schema, timeline logic, canvas geometry, the RTDB reader/writer and the
-MCP matcher/anchor resolver.
+Pushing a `v*` tag triggers [.github/workflows/release.yml](.github/workflows/release.yml) to build,
+test, package the extension `.vsix`, and publish to the VS Code Marketplace + Open VSX (each skipped
+if its `VSCE_PAT` / `OVSX_PAT` secret is absent). Bump with
+`npm version patch -w apps/extension && git push --follow-tags`.
