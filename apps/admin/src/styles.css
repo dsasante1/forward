@@ -2,7 +2,9 @@
    Ported from the Forward Admin design bundle (dark theme, terracotta accent). */
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 
-:root {
+/* Dark is the default theme (STAFF CONSOLE). :root doubles as [data-theme="dark"]. */
+:root,
+:root[data-theme="dark"] {
   --bg: #0c0d11;
   --panel: #131419;
   --panel2: #191b22;
@@ -15,6 +17,29 @@
   --accent: #d06a40;
   --accentSoft: rgba(208, 106, 64, 0.14);
   --accentLine: rgba(208, 106, 64, 0.4);
+  --good: #5db98a;
+  --warn: #d6a85b;
+  --bad: #d8654a;
+  --info: #5b8fd6;
+}
+
+:root[data-theme="light"] {
+  --bg: #f6f5f2;
+  --panel: #ffffff;
+  --panel2: #f1efea;
+  --border: rgba(20, 18, 14, 0.09);
+  --border2: rgba(20, 18, 14, 0.16);
+  --text: #22201b;
+  --dim: #5f5d56;
+  --faint: #8b8880;
+  --hover: rgba(20, 18, 14, 0.035);
+  --accent: #c05a30;
+  --accentSoft: rgba(192, 90, 48, 0.12);
+  --accentLine: rgba(192, 90, 48, 0.38);
+  --good: #2f9469;
+  --warn: #b3822f;
+  --bad: #c0472f;
+  --info: #3a6ea8;
 }
 
 * {
@@ -33,7 +58,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 ::selection {
-  background: rgba(208, 106, 64, 0.3);
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 input,
 button,
@@ -165,6 +190,17 @@ select:focus {
   display: flex;
   align-items: center;
   gap: 9px;
+  padding: 4px 8px 4px 4px;
+  margin-right: -4px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.top-user:hover {
+  background: var(--hover);
 }
 .sidebar {
   width: 232px;
@@ -314,8 +350,29 @@ select:focus {
   flex: none;
 }
 .dot.live {
-  background: #5db98a;
+  background: var(--good);
   animation: adpulse 2s ease-in-out infinite;
+}
+
+/* ===== Theme toggle ===== */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: background 0.14s, color 0.14s, border-color 0.14s;
+}
+.theme-toggle:hover {
+  color: var(--text);
+  background: var(--hover);
+  border-color: var(--accentLine);
 }
 .content {
   flex: 1;
@@ -438,15 +495,15 @@ select:focus {
   border-color: var(--accentLine);
 }
 .btn.danger {
-  border-color: rgba(216, 101, 74, 0.5);
-  background: rgba(216, 101, 74, 0.12);
-  color: #d8654a;
+  border-color: color-mix(in srgb, var(--bad) 50%, transparent);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: var(--bad);
   font-weight: 500;
 }
 .btn.good {
-  border-color: rgba(93, 185, 138, 0.5);
-  background: rgba(93, 185, 138, 0.12);
-  color: #5db98a;
+  border-color: color-mix(in srgb, var(--good) 50%, transparent);
+  background: color-mix(in srgb, var(--good) 12%, transparent);
+  color: var(--good);
   font-weight: 500;
 }
 .linkbtn {
@@ -524,5 +581,5 @@ button:disabled {
   gap: 12px;
 }
 .error {
-  color: #d8654a;
+  color: var(--bad);
 }

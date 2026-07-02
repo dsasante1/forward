@@ -98,7 +98,7 @@ export function OverviewPage() {
                 </div>
                 <div style={{ display: "flex", alignItems: "flex-end", gap: 5, height: 60 }}>
                   {d.orgTrend.perWeek.map((v, i) => (
-                    <div key={i} style={{ flex: 1, height: `${Math.round((v / maxBar) * 100)}%`, minHeight: 2, borderRadius: "3px 3px 0 0", background: i === d.orgTrend.perWeek.length - 1 ? C.accent : hexA(C.accent, 0.4) }} />
+                    <div key={i} style={{ flex: 1, height: `${Math.round((v / maxBar) * 100)}%`, minHeight: 2, borderRadius: "3px 3px 0 0", background: i === d.orgTrend.perWeek.length - 1 ? C.accent : C.accentLine }} />
                   ))}
                 </div>
               </div>
@@ -143,7 +143,7 @@ function Kpi({ label, value, series, delta, deltaColor }: { label: string; value
         <div className="kpi-value">{value}</div>
         {s.line && (
           <svg width="92" height="30" viewBox="0 0 120 30" preserveAspectRatio="none" style={{ flex: "none" }}>
-            <path d={s.area} fill={hexA(C.accent, 0.14)} />
+            <path d={s.area} fill={C.accentSoft} />
             <path d={s.line} fill="none" stroke={C.accent} strokeWidth="1.7" />
           </svg>
         )}

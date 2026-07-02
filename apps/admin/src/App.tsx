@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
-import { Show, SignIn, useUser } from "@clerk/react";
+import { Show, SignIn, useClerk, useUser } from "@clerk/react";
 import { OverviewPage } from "./pages/OverviewPage.js";
 import { OrgsPage } from "./pages/OrgsPage.js";
 import { OrgDetailPage } from "./pages/OrgDetailPage.js";
@@ -9,6 +9,7 @@ import { BillingPage } from "./pages/BillingPage.js";
 import { ProjectsPage } from "./pages/ProjectsPage.js";
 import { AuditPage } from "./pages/AuditPage.js";
 import { initials } from "./theme.js";
+import { useTheme } from "./useTheme.js";
 
 const NAV = [
   { to: "/overview", label: "Overview", icon: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z" },
@@ -22,6 +23,21 @@ const NAV = [
 // --- Toast (matches the design's transient confirmation banner) ---
 const ToastCtx = createContext<(m: string) => void>(() => {});
 export const useToast = () => useContext(ToastCtx);
+
+// Deploy environment shown in the topbar badge, from VITE_ENV (default development).
+// Green = production, amber = staging, blue = development, so operators can tell at
+// a glance which backend the console is mutating.
+const DEV_BADGE = { label: "DEVELOPMENT", color: "var(--info)" };
+const ENV_BADGE: Record<string, { label: string; color: string }> = {
+  production: { label: "PRODUCTION", color: "var(--good)" },
+  staging: { label: "STAGING", color: "var(--warn)" },
+  development: DEV_BADGE,
+};
+function envBadge() {
+  const raw = (import.meta.env.VITE_ENV ?? "development").toLowerCase();
+  const key = raw === "prod" ? "production" : raw === "stage" ? "staging" : raw === "dev" ? "development" : raw;
+  return ENV_BADGE[key] ?? DEV_BADGE;
+}
 
 export default function App() {
   return (
@@ -46,6 +62,9 @@ export default function App() {
 
 function Shell() {
   const { user } = useUser();
+  const { theme, toggle } = useTheme();
+  const { openUserProfile } = useClerk();
+  const env = envBadge();
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
   const show = useCallback((m: string) => {
@@ -54,9 +73,9 @@ function Shell() {
     timer.current = setTimeout(() => setToast(null), 2600);
   }, []);
 
-  const opInitials = initials(
-    user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "Ops",
-  );
+  const opName =
+    user?.fullName ?? user?.primaryEmailAddress?.emailAddress ?? "Ops · You";
+  const opInitials = initials(opName);
 
   return (
     <ToastCtx.Provider value={show}>
@@ -79,17 +98,43 @@ function Shell() {
             ))}
           </nav>
           <div className="topbar-right">
-            <div className="prod">
-              <span className="dot live" />
-              PRODUCTION
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggle}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            >
+              {theme === "dark" ? (
+                // Sun — click to go light
+                <svg aria-hidden="true" focusable="false" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" />
+                </svg>
+              ) : (
+                // Moon — click to go dark
+                <svg aria-hidden="true" focusable="false" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              )}
+            </button>
+            <div className="prod" style={{ color: env.color }}>
+              <span className="dot live" style={{ background: env.color }} />
+              {env.label}
             </div>
-            <div className="top-user">
+            <button
+              type="button"
+              className="top-user"
+              onClick={() => openUserProfile()}
+              title="Manage your account"
+              aria-label="Manage your account"
+            >
               <span className="avatar op-avatar">{opInitials}</span>
-              <div style={{ lineHeight: 1.2 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 500 }}>Ops · You</div>
+              <div style={{ lineHeight: 1.2, textAlign: "left" }}>
+                <div className="ellip" style={{ fontSize: 12.5, fontWeight: 500, maxWidth: 160 }}>{opName}</div>
                 <div className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>superadmin</div>
               </div>
-            </div>
+            </button>
           </div>
         </header>
 

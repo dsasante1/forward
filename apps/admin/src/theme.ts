@@ -2,25 +2,30 @@ import type { CSSProperties } from "react";
 import type { Plan } from "./api.js";
 
 /**
- * Design tokens + small style helpers ported verbatim from the Forward Admin
- * design (Forward Admin.dc.html / support.js). Dark theme, terracotta accent.
+ * Design tokens + small style helpers ported from the Forward Admin design
+ * (Forward Admin.dc.html / support.js). Terracotta accent.
+ *
+ * Each token points at a CSS custom property (defined per theme in styles.css),
+ * so an inline `style={{ color: C.dim }}` re-resolves automatically when the
+ * `data-theme` attribute flips between dark and light — no re-render needed.
+ * The concrete hex/rgba values live in styles.css (`:root` + `[data-theme]`).
  */
 export const C = {
-  bg: "#0c0d11",
-  panel: "#131419",
-  panel2: "#191b22",
-  border: "rgba(255,255,255,0.07)",
-  border2: "rgba(255,255,255,0.12)",
-  text: "#e8e5de",
-  dim: "#8d8b85",
-  faint: "#62615c",
-  hover: "rgba(255,255,255,0.03)",
-  accent: "#d06a40",
-  accentSoft: "rgba(208,106,64,0.14)",
-  accentLine: "rgba(208,106,64,0.4)",
-  good: "#5db98a",
-  warn: "#d6a85b",
-  bad: "#d8654a",
+  bg: "var(--bg)",
+  panel: "var(--panel)",
+  panel2: "var(--panel2)",
+  border: "var(--border)",
+  border2: "var(--border2)",
+  text: "var(--text)",
+  dim: "var(--dim)",
+  faint: "var(--faint)",
+  hover: "var(--hover)",
+  accent: "var(--accent)",
+  accentSoft: "var(--accentSoft)",
+  accentLine: "var(--accentLine)",
+  good: "var(--good)",
+  warn: "var(--warn)",
+  bad: "var(--bad)",
 };
 
 export const PLAN_COLOR: Record<Plan, string> = {
@@ -53,8 +58,17 @@ export function auditType(action: string): {
   return { label: "system", key: "system", color: "#5b8fd6" };
 }
 
-export function hexA(hex: string, a: number): string {
-  const h = hex.replace("#", "");
+/**
+ * Fade a color to a given alpha. Accepts a 6-digit hex (`#d06a40`) or any
+ * non-hex color — a CSS custom property (`var(--bad)`) or named color — which
+ * can't be parsed numerically and is blended via `color-mix` instead so
+ * theme-token inputs stay theme-reactive.
+ */
+export function hexA(color: string, a: number): string {
+  const h = color.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(h)) {
+    return `color-mix(in srgb, ${color} ${Math.round(a * 100)}%, transparent)`;
+  }
   const r = parseInt(h.substr(0, 2), 16);
   const g = parseInt(h.substr(2, 2), 16);
   const b = parseInt(h.substr(4, 2), 16);

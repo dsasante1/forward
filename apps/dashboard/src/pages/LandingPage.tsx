@@ -1116,22 +1116,22 @@ const ORG_FEATURES = [
 
 const MEMBERS = [
   {
-    initials: "MA",
-    name: "Maya Adebayo",
-    email: "maya@acme.dev",
+    initials: "JD",
+    name: "Jane Doe",
+    email: "jane@acme.dev",
     role: "Admin",
     color: "var(--accent2)",
   },
   {
-    initials: "AR",
-    name: "Arjun Rao",
-    email: "arjun@acme.dev",
+    initials: "AD",
+    name: "Abeeku Djokoto",
+    email: "abeeku@acme.dev",
     role: "Developer",
     color: "var(--layer-tasks)",
   },
   {
-    initials: "TL",
-    name: "Tomas Lind",
+    initials: "AK",
+    name: "Ama Kubolor",
     email: "invited · pending",
     role: "Designer",
     color: "var(--layer-infra)",
