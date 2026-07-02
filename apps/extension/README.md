@@ -10,14 +10,23 @@ From inside VS Code you can:
 
 - **Document API on Design Element** — pick a design element the designer made
   on the canvas and attach an endpoint, method, request/response shape, etc.
-- **Open Design Canvas** — view the live design with your API docs overlaid.
+  Docs are framework-agnostic Markdown, so any language/stack fits.
 - **Remove API Documentation** — detach the binding (the design element stays).
-- **Infrastructure overlay** — add/link/remove infrastructure nodes on the canvas.
+- **Infrastructure diagram** — add, link and remove infrastructure nodes to map
+  your architecture as a component diagram.
+- **Flows & sequence diagrams** — narrate ordered hops across your
+  infrastructure; they render as a Mermaid sequence diagram.
+- **Tasks** — file tasks and update their status, optionally linked to an
+  element, flow or endpoint.
+- **Open Design Canvas** — view the live design with your API docs and diagrams
+  overlaid, right inside VS Code.
 - **Endpoint timeline** — the canvas's **Timeline** button opens a git-graph of
   every endpoint's created/modified/deleted history, plus a catch-up digest of
   what to integrate, modify or remove since a chosen baseline.
 
-The companion web canvas is where designers draw the UI.
+Everything you write syncs through the centrally-hosted Forward server, so your
+team, the design canvas and any AI agents stay in sync in real time. The
+companion web canvas is where designers draw the UI.
 
 ## Setup
 
