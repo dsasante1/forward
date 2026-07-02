@@ -246,8 +246,8 @@ export class ServerSource implements CanvasSource {
     return { nodes, edges, flows };
   }
 
-  async saveElement(element: DesignElement): Promise<void> {
-    await api.saveElement(await this.cfg(), element);
+  async saveElement(element: DesignElement): Promise<DesignElement> {
+    return api.saveElement(await this.cfg(), element);
   }
 
   async documentElement(
