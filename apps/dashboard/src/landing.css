@@ -1631,8 +1631,13 @@
     border-right: none;
     border-bottom: 1px solid var(--hair);
   }
+  /* pull the annotation out of the overlap and stack it under the frame
+     so mobile shows the same story (element + its API doc) as desktop */
   .l-popover {
-    display: none;
+    position: static;
+    width: auto;
+    max-width: 340px;
+    margin: 22px auto 0;
   }
   /* bento collapses to a single column */
   .l-bento-cell.span-4,
@@ -1682,6 +1687,30 @@
   .l-cta {
     padding: 48px 26px;
   }
+  /* footer stacks so links don't cram / wrap mid-item */
+  .l-footer-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 22px;
+  }
+  .l-footer-links {
+    flex-wrap: wrap;
+    gap: 16px 22px;
+  }
+}
+@media (max-width: 640px) {
+  /* VS Code mockup: stack code over the FORWARD panel so the code
+     column keeps full width instead of collapsing and clipping */
+  .l-vscode-body {
+    flex-direction: column;
+    min-height: 0;
+  }
+  .l-fpanel {
+    width: auto;
+    flex: none;
+    border-left: none;
+    border-top: 1px solid #322f38;
+  }
 }
 @media (max-width: 540px) {
   .l-layers-grid {
@@ -1692,5 +1721,25 @@
   }
   .l-orgfeats {
     grid-template-columns: 1fr;
+  }
+  /* keep the window bar on one line instead of wrapping into 3 rows */
+  .l-winbar {
+    gap: 10px;
+    padding: 11px 14px;
+  }
+  .l-winbar-url {
+    font-size: 10.5px;
+    padding: 4px 10px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .l-winbar-live {
+    flex: none;
+    white-space: nowrap;
+  }
+  .l-canvas {
+    padding: 26px 18px;
   }
 }
