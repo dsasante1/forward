@@ -104,6 +104,12 @@ export interface MountOptions {
   /** Invoked by the in-canvas "Back to project" pill; the host navigates. The
    * pill is shown only when this is provided. */
   onBack?: () => void;
+  /** Invoked when the "forward" crumb is clicked; the host navigates to the
+   * project list. The crumb is a link only when this is provided. */
+  onNavigateHome?: () => void;
+  /** Invoked when the project-name crumb is clicked; the host navigates to the
+   * project. The crumb is a link only when this is provided. */
+  onNavigateProject?: () => void;
 }
 
 /** Handle from mountCanvas; `destroy` stops polling and removes global listeners. */

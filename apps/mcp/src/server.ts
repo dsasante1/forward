@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import {
+  AgentNode,
   ApiBinding,
   DesignElement,
   Entity,
@@ -10,20 +11,25 @@ import {
   InfraFlow,
   InfraFlowStep,
   InfraNode,
+  McpServerNode,
   ProjectRole,
   Style,
   Task,
   addMember,
+  agentsToComponentMermaid,
   applyTaskChange,
   bindApiToElement,
   commentOnTask,
+  deleteAgentNode,
   deleteElement,
   deleteEntity,
   deleteInfraFlow,
   deleteInfraNode,
+  deleteMcpServer,
   deleteTask,
   digest,
   entityToMermaid,
+  fetchAgents,
   fetchElements,
   fetchEntities,
   fetchFlows,
@@ -37,12 +43,14 @@ import {
   newTask,
   patchElement,
   removeMember,
+  saveAgentNode,
   saveElement,
   saveEntity,
   saveEntityRelation,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
+  saveMcpServer,
   saveTask,
   unbindApiFromElement,
   type CurrentLabel,
@@ -687,6 +695,182 @@ server.registerTool(
     try {
       await deleteEntity(getConfig(), entityId);
       return ok({ entityId, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Agent / MCP layer — the AI surface the project builds and consumes.
+// ---------------------------------------------------------------------------
+
+// --- read: the agents + MCP servers ----------------------------------------
+server.registerTool(
+  "list_agents",
+  {
+    title: "List the agents & MCP servers",
+    description:
+      "Read the project's Agent / MCP layer — the agents it defines (model + system prompt + the " +
+      "MCP servers each is wired to) and the MCP servers it exposes or consumes (transport + the " +
+      "tools they expose, each optionally wrapping a documented endpoint). Start here before " +
+      "writing, to reuse agent/server ids. Also returns `wiringDiagram`: the layer rendered as a " +
+      "UML component/wiring diagram (Mermaid) ready to paste into docs.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const { agents, servers } = await fetchAgents(getConfig());
+      return ok({
+        agents,
+        servers,
+        wiringDiagram: agentsToComponentMermaid(agents, servers),
+      });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: create or update an MCP server ---------------------------------
+server.registerTool(
+  "write_mcp_server",
+  {
+    title: "Create or update an MCP server",
+    description:
+      "Document an MCP server the project exposes or consumes (or update one by passing its id). " +
+      "Each server has a transport (stdio/http/sse), an origin (built = the project exposes it; " +
+      "consumed = a third-party server it uses) and a list of tools. A tool may set `endpointId` " +
+      "to tie it to the design element whose apiBinding it wraps (see list_endpoints). Geometry is " +
+      "optional. Returns the server id (use it in write_agent's mcpServerIds).",
+    inputSchema: {
+      id: McpServerNode.shape.id
+        .optional()
+        .describe("Existing server id to update; omit to create a new one."),
+      label: McpServerNode.shape.label.describe('Server name, e.g. "forward-mcp".'),
+      transport: McpServerNode.shape.transport.describe(
+        "How it is reached: stdio | http | sse.",
+      ),
+      origin: McpServerNode.shape.origin.describe(
+        "built (project exposes it) | consumed (third-party).",
+      ),
+      tech: z.string().optional().describe('Optional runtime tag, e.g. "Node 20".'),
+      description: McpServerNode.shape.description.describe("Free-form Markdown notes."),
+      tools: McpServerNode.shape.tools.describe(
+        "Tools exposed: each is { name, description?, endpointId? }.",
+      ),
+      x: z.number().optional().describe("Canvas x (default 80)."),
+      y: z.number().optional().describe("Canvas y (default 80)."),
+      width: McpServerNode.shape.width.describe("Box width (default 200)."),
+      height: McpServerNode.shape.height.describe("Box height (default 96)."),
+      parentId: McpServerNode.shape.parentId.describe(
+        "Id of a container to nest in, or null.",
+      ),
+    },
+  },
+  async ({ id, x, y, ...fields }) => {
+    try {
+      const server = McpServerNode.parse({
+        ...fields,
+        id: id ?? genId("mcp"),
+        x: x ?? 80,
+        y: y ?? 80,
+        updatedAt: new Date().toISOString(),
+      });
+      await saveMcpServer(getConfig(), server);
+      return ok({ id: server.id, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: create or update an agent --------------------------------------
+server.registerTool(
+  "write_agent",
+  {
+    title: "Create or update an agent",
+    description:
+      "Document an agent the project defines (or update one by passing its id): its model, its " +
+      "system prompt (Markdown — diffed line-by-line in the History timeline like an API doc) and " +
+      "the ids of the MCP servers it is wired to (mcpServerIds — get them from list_agents or " +
+      "write_mcp_server). Geometry is optional. Returns the agent id.",
+    inputSchema: {
+      id: AgentNode.shape.id
+        .optional()
+        .describe("Existing agent id to update; omit to create a new one."),
+      label: AgentNode.shape.label.describe('Agent name, e.g. "catch-up-digest agent".'),
+      model: z.string().optional().describe('Model id, e.g. "claude-opus-4-8".'),
+      systemPrompt: AgentNode.shape.systemPrompt.describe(
+        "The agent's system prompt (Markdown).",
+      ),
+      mcpServerIds: AgentNode.shape.mcpServerIds.describe(
+        "Ids of the MCP servers this agent can call.",
+      ),
+      description: AgentNode.shape.description.describe("Free-form Markdown notes."),
+      x: z.number().optional().describe("Canvas x (default 80)."),
+      y: z.number().optional().describe("Canvas y (default 80)."),
+      width: AgentNode.shape.width.describe("Box width (default 200)."),
+      height: AgentNode.shape.height.describe("Box height (default 96)."),
+      parentId: AgentNode.shape.parentId.describe(
+        "Id of a container to nest in, or null.",
+      ),
+    },
+  },
+  async ({ id, x, y, ...fields }) => {
+    try {
+      const agent = AgentNode.parse({
+        ...fields,
+        id: id ?? genId("agent"),
+        x: x ?? 80,
+        y: y ?? 80,
+        updatedAt: new Date().toISOString(),
+      });
+      await saveAgentNode(getConfig(), agent);
+      return ok({ id: agent.id, action: id ? "updated" : "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: remove an MCP server (cascades out of agents' wiring) -----------
+server.registerTool(
+  "remove_mcp_server",
+  {
+    title: "Remove an MCP server",
+    description:
+      "Delete an MCP server and drop it from any agent's mcpServerIds, so no dangling wiring is " +
+      "left behind.",
+    inputSchema: {
+      serverId: z.string().min(1).describe("The MCP server id to delete."),
+    },
+  },
+  async ({ serverId }) => {
+    try {
+      await deleteMcpServer(getConfig(), serverId);
+      return ok({ serverId, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: remove an agent ------------------------------------------------
+server.registerTool(
+  "remove_agent",
+  {
+    title: "Remove an agent",
+    description:
+      "Delete an agent from the Agent / MCP layer. The MCP servers it referenced are left intact.",
+    inputSchema: {
+      agentId: z.string().min(1).describe("The agent id to delete."),
+    },
+  },
+  async ({ agentId }) => {
+    try {
+      await deleteAgentNode(getConfig(), agentId);
+      return ok({ agentId, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }

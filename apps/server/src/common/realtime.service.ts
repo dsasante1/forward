@@ -10,6 +10,7 @@ export type RealtimeResource =
   | "infra"
   | "flows"
   | "entities"
+  | "agents"
   | "tasks"
   | "checkpoints"
   | "members";

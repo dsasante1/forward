@@ -199,6 +199,9 @@
 .fwd-crumb .crumb-dim { color: #62615c; }
 .fwd-crumb .crumb-sep { color: #3f3e3a; }
 .fwd-crumb .crumb { color: var(--text-2); }
+.fwd-crumb .crumb-link { cursor: pointer; }
+.fwd-crumb .crumb-link:hover { color: var(--text-1); text-decoration: underline; }
+.fwd-crumb .crumb-link:focus-visible { outline: 1px solid var(--text-2); outline-offset: 2px; }
 .fwd-live {
   margin-left: auto; display: flex; align-items: center; gap: 8px;
   font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em;

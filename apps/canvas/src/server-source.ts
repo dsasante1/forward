@@ -1,4 +1,5 @@
 import type {
+  AgentNode,
   ApiBinding,
   Checkpoint,
   CheckpointInput,
@@ -8,12 +9,14 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
   ProjectRole,
   ProjectTimelineEvent,
   Task,
 } from "forward-core";
 import * as api from "forward-core/api";
 import type {
+  AgentSnapshot,
   CanvasSource,
   ConnectionStatus,
   ElementSnapshot,
@@ -42,11 +45,13 @@ export class ServerSource implements CanvasSource {
   private timer: ReturnType<typeof setInterval> | undefined;
   private infraTimer: ReturnType<typeof setInterval> | undefined;
   private entityTimer: ReturnType<typeof setInterval> | undefined;
+  private agentTimer: ReturnType<typeof setInterval> | undefined;
   private taskTimer: ReturnType<typeof setInterval> | undefined;
   private checkpointTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
   private lastInfraJson = "";
   private lastEntityJson = "";
+  private lastAgentJson = "";
   private lastTasksJson = "";
   private lastCheckpointsJson = "";
   private timelineTimer: ReturnType<typeof setInterval> | undefined;
@@ -146,6 +151,26 @@ export class ServerSource implements CanvasSource {
     this.entityTimer = setInterval(tick, this.pollMs);
     return () => {
       if (this.entityTimer) clearInterval(this.entityTimer);
+    };
+  }
+
+  subscribeAgents(onChange: (snapshot: AgentSnapshot) => void): () => void {
+    const tick = async () => {
+      try {
+        const snapshot = await api.fetchAgents(await this.cfg());
+        const json = JSON.stringify(snapshot);
+        if (json !== this.lastAgentJson) {
+          this.lastAgentJson = json;
+          onChange(snapshot);
+        }
+      } catch (err) {
+        console.warn("[server-source] agents poll failed:", err);
+      }
+    };
+    void tick();
+    this.agentTimer = setInterval(tick, this.pollMs);
+    return () => {
+      if (this.agentTimer) clearInterval(this.agentTimer);
     };
   }
 
@@ -299,6 +324,22 @@ export class ServerSource implements CanvasSource {
 
   async saveEntityRelation(relation: EntityRelation): Promise<void> {
     await api.saveEntityRelation(await this.cfg(), relation);
+  }
+
+  async saveAgentNode(agent: AgentNode): Promise<void> {
+    await api.saveAgentNode(await this.cfg(), agent);
+  }
+
+  async deleteAgentNode(agentId: string): Promise<void> {
+    await api.deleteAgentNode(await this.cfg(), agentId);
+  }
+
+  async saveMcpServer(server: McpServerNode): Promise<void> {
+    await api.saveMcpServer(await this.cfg(), server);
+  }
+
+  async deleteMcpServer(serverId: string): Promise<void> {
+    await api.deleteMcpServer(await this.cfg(), serverId);
   }
 
   async deleteEntityRelation(relationId: string): Promise<void> {

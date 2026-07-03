@@ -1,4 +1,5 @@
 import type {
+  AgentNode,
   ApiBinding,
   Checkpoint,
   CheckpointInput,
@@ -8,6 +9,7 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
   ProjectRole,
   ProjectTimelineEvent,
   Task,
@@ -46,6 +48,16 @@ export interface InfraSnapshot {
 export interface EntitySnapshot {
   entities: Entity[];
   relations: EntityRelation[];
+}
+
+/**
+ * The project's Agent / MCP graph (pillar 8) — the agents the project defines and
+ * the MCP servers they call. Standalone, like the infra + ER graphs; renders to a
+ * Mermaid wiring diagram via `agentsToComponentMermaid`.
+ */
+export interface AgentSnapshot {
+  agents: AgentNode[];
+  servers: McpServerNode[];
 }
 
 /**
@@ -104,6 +116,16 @@ export interface CanvasSource {
   saveEntityRelation?(relation: EntityRelation): Promise<void>;
   /** Remove one entity relation (the entities it joined are left intact). */
   deleteEntityRelation?(relationId: string): Promise<void>;
+  /** Subscribe to the Agent / MCP graph (pillar 8); fires on every change. */
+  subscribeAgents?(onChange: (snapshot: AgentSnapshot) => void): () => void;
+  /** Create or update one agent node. */
+  saveAgentNode?(agent: AgentNode): Promise<void>;
+  /** Remove one agent node (the servers it referenced are left intact). */
+  deleteAgentNode?(agentId: string): Promise<void>;
+  /** Create or update one MCP server node. */
+  saveMcpServer?(server: McpServerNode): Promise<void>;
+  /** Remove one MCP server, dropping it from any agent's `mcpServerIds`. */
+  deleteMcpServer?(serverId: string): Promise<void>;
   /** Enrol another uid into the project's member roster (membership-gated hosts). */
   addMember?(uid: string, role?: ProjectRole): Promise<void>;
   /** The project's member roster (membership-gated hosts); drives the Member view. */

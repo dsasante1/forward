@@ -1,8 +1,12 @@
 import * as vscode from "vscode";
 import {
+  AgentNode,
   InfraFlow,
   InfraFlowStep,
   InfraKind,
+  McpOrigin,
+  McpServerNode,
+  McpTransport,
   TaskStatus,
   applyTaskChange,
   newTask,
@@ -18,6 +22,9 @@ import {
 } from "forward-core";
 import {
   addMember,
+  fetchAgents,
+  saveAgentNode,
+  saveMcpServer,
   bindApiToElement,
   createCheckpoint,
   deleteCheckpoint,
@@ -91,6 +98,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("forward.addFlow", addFlow),
     vscode.commands.registerCommand("forward.addFlowStep", addFlowStep),
     vscode.commands.registerCommand("forward.removeFlow", removeFlow),
+    vscode.commands.registerCommand("forward.addMcpServer", addMcpServer),
+    vscode.commands.registerCommand("forward.addAgent", addAgent),
     vscode.commands.registerCommand("forward.createTask", createTask),
     vscode.commands.registerCommand(
       "forward.updateTaskStatus",
@@ -471,6 +480,117 @@ async function addInfraNode(): Promise<void> {
   try {
     await saveInfraNode(cfg, node);
     vscode.window.showInformationMessage(`Added infra node: ${node.label}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Document an MCP server the project exposes or consumes on the Agent / MCP
+ * layer. New servers are tiled across the canvas so several added in a row don't
+ * stack. Tools are added later (from the canvas drawer or an AI agent).
+ */
+async function addMcpServer(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  const label = await vscode.window.showInputBox({
+    prompt: "MCP server name (required)",
+    placeHolder: "e.g. forward-mcp, github-mcp",
+    validateInput: (v) => (v.trim() ? undefined : "A name is required."),
+  });
+  if (!label?.trim()) return;
+
+  const transport = await vscode.window.showQuickPick([...McpTransport.options], {
+    placeHolder: "How is this server reached?",
+  });
+  if (transport === undefined) return;
+
+  const origin = await vscode.window.showQuickPick([...McpOrigin.options], {
+    placeHolder: "Does the project expose (built) or consume this server?",
+  });
+  if (origin === undefined) return;
+
+  const description = await vscode.window.showInputBox({
+    prompt: "Notes (Markdown supported, optional)",
+    placeHolder: "What it's for, auth, gotchas…",
+  });
+  if (description === undefined) return;
+
+  let existing = 0;
+  try {
+    existing = (await fetchAgents(cfg)).servers.length;
+  } catch {
+    /* offline — fall back to the first slot */
+  }
+  const server = McpServerNode.parse({
+    id: `mcp_${Date.now().toString(36)}`,
+    label: label.trim(),
+    transport: McpTransport.parse(transport),
+    origin: McpOrigin.parse(origin),
+    description,
+    tools: [],
+    x: 80 + (existing % 5) * 220,
+    y: 80,
+    updatedAt: new Date().toISOString(),
+  });
+
+  try {
+    await saveMcpServer(cfg, server);
+    vscode.window.showInformationMessage(`Added MCP server: ${server.label}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+  }
+}
+
+/**
+ * Document an agent the project defines on the Agent / MCP layer — its model and
+ * system prompt. Wiring to MCP servers (mcpServerIds) is added later from the
+ * canvas or an AI agent.
+ */
+async function addAgent(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  const label = await vscode.window.showInputBox({
+    prompt: "Agent name (required)",
+    placeHolder: "e.g. catch-up-digest agent",
+    validateInput: (v) => (v.trim() ? undefined : "A name is required."),
+  });
+  if (!label?.trim()) return;
+
+  const model = await vscode.window.showInputBox({
+    prompt: "Model id (optional)",
+    placeHolder: "e.g. claude-opus-4-8",
+  });
+  if (model === undefined) return;
+
+  const systemPrompt = await vscode.window.showInputBox({
+    prompt: "System prompt (Markdown, optional)",
+    placeHolder: "The agent's instructions…",
+  });
+  if (systemPrompt === undefined) return;
+
+  let existing = 0;
+  try {
+    existing = (await fetchAgents(cfg)).agents.length;
+  } catch {
+    /* offline — fall back to the first slot */
+  }
+  const agent = AgentNode.parse({
+    id: `agent_${Date.now().toString(36)}`,
+    label: label.trim(),
+    ...(model.trim() ? { model: model.trim() } : {}),
+    systemPrompt,
+    mcpServerIds: [],
+    x: 80 + (existing % 5) * 220,
+    y: 260,
+    updatedAt: new Date().toISOString(),
+  });
+
+  try {
+    await saveAgentNode(cfg, agent);
+    vscode.window.showInformationMessage(`Added agent: ${agent.label}`);
   } catch (err) {
     vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
   }

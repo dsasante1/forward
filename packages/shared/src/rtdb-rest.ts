@@ -1,5 +1,6 @@
 import { diffBindings } from "./api-diff.js";
 import {
+  AgentNode,
   ApiBinding,
   DesignElement,
   Entity,
@@ -7,6 +8,7 @@ import {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
   ProjectMember,
   ProjectRole,
   Task,
@@ -728,6 +730,93 @@ export async function deleteEntityRelation(
   relationId: string,
 ): Promise<void> {
   await del(url(cfg, paths.entityRelation(cfg.projectId, relationId)));
+}
+
+// --------------------------------------------------------------------------
+// Agent / MCP layer (a standalone graph like the infra + ER graphs)
+// --------------------------------------------------------------------------
+
+/**
+ * Read the project's agents + MCP servers. Both subtrees may arrive as a literal
+ * array or a push-keyed object, so normalize on read; rows that don't satisfy the
+ * schema are skipped rather than failing the whole read — mirroring `fetchInfra`.
+ */
+export async function fetchAgents(
+  cfg: FirebaseConfig,
+): Promise<{ agents: AgentNode[]; servers: McpServerNode[] }> {
+  const [agRes, srvRes] = await Promise.all([
+    fetch(url(cfg, paths.agentNodes(cfg.projectId))),
+    fetch(url(cfg, paths.mcpServers(cfg.projectId))),
+  ]);
+  if (!agRes.ok) throw new Error(`Firebase read failed: ${agRes.status}`);
+  if (!srvRes.ok) throw new Error(`Firebase read failed: ${srvRes.status}`);
+
+  const agents: AgentNode[] = [];
+  for (const value of normalizeList(await agRes.json())) {
+    const parsed = AgentNode.safeParse(value);
+    if (parsed.success) agents.push(parsed.data);
+  }
+  const servers: McpServerNode[] = [];
+  for (const value of normalizeList(await srvRes.json())) {
+    const parsed = McpServerNode.safeParse(value);
+    if (parsed.success) servers.push(parsed.data);
+  }
+  return { agents, servers };
+}
+
+/** Create or update one agent node (stamps `updatedAt`). */
+export async function saveAgentNode(
+  cfg: FirebaseConfig,
+  agent: AgentNode,
+): Promise<void> {
+  const body = AgentNode.parse({
+    ...agent,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(url(cfg, paths.agentNode(cfg.projectId, body.id)), body);
+}
+
+/** Remove one agent node. Servers it referenced are left untouched (soft links). */
+export async function deleteAgentNode(
+  cfg: FirebaseConfig,
+  agentId: string,
+): Promise<void> {
+  await del(url(cfg, paths.agentNode(cfg.projectId, agentId)));
+}
+
+/** Create or update one MCP server node (stamps `updatedAt`). */
+export async function saveMcpServer(
+  cfg: FirebaseConfig,
+  server: McpServerNode,
+): Promise<void> {
+  const body = McpServerNode.parse({
+    ...server,
+    updatedAt: new Date().toISOString(),
+  });
+  await put(url(cfg, paths.mcpServer(cfg.projectId, body.id)), body);
+}
+
+/**
+ * Remove an MCP server and drop it from any agent's `mcpServerIds`, so the wiring
+ * diagram never keeps a dangling "uses" arrow to a server that no longer exists —
+ * the same "clean up dangling references" rule `deleteInfraNode` uses for edges.
+ */
+export async function deleteMcpServer(
+  cfg: FirebaseConfig,
+  serverId: string,
+): Promise<void> {
+  await del(url(cfg, paths.mcpServer(cfg.projectId, serverId)));
+  const { agents } = await fetchAgents(cfg);
+  await Promise.all(
+    agents
+      .filter((a) => a.mcpServerIds.includes(serverId))
+      .map((a) =>
+        saveAgentNode(cfg, {
+          ...a,
+          mcpServerIds: a.mcpServerIds.filter((id) => id !== serverId),
+        }),
+      ),
+  );
 }
 
 // --------------------------------------------------------------------------

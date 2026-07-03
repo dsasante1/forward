@@ -1,4 +1,5 @@
 import {
+  type AgentNode,
   type ApiBinding,
   type Checkpoint,
   type CheckpointInput,
@@ -12,9 +13,11 @@ import {
   type InfraFlowStep,
   type InfraKind,
   type InfraNode,
+  type McpServerNode,
   type ProjectTimelineEvent,
   type Task,
   type InfraView,
+  agentsToComponentMermaid,
   applyTaskChange,
   entityToMermaid,
   flowToMermaid,
@@ -22,6 +25,7 @@ import {
   newTask,
 } from "forward-core";
 import type {
+  AgentSnapshot,
   CanvasSource,
   ElementSnapshot,
   ProjectRole,
@@ -108,6 +112,12 @@ export interface MountOptions {
   /** Invoked by the in-canvas "Back to project" pill; the host navigates. The
    * pill is shown only when this is provided. */
   onBack?: () => void;
+  /** Invoked when the "forward" crumb is clicked; the host navigates to the
+   * project list. The crumb is a link only when this is provided. */
+  onNavigateHome?: () => void;
+  /** Invoked when the project-name crumb is clicked; the host navigates to the
+   * project. The crumb is a link only when this is provided. */
+  onNavigateProject?: () => void;
 }
 
 /** Handle from mountCanvas; `destroy` stops polling and removes global listeners. */
@@ -204,7 +214,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   inspectorOpen = false;
   hiddenIds.clear();
 
-  setBreadcrumb(opts.projectName ?? null);
+  setBreadcrumb(opts.projectName ?? null, opts.onNavigateHome, opts.onNavigateProject);
   wireBackPill(opts.onBack);
 
   applyTheme(); // push the loaded (or default) theme before the first paint
@@ -223,20 +233,37 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
 }
 
 /** Render the breadcrumb as `forward / <project> / canvas`; the project segment
- * is dropped when no name was supplied. */
-function setBreadcrumb(projectName: string | null): void {
+ * is dropped when no name was supplied. Segments become keyboard-accessible links
+ * only when the host supplies a handler (standalone dev has no router, so they
+ * stay plain text). `canvas` is the current page and never a link. */
+function setBreadcrumb(
+  projectName: string | null,
+  onHome?: () => void,
+  onProject?: () => void,
+): void {
   const crumb = uiRoot.querySelector("#crumb") as HTMLElement | null;
   if (!crumb) return;
   crumb.replaceChildren();
-  const seg = (text: string, cls: string) => {
+  const seg = (text: string, cls: string, onClick?: () => void) => {
     const s = document.createElement("span");
-    s.className = cls;
+    s.className = onClick ? `${cls} crumb-link` : cls;
     s.textContent = text;
+    if (onClick) {
+      s.setAttribute("role", "link");
+      s.tabIndex = 0;
+      s.addEventListener("click", onClick);
+      s.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      });
+    }
     return s;
   };
   const sep = () => seg("/", "crumb-sep");
-  crumb.append(seg("forward", "crumb-dim"));
-  if (projectName) crumb.append(sep(), seg(projectName, "crumb"));
+  crumb.append(seg("forward", "crumb-dim", onHome));
+  if (projectName) crumb.append(sep(), seg(projectName, "crumb", onProject));
   crumb.append(sep(), seg("canvas", "crumb"));
 }
 
@@ -313,9 +340,12 @@ let infraEdges: InfraEdge[] = [];
 const infraFlows = new Map<string, InfraFlow>();
 const entities = new Map<string, Entity>(); // ER (data-model) layer
 let entityRelations: EntityRelation[] = [];
+const agentNodes = new Map<string, AgentNode>(); // Agent / MCP layer
+const mcpServers = new Map<string, McpServerNode>();
 let selectedFlowId: string | null = null; // flow chosen in the UML view (null = component diagram)
 let selectedUmlView: InfraView | null = "architecture"; // component-diagram lens; null when a flow/ER is shown
 let selectedUmlEr = false; // is the ER diagram the chosen UML render?
+let selectedUmlAgents = false; // is the agent/MCP wiring diagram the chosen render?
 let selectedInfraId: string | null = null; // infra node selected for editing/deletion
 let linkMode = false; // Link tool armed: clicks pick two nodes to connect
 let linkSourceId: string | null = null; // first node picked while linking
@@ -346,6 +376,7 @@ type PrimaryView =
   | "infra"
   | "data"
   | "uml"
+  | "agents"
   | "history"
   | "tasks"
   | "member";
@@ -550,6 +581,17 @@ function subscribeAll(): void {
     if (umlOpen) void renderUmlPanel(); // keep an open ER diagram in sync
   });
   if (unsubEntities) disposers.push(unsubEntities);
+  // Agent / MCP graph (pillar 8) — read + wiring diagram in the diagram panel;
+  // only sources that expose it (ServerSource) drive this.
+  const unsubAgents = source.subscribeAgents?.((snapshot) => {
+    agentNodes.clear();
+    for (const a of snapshot.agents) agentNodes.set(a.id, a);
+    mcpServers.clear();
+    for (const s of snapshot.servers) mcpServers.set(s.id, s);
+    if (view === "agents") render();
+    if (umlOpen) void renderUmlPanel(); // keep an open wiring diagram in sync
+  });
+  if (unsubAgents) disposers.push(unsubAgents);
   // Tasks (pillar 4) — present only on sources that can persist them; the panel
   // toggle is gated on saveTask, so a read-only source simply never shows it.
   const unsubTasks = source.subscribeTasks?.((next) => {
@@ -630,6 +672,13 @@ function buildToolbar(): void {
   const umlBtn = iconButton(umlIcon(), "UML", toggleUml);
   umlBtn.dataset.toggle = "uml";
   toolbar.append(umlBtn);
+  // Agent / MCP layer — the wiring diagram of agents + MCP servers. Only shown
+  // when the source serves it (ServerSource); a read-only/fixture source omits it.
+  if (source.subscribeAgents) {
+    const agentsBtn = iconButton(agentsIcon(), "Agents", toggleAgents);
+    agentsBtn.dataset.toggle = "agents";
+    toolbar.append(agentsBtn);
+  }
   const tlBtn = iconButton(historyIcon(), "History", toggleTimeline);
   tlBtn.dataset.toggle = "timeline";
   tlBtn.classList.toggle("active", showTimeline);
@@ -697,11 +746,18 @@ function setView(next: PrimaryView): void {
     }
   }
 
-  // UML owns an async surface; open/close it explicitly here.
-  if (next === "uml") {
+  // UML and Agents both own the async diagram surface; open/close it here. The
+  // Agents view opens it pre-focused on the agent/MCP wiring lens.
+  if (next === "uml" || next === "agents") {
     umlOpen = true;
     umlZoom = 1; // open at fit
     umlEdit = false; // open in view mode
+    selectedUmlAgents = next === "agents";
+    if (next === "agents") {
+      selectedUmlView = null;
+      selectedUmlEr = false;
+      selectedFlowId = null;
+    }
   } else if (umlOpen) {
     umlOpen = false;
     umlEdit = false;
@@ -732,6 +788,7 @@ function syncRailActive(): void {
   set("infra", view === "infra");
   set("entities", view === "data");
   set("uml", view === "uml");
+  set("agents", view === "agents");
   set("timeline", view === "history");
   set("tasks", view === "tasks");
   set("member", view === "member");
@@ -746,6 +803,11 @@ function toggleInfra(): void {
 /** Open the full-area ER / data-model graph (or return to design). */
 function toggleEntities(): void {
   setView(view === "data" ? "design" : "data");
+}
+
+/** Open the agent/MCP wiring diagram (or return to design when re-clicked). */
+function toggleAgents(): void {
+  setView(view === "agents" ? "design" : "agents");
 }
 
 /** Open the full-area History timeline (or return to design). */
@@ -3724,25 +3786,38 @@ async function renderUmlPanel(): Promise<void> {
   // data-model diagram, and the behavioural sequence diagram per flow. Exactly
   // one of selectedUmlView / selectedUmlEr / selectedFlowId drives the render;
   // default to the architecture view.
-  if (!selectedFlowId && !selectedUmlView && !selectedUmlEr) {
+  if (
+    !selectedFlowId &&
+    !selectedUmlView &&
+    !selectedUmlEr &&
+    !selectedUmlAgents
+  ) {
     selectedUmlView = "architecture";
   }
   const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
   const allNodes = [...infraNodes.values()];
-  const mermaidSrc = selectedUmlEr
-    ? entities.size
-      ? entityToMermaid([...entities.values()], entityRelations)
+  const mermaidSrc = selectedUmlAgents
+    ? agentNodes.size || mcpServers.size
+      ? agentsToComponentMermaid(
+          [...agentNodes.values()],
+          [...mcpServers.values()],
+        )
       : null
-    : selectedUmlView
-      ? infraNodes.size
-        ? infraViewToMermaid(allNodes, infraEdges, selectedUmlView)
+    : selectedUmlEr
+      ? entities.size
+        ? entityToMermaid([...entities.values()], entityRelations)
         : null
-      : flow
-        ? flowToMermaid(flow, infraNodes)
-        : null;
+      : selectedUmlView
+        ? infraNodes.size
+          ? infraViewToMermaid(allNodes, infraEdges, selectedUmlView)
+          : null
+        : flow
+          ? flowToMermaid(flow, infraNodes)
+          : null;
   const canEditFlows = Boolean(source.saveInfraFlow);
-  // The flow editor only applies to a selected sequence flow, never a view/ER.
-  if (!canEditFlows || selectedUmlView || selectedUmlEr) umlEdit = false;
+  // The flow editor only applies to a selected sequence flow, never a view/ER/agents.
+  if (!canEditFlows || selectedUmlView || selectedUmlEr || selectedUmlAgents)
+    umlEdit = false;
 
   // Backdrop: clicking outside the card closes the view.
   umlPanelEl.replaceChildren();
@@ -3789,6 +3864,19 @@ async function renderUmlPanel(): Promise<void> {
   erGroup.append(erOpt);
   select.append(erGroup);
 
+  // Agent / MCP wiring diagram — the agents the project defines + the MCP
+  // servers they call. Only offered when the source serves the layer.
+  if (source.subscribeAgents) {
+    const agentGroup = document.createElement("optgroup");
+    agentGroup.label = "Agents & MCP";
+    const agentOpt = document.createElement("option");
+    agentOpt.value = "agents:";
+    agentOpt.textContent = "Agents & MCP — wiring diagram";
+    if (selectedUmlAgents) agentOpt.selected = true;
+    agentGroup.append(agentOpt);
+    select.append(agentGroup);
+  }
+
   // Sequence diagrams — one per narrated flow.
   const flowGroup = document.createElement("optgroup");
   flowGroup.label = "Sequence diagram";
@@ -3813,12 +3901,20 @@ async function renderUmlPanel(): Promise<void> {
       selectedUmlView = val.slice(5) as InfraView;
       selectedFlowId = null;
       selectedUmlEr = false;
+      selectedUmlAgents = false;
     } else if (val.startsWith("flow:")) {
       selectedFlowId = val.slice(5);
       selectedUmlView = null;
       selectedUmlEr = false;
+      selectedUmlAgents = false;
     } else if (val === "er:") {
       selectedUmlEr = true;
+      selectedUmlView = null;
+      selectedFlowId = null;
+      selectedUmlAgents = false;
+    } else if (val === "agents:") {
+      selectedUmlAgents = true;
+      selectedUmlEr = false;
       selectedUmlView = null;
       selectedFlowId = null;
     }
@@ -3894,13 +3990,15 @@ async function renderUmlPanel(): Promise<void> {
   umlPanelEl.append(card);
 
   if (!mermaidSrc) {
-    const message = selectedUmlEr
-      ? "No entities yet — add entities to the data model (e.g. from VS Code or an AI agent) to see this diagram."
-      : selectedUmlView
-        ? "No infrastructure nodes yet — add boxes to the infrastructure graph to see this diagram."
-        : canEditFlows
-          ? 'No sequence flows yet — click "+ New flow" to author one.'
-          : "No sequence flows to render. Add a flow to the infrastructure graph.";
+    const message = selectedUmlAgents
+      ? "No agents or MCP servers yet — document them from VS Code or an AI agent (the Forward MCP server) to see this diagram."
+      : selectedUmlEr
+        ? "No entities yet — add entities to the data model (e.g. from VS Code or an AI agent) to see this diagram."
+        : selectedUmlView
+          ? "No infrastructure nodes yet — add boxes to the infrastructure graph to see this diagram."
+          : canEditFlows
+            ? 'No sequence flows yet — click "+ New flow" to author one.'
+            : "No sequence flows to render. Add a flow to the infrastructure graph.";
     body.append(hEl("p", message, "uml-empty"));
     return;
   }
@@ -4488,6 +4586,18 @@ function umlIcon(): SVGElement {
     svgEl("rect", { x: "3", y: "4", width: "8", height: "6", rx: "1.2" }),
     svgEl("rect", { x: "13", y: "14", width: "8", height: "6", rx: "1.2" }),
     path("M7 10v3a2 2 0 0 0 2 2h4"),
+  ]);
+}
+// Agents: a bot head (antenna + face) for the agent / MCP layer.
+function agentsIcon(): SVGElement {
+  return lineIcon([
+    svgEl("rect", { x: "4", y: "8", width: "16", height: "12", rx: "2" }),
+    path("M12 4v4"),
+    svgEl("circle", { cx: "12", cy: "4", r: "1" }),
+    line(9, 13, 9, 15),
+    line(15, 13, 15, 15),
+    path("M2 12v3"),
+    path("M22 12v3"),
   ]);
 }
 // Clock with a counter-clockwise "history" arrow.

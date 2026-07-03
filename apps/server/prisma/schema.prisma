@@ -190,6 +190,8 @@ model Project {
   infraFlows     InfraFlow[]
   entities         Entity[]
   entityRelations  EntityRelation[]
+  agentNodes       AgentNode[]
+  mcpServers       McpServer[]
   tasks          Task[]
   checkpoints    Checkpoint[]
 
@@ -329,6 +331,32 @@ model EntityRelation {
   projectId String
   id        String
   data      Json // forward-core EntityRelation
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+// An agent the project defines (model + system prompt + the MCP servers it's
+// wired to). Standalone Agent/MCP layer, separate from the infra graph. Full
+// shape validated by forward-core `AgentNode`.
+model AgentNode {
+  projectId String
+  id        String
+  data      Json // forward-core AgentNode
+  updatedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, id])
+}
+
+// An MCP server the project exposes or consumes (transport + the tools it
+// exposes, each optionally wrapping a documented endpoint). Validated by
+// forward-core `McpServerNode`.
+model McpServer {
+  projectId String
+  id        String
+  data      Json // forward-core McpServerNode
   updatedAt DateTime @default(now())
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

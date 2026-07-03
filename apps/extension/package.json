@@ -90,6 +90,16 @@
         "category": "Forward"
       },
       {
+        "command": "forward.addMcpServer",
+        "title": "Add MCP Server",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.addAgent",
+        "title": "Add Agent",
+        "category": "Forward"
+      },
+      {
         "command": "forward.createTask",
         "title": "Create Task",
         "category": "Forward"

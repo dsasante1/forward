@@ -59,6 +59,8 @@ export function CanvasPage() {
         projectId,
         projectName,
         onBack: () => navigateRef.current(`/app/projects/${projectId}`),
+        onNavigateHome: () => navigateRef.current(`/app`),
+        onNavigateProject: () => navigateRef.current(`/app/projects/${projectId}`),
       });
     })();
     return () => {
