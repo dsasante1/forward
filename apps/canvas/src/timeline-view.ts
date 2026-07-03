@@ -51,9 +51,17 @@ const DOMAIN: Record<TimelineDomain, { label: string; color: string }> = {
   api: { label: "API", color: "#d06a40" },
   infra: { label: "Infra", color: "#5b8fcf" },
   uml: { label: "UML", color: "#9a7fd0" },
+  agent: { label: "Agents", color: "#3fa88a" },
 };
-// The view-switcher order from the design: Design · Infra · UML · API · Unified.
-const VIEW_ORDER: HistoryView[] = ["design", "infra", "uml", "api", "unified"];
+// The view-switcher order from the design: Design · Infra · UML · Agents · API · Unified.
+const VIEW_ORDER: HistoryView[] = [
+  "design",
+  "infra",
+  "uml",
+  "agent",
+  "api",
+  "unified",
+];
 
 // Module-level UI state — the panel is rebuilt from scratch on every data sync,
 // so these survive re-renders (like the old endpoint-timeline view did).

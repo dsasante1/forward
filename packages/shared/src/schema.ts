@@ -342,6 +342,90 @@ export const EntityRelation = z.object({
 export type EntityRelation = z.infer<typeof EntityRelation>;
 
 // --------------------------------------------------------------------------
+// Agent / MCP layer (the AI surface a project builds and consumes)
+// --------------------------------------------------------------------------
+// A standalone, project-scoped layer — like infra, it does NOT attach to a
+// design element; geometry mirrors InfraNode so the existing pan/zoom/geometry
+// helpers apply unchanged. The docs-first bodies (a tool's `description`, an
+// agent's `systemPrompt`) are Markdown and version/diff exactly like an
+// apiBinding.description, so this layer rides the same version_timeline +
+// api-diff + History machinery the API layer already uses.
+
+/** How an MCP server is reached — drives its icon in the overlay. */
+export const McpTransport = z.enum(["stdio", "http", "sse"]);
+export type McpTransport = z.infer<typeof McpTransport>;
+
+/** Does the project *expose* this server, or *consume* a third-party one. */
+export const McpOrigin = z.enum(["built", "consumed"]);
+export type McpOrigin = z.infer<typeof McpOrigin>;
+
+/**
+ * One tool an MCP server exposes. The optional `endpointId` ties the tool to the
+ * design element whose apiBinding it wraps — the same soft join
+ * InfraFlowStep.endpointId uses, so "which documented endpoint does this tool
+ * call" is a first-class, resolve-on-read reference (never an enforced FK).
+ */
+export const McpTool = z.object({
+  name: z.string().min(1),
+  /** Free-form Markdown (rendered with the same subset as apiBinding). */
+  description: z.string().default(""),
+  endpointId: z.string().optional(),
+});
+export type McpTool = z.infer<typeof McpTool>;
+
+/**
+ * One MCP server box in the Agents overlay. Project-scoped and standalone (does
+ * NOT reference a design element). Geometry mirrors InfraNode (absolute canvas
+ * space); `parentId` nests it inside a "group" container just like infra.
+ */
+export const McpServerNode = z.object({
+  id: z.string().min(1),
+  /** Display name, e.g. "forward-mcp". */
+  label: z.string().min(1),
+  transport: McpTransport.default("stdio"),
+  origin: McpOrigin.default("consumed"),
+  /** Optional version/runtime tag, e.g. "Node 20". */
+  tech: z.string().optional(),
+  /** Free-form Markdown notes (same subset as apiBinding). */
+  description: z.string().default(""),
+  /** The tools this server exposes; each may wrap a documented endpoint. */
+  tools: z.array(McpTool).default([]),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative().default(200),
+  height: z.number().nonnegative().default(96),
+  parentId: z.string().nullable().default(null),
+  updatedAt: z.string().datetime(),
+});
+export type McpServerNode = z.infer<typeof McpServerNode>;
+
+/**
+ * One agent box. `systemPrompt` is the diffable body (same role as
+ * apiBinding.description); `mcpServerIds` wire the agent to the McpServerNodes it
+ * can call (soft references resolved on read). Geometry mirrors InfraNode.
+ */
+export const AgentNode = z.object({
+  id: z.string().min(1),
+  /** Display name, e.g. "catch-up-digest agent". */
+  label: z.string().min(1),
+  /** Model id the agent runs on, e.g. "claude-opus-4-8". */
+  model: z.string().optional(),
+  /** The agent's system prompt — Markdown, diffed line-by-line in History. */
+  systemPrompt: z.string().default(""),
+  /** Ids of the McpServerNodes this agent is wired to. */
+  mcpServerIds: z.array(z.string()).default([]),
+  /** Free-form Markdown notes (same subset as apiBinding). */
+  description: z.string().default(""),
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative().default(200),
+  height: z.number().nonnegative().default(96),
+  parentId: z.string().nullable().default(null),
+  updatedAt: z.string().datetime(),
+});
+export type AgentNode = z.infer<typeof AgentNode>;
+
+// --------------------------------------------------------------------------
 // Task layer (the work tracker — pillar 4)
 // --------------------------------------------------------------------------
 
@@ -594,12 +678,13 @@ export const VersionEntry = z.object({
 export type VersionEntry = z.infer<typeof VersionEntry>;
 
 /**
- * Which of the four data layers a project-timeline event belongs to, driving the
- * History view's Design / API / Infra / UML grouping + per-domain colouring.
+ * Which data layer a project-timeline event belongs to, driving the History
+ * view's Design / API / Infra / UML / Agents grouping + per-domain colouring.
  * `design`/`api` come from design-element + binding changes, `infra` from the
- * node/edge graph, `uml` from the narrated flows.
+ * node/edge graph, `uml` from the narrated flows, `agent` from the agent/MCP
+ * server nodes.
  */
-export const TimelineDomain = z.enum(["design", "api", "infra", "uml"]);
+export const TimelineDomain = z.enum(["design", "api", "infra", "uml", "agent"]);
 export type TimelineDomain = z.infer<typeof TimelineDomain>;
 
 /**
@@ -708,6 +793,8 @@ export const DatabaseTree = z.object({
   infra_flows: z.record(z.record(InfraFlow)).default({}),
   entities: z.record(z.record(Entity)).default({}),
   entity_relations: z.record(z.record(EntityRelation)).default({}),
+  agent_nodes: z.record(z.record(AgentNode)).default({}),
+  mcp_servers: z.record(z.record(McpServerNode)).default({}),
   tasks: z.record(z.record(Task)).default({}),
   checkpoints: z.record(z.record(Checkpoint)).default({}),
 });
@@ -748,6 +835,13 @@ export const paths = {
   entityRelations: (projectId: string) => `entity_relations/${projectId}`,
   entityRelation: (projectId: string, relationId: string) =>
     `entity_relations/${projectId}/${relationId}`,
+  // Agent / MCP layer — project-scoped, separate graph of agents + MCP servers.
+  agentNodes: (projectId: string) => `agent_nodes/${projectId}`,
+  agentNode: (projectId: string, agentId: string) =>
+    `agent_nodes/${projectId}/${agentId}`,
+  mcpServers: (projectId: string) => `mcp_servers/${projectId}`,
+  mcpServer: (projectId: string, serverId: string) =>
+    `mcp_servers/${projectId}/${serverId}`,
   // Task tracker — project-scoped, stands apart but links into the other layers.
   tasks: (projectId: string) => `tasks/${projectId}`,
   task: (projectId: string, taskId: string) => `tasks/${projectId}/${taskId}`,

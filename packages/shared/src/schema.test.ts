@@ -514,6 +514,10 @@ describe("paths", () => {
     expect(paths.infraEdge("p", "x")).toBe("infra_edges/p/x");
     expect(paths.infraFlows("p")).toBe("infra_flows/p");
     expect(paths.infraFlow("p", "f")).toBe("infra_flows/p/f");
+    expect(paths.agentNodes("p")).toBe("agent_nodes/p");
+    expect(paths.agentNode("p", "a")).toBe("agent_nodes/p/a");
+    expect(paths.mcpServers("p")).toBe("mcp_servers/p");
+    expect(paths.mcpServer("p", "s")).toBe("mcp_servers/p/s");
     expect(paths.tasks("p")).toBe("tasks/p");
     expect(paths.task("p", "t")).toBe("tasks/p/t");
     expect(paths.checkpoints("p")).toBe("checkpoints/p");

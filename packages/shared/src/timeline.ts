@@ -321,6 +321,7 @@ export function buildHistoryTimeline(
     api: 0,
     infra: 0,
     uml: 0,
+    agent: 0,
   };
   for (const r of rows) counts[r.domain]++;
 

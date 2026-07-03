@@ -1,4 +1,5 @@
 import {
+  AgentNode,
   ApiBinding,
   Checkpoint,
   CheckpointInput,
@@ -8,6 +9,7 @@ import {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
   ProjectInvite,
   ProjectRole,
   ProjectTimelineEvent,
@@ -517,6 +519,69 @@ export async function deleteEntityRelation(
     cfg,
     "DELETE",
     `/infra/relations/${encodeURIComponent(relationId)}`,
+  );
+}
+
+// --------------------------------------------------------------------------
+// agent / MCP layer (a standalone graph, served on its own `/agents` resource)
+// --------------------------------------------------------------------------
+
+interface AgentsResponse {
+  agents: unknown[];
+  servers: unknown[];
+}
+
+/** Read the project's agents + MCP servers (the twin of rtdb-rest.fetchAgents). */
+export async function fetchAgents(
+  cfg: ApiConfig,
+): Promise<{ agents: AgentNode[]; servers: McpServerNode[] }> {
+  const body = await get<AgentsResponse>(cfg, "/agents");
+  return {
+    agents: parseAll(body?.agents ?? [], AgentNode),
+    servers: parseAll(body?.servers ?? [], McpServerNode),
+  };
+}
+
+export async function saveAgentNode(
+  cfg: ApiConfig,
+  agent: AgentNode,
+): Promise<void> {
+  await request(
+    cfg,
+    "PUT",
+    `/agents/nodes/${encodeURIComponent(agent.id)}`,
+    agent,
+  );
+}
+
+export async function deleteAgentNode(
+  cfg: ApiConfig,
+  agentId: string,
+): Promise<void> {
+  await request(cfg, "DELETE", `/agents/nodes/${encodeURIComponent(agentId)}`);
+}
+
+export async function saveMcpServer(
+  cfg: ApiConfig,
+  server: McpServerNode,
+): Promise<void> {
+  await request(
+    cfg,
+    "PUT",
+    `/agents/servers/${encodeURIComponent(server.id)}`,
+    server,
+  );
+}
+
+/** Delete a server; the server cascades it out of any agent's `mcpServerIds`. */
+export async function deleteMcpServer(
+  cfg: ApiConfig,
+  serverId: string,
+): Promise<void> {
+  await request(
+    cfg,
+    "DELETE",
+    `/agents/servers/${encodeURIComponent(serverId)}`,
   );
 }
 
