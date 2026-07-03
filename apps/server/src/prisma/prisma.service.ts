@@ -19,6 +19,17 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
+  constructor() {
+    // Every project-scoped handler runs inside an interactive transaction
+    // (withUser), so under concurrent load transactions queue for pool
+    // connections. The defaults (maxWait 2s) fail-fast the whole API the
+    // moment the pool is briefly saturated (see the 2026-07-02 outage);
+    // queue instead, and let genuinely stuck work be cut off at `timeout`.
+    super({
+      transactionOptions: { maxWait: 10_000, timeout: 20_000 },
+    });
+  }
+
   async onModuleInit(): Promise<void> {
     await this.$connect();
     this.logger.log("Connected to Postgres");

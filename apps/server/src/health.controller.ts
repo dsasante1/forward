@@ -1,12 +1,25 @@
-import { Controller, Get } from "@nestjs/common";
+import { Controller, Get, ServiceUnavailableException } from "@nestjs/common";
 import { Public } from "./auth/public.decorator.js";
+import { PrismaService } from "./prisma/prisma.service.js";
 
 @Controller()
 export class HealthController {
-  /** Liveness probe for Cloud Run — no auth required. */
+  constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Liveness probe for Cloud Run — no auth required. Deliberately touches the
+   * DB pool: a process whose Prisma pool is wedged (every request timing out
+   * waiting for a connection, as in the 2026-07-02 outage) must fail this
+   * probe so Cloud Run recycles the instance instead of serving 500s forever.
+   */
   @Public()
   @Get("healthz")
-  health() {
+  async health() {
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+    } catch {
+      throw new ServiceUnavailableException("database unreachable");
+    }
     return { status: "ok", at: new Date().toISOString() };
   }
 }

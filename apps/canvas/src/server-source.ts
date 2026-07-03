@@ -29,6 +29,17 @@ import type {
  * standalone it's a constant wrapped in a promise. */
 export type TokenProvider = () => Promise<string | null | undefined>;
 
+/** Split a heartbeat failure into "can't reach the backend" vs "the backend
+ * rejects us". `forward-core/api` throws plain Errors ending in the HTTP status
+ * (`… failed: 401`), and `cfg()` throws "Not signed in …" when the token
+ * provider comes back empty — both mean retrying alone won't recover, so the
+ * canvas should say "sign in again" instead of "reconnecting". */
+function classifyPollError(err: unknown): ConnectionStatus {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/failed: 40[13]$/.test(msg) || msg.includes("Not signed in")) return "auth";
+  return "offline";
+}
+
 /**
  * A CanvasSource backed by the Forward backend (`apps/server`) over its REST API
  * — the same contract the dashboard, extension and MCP speak via `forward-core/api`.
@@ -68,6 +79,23 @@ export class ServerSource implements CanvasSource {
     private readonly pollMs = 2000,
   ) {}
 
+  /**
+   * Wrap a poll tick so overlapping runs are skipped. With 7 poll loops per
+   * canvas, firing a new request while the previous one is still in flight
+   * stacks concurrent requests whenever the server is slower than pollMs —
+   * a feedback loop that exhausted the server's DB pool on 2026-07-02.
+   */
+  private static guarded(tick: () => Promise<void>): () => void {
+    let inFlight = false;
+    return () => {
+      if (inFlight) return;
+      inFlight = true;
+      void tick().finally(() => {
+        inFlight = false;
+      });
+    };
+  }
+
   /** Build a fresh ApiConfig with a current token for one request. */
   private async cfg(): Promise<api.ApiConfig> {
     const token = await this.getToken();
@@ -103,12 +131,13 @@ export class ServerSource implements CanvasSource {
           onChange(snapshots);
         }
       } catch (err) {
-        this.setStatus("offline");
+        this.setStatus(classifyPollError(err));
         console.warn("[server-source] poll failed:", err);
       }
     };
-    void tick();
-    this.timer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.timer = setInterval(run, this.pollMs);
     return () => {
       if (this.timer) clearInterval(this.timer);
     };
@@ -127,8 +156,9 @@ export class ServerSource implements CanvasSource {
         console.warn("[server-source] infra poll failed:", err);
       }
     };
-    void tick();
-    this.infraTimer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.infraTimer = setInterval(run, this.pollMs);
     return () => {
       if (this.infraTimer) clearInterval(this.infraTimer);
     };
@@ -147,8 +177,9 @@ export class ServerSource implements CanvasSource {
         console.warn("[server-source] entities poll failed:", err);
       }
     };
-    void tick();
-    this.entityTimer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.entityTimer = setInterval(run, this.pollMs);
     return () => {
       if (this.entityTimer) clearInterval(this.entityTimer);
     };
@@ -167,8 +198,9 @@ export class ServerSource implements CanvasSource {
         console.warn("[server-source] agents poll failed:", err);
       }
     };
-    void tick();
-    this.agentTimer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.agentTimer = setInterval(run, this.pollMs);
     return () => {
       if (this.agentTimer) clearInterval(this.agentTimer);
     };
@@ -187,8 +219,9 @@ export class ServerSource implements CanvasSource {
         console.warn("[server-source] tasks poll failed:", err);
       }
     };
-    void tick();
-    this.taskTimer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.taskTimer = setInterval(run, this.pollMs);
     return () => {
       if (this.taskTimer) clearInterval(this.taskTimer);
     };
@@ -209,8 +242,9 @@ export class ServerSource implements CanvasSource {
         console.warn("[server-source] checkpoints poll failed:", err);
       }
     };
-    void tick();
-    this.checkpointTimer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.checkpointTimer = setInterval(run, this.pollMs);
     return () => {
       if (this.checkpointTimer) clearInterval(this.checkpointTimer);
     };
@@ -231,8 +265,9 @@ export class ServerSource implements CanvasSource {
         console.warn("[server-source] timeline poll failed:", err);
       }
     };
-    void tick();
-    this.timelineTimer = setInterval(tick, this.pollMs);
+    const run = ServerSource.guarded(tick);
+    run();
+    this.timelineTimer = setInterval(run, this.pollMs);
     return () => {
       if (this.timelineTimer) clearInterval(this.timelineTimer);
     };
