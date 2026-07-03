@@ -13,6 +13,7 @@ import { CheckpointsModule } from "./checkpoints/checkpoints.module.js";
 import { TimelineModule } from "./timeline/timeline.module.js";
 import { TokensModule } from "./tokens/tokens.module.js";
 import { WebhooksModule } from "./webhooks/webhooks.module.js";
+import { InternalModule } from "./internal/internal.module.js";
 import { OrgsModule } from "./orgs/orgs.module.js";
 import { AdminModule } from "./admin/admin.module.js";
 import { HealthController } from "./health.controller.js";
@@ -33,6 +34,7 @@ import { HealthController } from "./health.controller.js";
     TimelineModule,
     TokensModule,
     WebhooksModule,
+    InternalModule,
     OrgsModule,
     AdminModule,
   ],

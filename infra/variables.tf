@@ -67,12 +67,19 @@ variable "max_instances" {
   default     = 4
 }
 
+variable "service_url" {
+  description = "Override for the server's public base URL (e.g. a custom domain). Empty = derive the deterministic Cloud Run URL from the project number. Used both as the Cloud Tasks target and the OIDC audience."
+  type        = string
+  default     = ""
+}
+
 variable "tf_deployer_roles" {
   description = "Project roles for the infra (terraform) deployer SA. Broad by necessity; tighten to taste."
   type        = list(string)
   default = [
     "roles/run.admin",
     "roles/artifactregistry.admin",
+    "roles/cloudtasks.admin",
     "roles/secretmanager.admin",
     "roles/iam.serviceAccountAdmin",
     "roles/iam.workloadIdentityPoolAdmin",

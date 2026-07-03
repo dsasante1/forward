@@ -37,9 +37,10 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
 
-      # Non-secret config.
+      # Non-secret config: operator-supplied values plus the Terraform-computed
+      # Cloud Tasks wiring (queue, self URL, invoker SA).
       dynamic "env" {
-        for_each = var.plain_env
+        for_each = merge(var.plain_env, local.cloud_tasks_env)
         content {
           name  = env.key
           value = env.value
@@ -65,6 +66,7 @@ resource "google_cloud_run_v2_service" "server" {
   depends_on = [
     google_secret_manager_secret_iam_member.runtime_access,
     google_artifact_registry_repository.server,
+    google_cloud_tasks_queue.email,
   ]
 }
 

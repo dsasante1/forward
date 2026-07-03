@@ -306,7 +306,12 @@ let mermaidPromise: Promise<typeof import("mermaid").default> | undefined;
 function getMermaid(): Promise<typeof import("mermaid").default> {
   if (!mermaidPromise) {
     mermaidPromise = import("mermaid").then(({ default: m }) => {
-      m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "loose" });
+      // "strict" runs mermaid's output through its sanitizer. Diagram text comes
+      // from cross-tenant user content (entity/infra/flow labels), so we never
+      // want "loose" (which disables sanitization); the serializers already
+      // entity-escape labels, and no diagram uses `click` directives, so strict
+      // costs us nothing.
+      m.initialize({ startOnLoad: false, theme: "dark", securityLevel: "strict" });
       return m;
     });
   }

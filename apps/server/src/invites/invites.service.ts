@@ -11,7 +11,7 @@ import { randomBytes } from "node:crypto";
 import type { ProjectRole } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { ClerkUserService } from "../common/clerk-user.service.js";
-import { EmailService } from "../common/email.service.js";
+import { CloudTasksService } from "../common/cloud-tasks.service.js";
 import { inviteEmail } from "../common/email-template.js";
 import { RealtimeService } from "../common/realtime.service.js";
 
@@ -33,7 +33,7 @@ export class InvitesService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly email: EmailService,
+    private readonly queue: CloudTasksService,
     private readonly realtime: RealtimeService,
     private readonly users: ClerkUserService,
     config: ConfigService,
@@ -102,17 +102,16 @@ export class InvitesService {
       },
     });
 
-    const sent = await this.sendInviteEmail(
+    // Queue the email after the invite row is committed; delivery is async and
+    // best-effort, and must never fail or slow the create. enqueueEmail never
+    // throws (a queue outage degrades to a non-blocking inline send).
+    // `emailSent` here means "delivery was arranged", not "already delivered".
+    const emailSent = await this.sendInviteEmail(
       normalized,
       project?.name ?? "a project",
       role,
       token,
     );
-    if (!sent) {
-      this.logger.warn(
-        `Invite ${invite.id} created but the email was not sent (email disabled or rejected).`,
-      );
-    }
     await this.realtime.publish(projectId, {
       resource: "members",
       op: "upsert",
@@ -124,7 +123,7 @@ export class InvitesService {
       ...invite,
       createdAt: invite.createdAt.toISOString(),
       expiresAt: invite.expiresAt.toISOString(),
-      emailSent: sent,
+      emailSent,
     };
   }
 
@@ -229,6 +228,7 @@ export class InvitesService {
       link,
       expiresDays: INVITE_TTL_DAYS,
     });
-    return this.email.send({ to, subject, text, html });
+    await this.queue.enqueueEmail({ to, subject, text, html });
+    return this.queue.canDeliver;
   }
 }
