@@ -145,10 +145,35 @@
         "category": "Forward"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "forward",
+          "title": "Forward",
+          "icon": "resources/forward.svg"
+        }
+      ]
+    },
+    "views": {
+      "forward": [
+        {
+          "id": "forwardActions",
+          "name": "Actions",
+          "contextualTitle": "Forward"
+        }
+      ]
+    },
     "menus": {
       "editor/title": [
         {
           "command": "forward.openCanvas",
+          "group": "navigation"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "forward.openCanvas",
+          "when": "view == forwardActions",
           "group": "navigation"
         }
       ]

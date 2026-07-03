@@ -63,6 +63,7 @@ import {
   unbindApiFromElement,
   type ApiConfig,
 } from "./firebase.js";
+import { registerActionsView } from "./actionsView.js";
 
 const POLL_MS = 1000; // cadence each subscribed channel polls while visible
 
@@ -79,6 +80,7 @@ let secrets: vscode.SecretStorage;
 
 export function activate(context: vscode.ExtensionContext): void {
   secrets = context.secrets;
+  registerActionsView(context);
   context.subscriptions.push(
     vscode.commands.registerCommand(
       "forward.connectEndpoint",
