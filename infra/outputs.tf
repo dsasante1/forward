@@ -37,3 +37,13 @@ output "runtime_sa" {
   description = "Cloud Run runtime service account email."
   value       = google_service_account.run_runtime.email
 }
+
+output "tasks_queue" {
+  description = "Cloud Tasks queue for background jobs (e.g. email)."
+  value       = google_cloud_tasks_queue.email.name
+}
+
+output "tasks_invoker_sa" {
+  description = "Service account whose OIDC token the job handler authorizes; injected as CLOUD_TASKS_INVOKER_SA."
+  value       = google_service_account.tasks_invoker.email
+}

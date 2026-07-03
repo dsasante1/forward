@@ -1,5 +1,6 @@
 import { Global, Module } from "@nestjs/common";
 import { ClerkUserService } from "./clerk-user.service.js";
+import { CloudTasksService } from "./cloud-tasks.service.js";
 import { EmailService } from "./email.service.js";
 import { MembershipGuard } from "./membership.guard.js";
 import { OrgAdminGuard } from "./org-admin.guard.js";
@@ -21,6 +22,7 @@ import { RealtimeService } from "./realtime.service.js";
     PlatformAdminGuard,
     RealtimeService,
     EmailService,
+    CloudTasksService,
     ClerkUserService,
     OrgSyncService,
     AdminAuditService,
@@ -31,6 +33,7 @@ import { RealtimeService } from "./realtime.service.js";
     PlatformAdminGuard,
     RealtimeService,
     EmailService,
+    CloudTasksService,
     ClerkUserService,
     OrgSyncService,
     AdminAuditService,
