@@ -335,6 +335,17 @@ const lastSeen = new Map<string, string>();
 const inflightWrites = new Set<string>();
 const failedWrites = new Set<string>();
 const writeSeq = new Map<string, number>();
+/** The "Save documentation" counterparts. Unlike geometry saves (re-sent from
+ * the element's current state), a doc save carries its own payload — the
+ * binding plus the version entry it appends — so `failedDocs` keeps the payload
+ * itself for the retry. `inflightDocs` shields the element AND its timeline
+ * from the poll loop until the write is confirmed: without it, the first poll
+ * after a reconnect overwrites the local binding with the server's copy from
+ * before the outage, visibly erasing the docs that were just written. */
+type DocVersion = { version: string; changeLog: string; action: "created" | "modified" };
+const inflightDocs = new Set<string>();
+const failedDocs = new Map<string, { binding: ApiBinding; version: DocVersion }>();
+const docSeq = new Map<string, number>();
 /** Ids deleted while a save was still in flight: the in-flight upsert may land
  * after the delete and resurrect the row, so its resolution issues a
  * compensating delete instead of adopting the server copy. */
@@ -482,8 +493,42 @@ async function persistElement(el: DesignElement): Promise<void> {
   }
 }
 
-/** Re-send every write that failed, from the element's current local state.
- * Called when the connection returns to "online" and as a timed backoff. */
+/** Persist a "Save documentation" write with the same shield/retry treatment
+ * as persistElement: a failure — common while the pill reads "reconnecting" —
+ * queues the payload for re-send instead of dropping it, and the element stays
+ * shielded from the poll loop so a post-reconnect snapshot can't erase the
+ * binding locally. Resolves with what actually happened so the caller can be
+ * honest in the toast: "saved" (server confirmed), "queued" (failed, will
+ * retry), or "superseded" (a newer doc save owns the outcome). */
+async function persistDoc(
+  id: string,
+  binding: ApiBinding,
+  version: DocVersion,
+): Promise<"saved" | "queued" | "superseded"> {
+  const doc = source.documentElement?.bind(source);
+  if (!doc) return "superseded";
+  const seq = (docSeq.get(id) ?? 0) + 1;
+  docSeq.set(id, seq);
+  inflightDocs.add(id);
+  failedDocs.delete(id);
+  try {
+    await doc(id, binding, version);
+    if (docSeq.get(id) !== seq) return "superseded";
+    docSeq.delete(id);
+    inflightDocs.delete(id);
+    return "saved";
+  } catch (err) {
+    console.warn("[canvas] doc save failed; will retry on reconnect:", err);
+    if (docSeq.get(id) !== seq) return "superseded";
+    failedDocs.set(id, { binding, version }); // stays shielded until a retry succeeds
+    scheduleRetry();
+    return "queued";
+  }
+}
+
+/** Re-send every write that failed — geometry saves from the element's current
+ * local state, doc saves from their kept payload. Called when the connection
+ * returns to "online" and as a timed backoff. */
 function flushFailedWrites(): void {
   if (retryTimer) {
     clearTimeout(retryTimer);
@@ -495,12 +540,25 @@ function flushFailedWrites(): void {
     if (el) void persistElement(el);
     else inflightWrites.delete(id); // deleted locally in the meantime
   }
+  for (const [id, d] of [...failedDocs]) {
+    failedDocs.delete(id);
+    if (!elements.has(id)) {
+      // Element deleted locally in the meantime — drop the doc write with it.
+      inflightDocs.delete(id);
+      docSeq.delete(id);
+      continue;
+    }
+    void persistDoc(id, d.binding, d.version).then((outcome) => {
+      // The save was announced as queued when it failed; confirm the recovery.
+      if (outcome === "saved") notify("Queued documentation synced.");
+    });
+  }
 }
 
 /** Back off and retry, so a lone failure that happens while the pill still
  * reads "online" is recovered too — not only an offline→online transition. */
 function scheduleRetry(): void {
-  if (retryTimer || failedWrites.size === 0) return;
+  if (retryTimer || (failedWrites.size === 0 && failedDocs.size === 0)) return;
   retryTimer = setTimeout(() => {
     retryTimer = undefined;
     flushFailedWrites();
@@ -526,8 +584,9 @@ function subscribeAll(): void {
         if (active?.has(s.element.id)) continue;
         // An un-acked local write is still the source of truth for this
         // element; a stale poll must not revert it (the drag gesture that
-        // shielded it has already ended by the time the write lands).
-        if (inflightWrites.has(s.element.id)) continue;
+        // shielded it has already ended by the time the write lands). A pending
+        // doc save shields too — it owns the binding and the timeline entry.
+        if (inflightWrites.has(s.element.id) || inflightDocs.has(s.element.id)) continue;
         elements.set(s.element.id, s.element);
         timelines.set(s.element.id, s.timeline);
       }
@@ -557,17 +616,41 @@ function subscribeAll(): void {
   // Connection health: flip the LIVE SYNC pill to a "reconnecting" state when the
   // poll loop can't reach the backend, so a dropped connection isn't silent.
   const unsubStatus = source.subscribeStatus?.((status) => {
-    const offline = status === "offline";
-    // Back online: re-send any element whose write failed while we were down,
-    // so a move made during the outage isn't silently lost.
-    if (!offline && failedWrites.size > 0) flushFailedWrites();
-    const pill = uiRoot?.querySelector("#liveSync");
+    const offline = status !== "online";
+    // Back online: re-send any write that failed while we were down, so a move
+    // or doc save made during the outage isn't silently lost.
+    if (!offline && (failedWrites.size > 0 || failedDocs.size > 0)) flushFailedWrites();
+    const pill = uiRoot?.querySelector("#liveSync") as HTMLElement | null;
     const label = pill?.querySelector(".fwd-live-label");
     if (!pill || !label) return;
     pill.classList.toggle("offline", offline);
-    label.textContent = offline ? "RECONNECTING…" : "LIVE SYNC";
+    // "auth" means the backend answered but rejected us (expired session) — a
+    // retry can't fix it, so tell the user what to do instead of "reconnecting".
+    label.textContent =
+      status === "auth" ? "SIGN-IN EXPIRED" : offline ? "RECONNECTING…" : "LIVE SYNC";
+    pill.title =
+      status === "auth"
+        ? "The session expired — sign in again to resume syncing. Unsaved edits are queued in this tab."
+        : "Live sync with the Forward backend";
   });
   if (unsubStatus) disposers.push(unsubStatus);
+  // Queued/in-flight writes live only in this tab's memory: warn before the
+  // page unloads while any edit hasn't been confirmed by the server, so work
+  // drawn or documented during an outage isn't silently discarded.
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (
+      inflightWrites.size === 0 &&
+      failedWrites.size === 0 &&
+      inflightDocs.size === 0 &&
+      failedDocs.size === 0
+    ) {
+      return;
+    }
+    e.preventDefault();
+    e.returnValue = ""; // Chrome requires returnValue to show the prompt
+  };
+  window.addEventListener("beforeunload", onBeforeUnload);
+  disposers.push(() => window.removeEventListener("beforeunload", onBeforeUnload));
   // ER / data-model graph (pillar 3c) — read-only render in the UML panel; only
   // sources that expose it (ServerSource) drive this, others simply never fire.
   const unsubEntities = source.subscribeEntities?.((snapshot) => {
@@ -2813,6 +2896,9 @@ function deleteSelected(): void {
     inflightWrites.delete(cid);
     failedWrites.delete(cid);
     writeSeq.delete(cid);
+    inflightDocs.delete(cid);
+    failedDocs.delete(cid);
+    docSeq.delete(cid);
     void source.deleteElement(cid);
   }
   select(null);
@@ -2915,8 +3001,7 @@ function renderSelectionPanel(): void {
   const el = selectedId ? elements.get(selectedId) : undefined;
   const tl = selectedId ? (timelines.get(selectedId) ?? []) : [];
   // Explicit "Save documentation" — only offered when the source records history.
-  const doc = source.documentElement?.bind(source);
-  const onDocument = doc
+  const onDocument = source.documentElement
     ? (binding: ApiBinding) => {
         const id = selectedId;
         if (!id) return;
@@ -2929,11 +3014,15 @@ function renderSelectionPanel(): void {
           action === "created" ? "Documented API" : "Updated API documentation";
         // Keep the in-memory binding in step with what we version, then persist.
         elements.set(id, { ...current, apiBinding: binding, updatedAt: now() });
-        void doc(id, binding, { version, changeLog, action });
         render();
-        // render() rebuilt the panel, wiping any inline button state — surface the
-        // confirmation toast afterwards so the save actually registers to the user.
-        notify("Documentation saved.");
+        // render() rebuilt the panel, wiping any inline button state — surface
+        // the toast afterwards, and only claim "saved" once the server confirms;
+        // a write that failed (connection down) is queued and announced as such.
+        void persistDoc(id, binding, { version, changeLog, action }).then((outcome) => {
+          if (outcome === "saved") notify("Documentation saved.");
+          else if (outcome === "queued")
+            notify("Connection lost — documentation queued; it will sync when back online.");
+        });
       }
     : undefined;
   renderPanel(
