@@ -4704,14 +4704,17 @@ async function apply(planPath) {
   console.error(
     `forward-docs: checkpoint ${checkpoint.id} created (restores design + infra).`
   );
+  const wantEntities = plan.entities.length > 0 || plan.entityRelations.length > 0;
+  const wantInfra = plan.infraNodes.length > 0;
+  const wantAgents = plan.mcpServers.length > 0 || plan.agents.length > 0;
   const [
     { entities: exEntities, relations: exRelations },
     { nodes: exNodes },
     { agents: exAgents, servers: exServers }
   ] = await Promise.all([
-    fetchEntities(cfg.api),
-    fetchInfra(cfg.api),
-    fetchAgents(cfg.api)
+    wantEntities ? fetchEntities(cfg.api) : Promise.resolve({ entities: [], relations: [] }),
+    wantInfra ? fetchInfra(cfg.api) : Promise.resolve({ nodes: [], edges: [] }),
+    wantAgents ? fetchAgents(cfg.api) : Promise.resolve({ agents: [], servers: [] })
   ]);
   const entityGeom = geomMap(exEntities);
   const nodeGeom = geomMap(exNodes);

@@ -1,8 +1,9 @@
 # forward-docs
 
 Keep a project's **Forward** documentation (API docs, ER/UML, infrastructure,
-flows, and agents/MCP) in sync with its code — automatically, on every merge to
-the default branch — **without locking you into any particular AI**.
+flows, and agents/MCP) in sync with its code — automatically, on every change
+that lands on the default branch — **without locking you into any particular
+AI**.
 
 ## How it works
 
@@ -10,7 +11,7 @@ The pipeline splits into two halves. Everything except the thinking is fixed and
 model-free; only the middle step is "bring your own AI":
 
 ```
-PR merged to default branch
+push to default branch (PR merge or direct)
         │
         ▼
  ┌──────────────────────────┐

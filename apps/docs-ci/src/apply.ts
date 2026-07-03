@@ -127,15 +127,20 @@ export async function apply(planPath: string): Promise<number> {
 
   // 2. Existing state: geometry (so we update nodes in place and only grid-place
   // new ones) and — for the ER + Agents/MCP layers the checkpoint does NOT cover
-  // — a prior-state snapshot we can write out as a re-appliable rollback.
+  // — a prior-state snapshot we can write out as a re-appliable rollback. Fetch
+  // ONLY the layers this plan touches: a bindings-only merge (the common case)
+  // reads nothing here and goes straight to the element read in step 6.
+  const wantEntities = plan.entities.length > 0 || plan.entityRelations.length > 0;
+  const wantInfra = plan.infraNodes.length > 0;
+  const wantAgents = plan.mcpServers.length > 0 || plan.agents.length > 0;
   const [
     { entities: exEntities, relations: exRelations },
     { nodes: exNodes },
     { agents: exAgents, servers: exServers },
   ] = await Promise.all([
-    fetchEntities(cfg.api),
-    fetchInfra(cfg.api),
-    fetchAgents(cfg.api),
+    wantEntities ? fetchEntities(cfg.api) : Promise.resolve({ entities: [], relations: [] }),
+    wantInfra ? fetchInfra(cfg.api) : Promise.resolve({ nodes: [], edges: [] }),
+    wantAgents ? fetchAgents(cfg.api) : Promise.resolve({ agents: [], servers: [] }),
   ]);
   const entityGeom = geomMap(exEntities);
   const nodeGeom = geomMap(exNodes);
