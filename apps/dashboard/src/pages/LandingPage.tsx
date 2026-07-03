@@ -1116,9 +1116,9 @@ const ORG_FEATURES = [
 
 const MEMBERS = [
   {
-    initials: "JD",
-    name: "Jane Doe",
-    email: "jane@acme.dev",
+    initials: "UA",
+    name: "Uncle Akrobeto",
+    email: "uncle@acme.dev",
     role: "Admin",
     color: "var(--accent2)",
   },
