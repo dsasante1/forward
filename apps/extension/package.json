@@ -95,8 +95,18 @@
         "category": "Forward"
       },
       {
+        "command": "forward.removeMcpServer",
+        "title": "Remove MCP Server",
+        "category": "Forward"
+      },
+      {
         "command": "forward.addAgent",
         "title": "Add Agent",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.removeAgent",
+        "title": "Remove Agent",
         "category": "Forward"
       },
       {
@@ -107,6 +117,16 @@
       {
         "command": "forward.updateTaskStatus",
         "title": "Update Task Status",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.showHistory",
+        "title": "Show Endpoint Documentation History",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.catchUp",
+        "title": "Catch Up on Endpoint Changes",
         "category": "Forward"
       },
       {
