@@ -9,19 +9,27 @@ import {
   McpTransport,
   TaskStatus,
   applyTaskChange,
+  digest,
+  flattenTimelines,
   newTask,
   type ApiBinding,
   type CheckpointInput,
+  type CurrentLabel,
   type DesignElement,
+  type Digest,
+  type DigestItem,
   type Entity,
   type EntityRelation,
   type InfraEdge,
   type InfraNode,
   type InfraStepKind,
   type Task,
+  type TimelineEvent,
 } from "forward-core";
 import {
   addMember,
+  deleteAgentNode,
+  deleteMcpServer,
   fetchAgents,
   saveAgentNode,
   saveMcpServer,
@@ -99,12 +107,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("forward.addFlowStep", addFlowStep),
     vscode.commands.registerCommand("forward.removeFlow", removeFlow),
     vscode.commands.registerCommand("forward.addMcpServer", addMcpServer),
+    vscode.commands.registerCommand("forward.removeMcpServer", removeMcpServer),
     vscode.commands.registerCommand("forward.addAgent", addAgent),
+    vscode.commands.registerCommand("forward.removeAgent", removeAgent),
     vscode.commands.registerCommand("forward.createTask", createTask),
     vscode.commands.registerCommand(
       "forward.updateTaskStatus",
       updateTaskStatus,
     ),
+    vscode.commands.registerCommand("forward.showHistory", showHistory),
+    vscode.commands.registerCommand("forward.catchUp", catchUp),
     vscode.commands.registerCommand("forward.signIn", signIn),
     vscode.commands.registerCommand("forward.signOut", signOut),
     vscode.commands.registerCommand("forward.selectProject", selectProject),
@@ -596,6 +608,88 @@ async function addAgent(): Promise<void> {
   }
 }
 
+/**
+ * Pick an MCP server, confirm, then remove it. The server drops it from any
+ * agent's `mcpServerIds` so no dangling wiring is left behind — mirroring the
+ * MCP `remove_mcp_server` tool.
+ */
+async function removeMcpServer(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  let servers: McpServerNode[] = [];
+  try {
+    servers = (await fetchAgents(cfg)).servers;
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!servers.length) {
+    vscode.window.showWarningMessage("No MCP servers to remove.");
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    servers.map((s) => ({ label: s.label, description: s.transport, id: s.id })),
+    { placeHolder: "Remove which MCP server?" },
+  );
+  if (!choice) return;
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Remove MCP server "${choice.label}"?`,
+    { modal: true },
+    "Remove",
+  );
+  if (confirm !== "Remove") return;
+
+  try {
+    await deleteMcpServer(cfg, choice.id);
+    vscode.window.showInformationMessage(`Removed MCP server: ${choice.label}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Remove failed: ${(err as Error).message}`);
+  }
+}
+
+/** Pick an agent, confirm, then remove it (its MCP servers are left intact). */
+async function removeAgent(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  let agents: AgentNode[] = [];
+  try {
+    agents = (await fetchAgents(cfg)).agents;
+  } catch {
+    /* offline / unreachable */
+  }
+  if (!agents.length) {
+    vscode.window.showWarningMessage("No agents to remove.");
+    return;
+  }
+
+  const choice = await vscode.window.showQuickPick(
+    agents.map((a) => ({
+      label: a.label,
+      description: a.model ?? "",
+      id: a.id,
+    })),
+    { placeHolder: "Remove which agent?" },
+  );
+  if (!choice) return;
+
+  const confirm = await vscode.window.showWarningMessage(
+    `Remove agent "${choice.label}"?`,
+    { modal: true },
+    "Remove",
+  );
+  if (confirm !== "Remove") return;
+
+  try {
+    await deleteAgentNode(cfg, choice.id);
+    vscode.window.showInformationMessage(`Removed agent: ${choice.label}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Remove failed: ${(err as Error).message}`);
+  }
+}
+
 /** Draw a directed edge between two existing infra nodes. */
 async function linkInfraNodes(): Promise<void> {
   const cfg = await readConfig();
@@ -1067,6 +1161,165 @@ async function updateTaskStatus(): Promise<void> {
   } catch (err) {
     vscode.window.showErrorMessage(`Update failed: ${(err as Error).message}`);
   }
+}
+
+// ==========================================================================
+// Documentation history + catch-up digest (the timeline pillar). Read-only
+// views over the append-only version_timeline — the same data the canvas
+// History tab and the MCP get_history / get_catchup_digest tools serve, so a
+// backend dev can answer "how did this endpoint evolve?" and "what API changes
+// do I need to deal with?" without leaving the editor.
+// ==========================================================================
+
+/** Catch-up baselines, matching the canvas timeline's window selector. */
+const CATCHUP_WINDOWS: Record<string, number> = {
+  "24h": 24 * 3600_000,
+  "7d": 7 * 24 * 3600_000,
+  "30d": 30 * 24 * 3600_000,
+  all: Number.POSITIVE_INFINITY,
+};
+
+/**
+ * Load every endpoint event as one chronological stream (oldest → newest), the
+ * same shape the canvas timeline renders. Labels come from each entry's own
+ * snapshot first, then the element's current binding for live endpoints —
+ * mirroring the MCP server's `loadTimelineEvents`.
+ */
+async function loadTimelineEvents(cfg: ApiConfig): Promise<TimelineEvent[]> {
+  const [timelinesResult, elements] = await Promise.all([
+    fetchTimelinesConditional(cfg, undefined),
+    fetchElements(cfg),
+  ]);
+  const current: Record<string, CurrentLabel> = {};
+  for (const el of elements) {
+    if (el.apiBinding) current[el.id] = { title: el.apiBinding.title };
+  }
+  return flattenTimelines(timelinesResult?.timelines ?? {}, current);
+}
+
+/** Open text in a throwaway read-only markdown editor tab. */
+async function showMarkdownDoc(content: string): Promise<void> {
+  const doc = await vscode.workspace.openTextDocument({
+    content,
+    language: "markdown",
+  });
+  await vscode.window.showTextDocument(doc, { preview: true });
+}
+
+/** Render one endpoint's version history as Markdown, newest first. */
+function renderHistory(title: string, events: TimelineEvent[]): string {
+  const verb = (a: TimelineEvent["action"]): string =>
+    a === "created" ? "Created" : a === "deleted" ? "Removed" : "Modified";
+  const lines = [`# History — ${title}`, ""];
+  for (const e of [...events].reverse()) {
+    const when = new Date(e.timestamp).toLocaleString();
+    const bump = e.previousVersion ? `v${e.previousVersion} → v${e.version}` : `v${e.version}`;
+    lines.push(`## ${verb(e.action)} · ${bump}`, `*${when} — ${e.author}*`, "");
+    const route = [e.method, e.path].filter(Boolean).join(" ");
+    if (route) lines.push(`\`${route}\``, "");
+    if (e.changeLog) lines.push(e.changeLog, "");
+    lines.push("---", "");
+  }
+  return lines.join("\n");
+}
+
+/** Show the version history of one documented endpoint. */
+async function showHistory(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  let events: TimelineEvent[] = [];
+  try {
+    events = await loadTimelineEvents(cfg);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Couldn't load history: ${(err as Error).message}`);
+    return;
+  }
+  if (!events.length) {
+    vscode.window.showInformationMessage("No documentation history yet.");
+    return;
+  }
+
+  // Group by element; label each from its most recent event.
+  const byElement = new Map<string, TimelineEvent[]>();
+  for (const e of events) {
+    const list = byElement.get(e.elementId) ?? [];
+    list.push(e);
+    byElement.set(e.elementId, list);
+  }
+  const picks = [...byElement.values()].map((evs) => {
+    const latest = evs[evs.length - 1] as TimelineEvent;
+    return {
+      label: latest.title,
+      description: `${evs.length} version${evs.length === 1 ? "" : "s"}`,
+      id: latest.elementId,
+    };
+  });
+  const choice = await vscode.window.showQuickPick(picks, {
+    placeHolder: "Show documentation history for which endpoint?",
+  });
+  if (!choice) return;
+
+  await showMarkdownDoc(renderHistory(choice.label, byElement.get(choice.id) ?? []));
+}
+
+/** Render a catch-up digest as Markdown. */
+function renderDigest(windowLabel: string, d: Digest): string {
+  const section = (heading: string, items: DigestItem[]): string[] => {
+    if (!items.length) return [`## ${heading} (0)`, "_None._", ""];
+    const rows = items.map((it) => {
+      const when = new Date(it.at.timestamp).toLocaleString();
+      const route = [it.method, it.path].filter(Boolean).join(" ");
+      return `- **${it.title}**${route ? ` — \`${route}\`` : ""} · ${it.at.author} · ${when}`;
+    });
+    return [`## ${heading} (${items.length})`, ...rows, ""];
+  };
+  return [
+    `# Catch-up digest — ${windowLabel}`,
+    "",
+    "Net API changes to act on since the baseline (an endpoint created then " +
+      "deleted in the window is a no-op).",
+    "",
+    ...section("To integrate — new endpoints", d.toIntegrate),
+    ...section("To modify — changed endpoints", d.toModify),
+    ...section("To remove — deleted endpoints", d.toRemove),
+  ].join("\n");
+}
+
+/** Collapse endpoint changes since a chosen baseline into a catch-up digest. */
+async function catchUp(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  const windowPick = await vscode.window.showQuickPick(
+    [
+      { label: "Last 24 hours", win: "24h" },
+      { label: "Last 7 days", win: "7d" },
+      { label: "Last 30 days", win: "30d" },
+      { label: "All time", win: "all" },
+    ],
+    { placeHolder: "Catch up on endpoint changes since…" },
+  );
+  if (!windowPick) return;
+
+  let events: TimelineEvent[] = [];
+  try {
+    events = await loadTimelineEvents(cfg);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Couldn't load history: ${(err as Error).message}`);
+    return;
+  }
+
+  const winMs = CATCHUP_WINDOWS[windowPick.win] ?? Number.POSITIVE_INFINITY;
+  const sinceTs = Number.isFinite(winMs) ? Date.now() - winMs : 0;
+  const d = digest(events, sinceTs);
+  if (!d.toIntegrate.length && !d.toModify.length && !d.toRemove.length) {
+    vscode.window.showInformationMessage(
+      `No endpoint changes in the ${windowPick.label.toLowerCase()}.`,
+    );
+    return;
+  }
+  await showMarkdownDoc(renderDigest(windowPick.label, d));
 }
 
 /** Read design elements, swallowing offline errors into an empty list. */
