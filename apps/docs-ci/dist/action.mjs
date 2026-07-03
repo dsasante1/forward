@@ -4517,6 +4517,19 @@ async function saveEntity(cfg, entity) {
 async function saveEntityRelation(cfg, relation) {
   await request(cfg, "PUT", `/infra/relations/${encodeURIComponent(relation.id)}`, relation);
 }
+async function fetchAgents(cfg) {
+  const body = await get(cfg, "/agents");
+  return {
+    agents: parseAll(body?.agents ?? [], AgentNode),
+    servers: parseAll(body?.servers ?? [], McpServerNode)
+  };
+}
+async function saveAgentNode(cfg, agent) {
+  await request(cfg, "PUT", `/agents/nodes/${encodeURIComponent(agent.id)}`, agent);
+}
+async function saveMcpServer(cfg, server) {
+  await request(cfg, "PUT", `/agents/servers/${encodeURIComponent(server.id)}`, server);
+}
 async function createCheckpoint(cfg, input) {
   const raw = await request(cfg, "POST", "/checkpoints", input);
   return Checkpoint.parse(raw);
@@ -4620,6 +4633,8 @@ var EntityRelationInput = EntityRelation.omit({ updatedAt: true });
 var InfraNodeInput = InfraNode.omit({ updatedAt: true }).partial(geometry);
 var InfraEdgeInput = InfraEdge.omit({ updatedAt: true });
 var InfraFlowInput = InfraFlow.omit({ updatedAt: true });
+var McpServerInput = McpServerNode.omit({ updatedAt: true }).partial(geometry);
+var AgentInput = AgentNode.omit({ updatedAt: true }).partial(geometry);
 var Plan = external_exports.object({
   /** Contract version; bump if the shape changes. */
   version: external_exports.literal(1).default(1),
@@ -4630,7 +4645,9 @@ var Plan = external_exports.object({
   entityRelations: external_exports.array(EntityRelationInput).default([]),
   infraNodes: external_exports.array(InfraNodeInput).default([]),
   infraEdges: external_exports.array(InfraEdgeInput).default([]),
-  infraFlows: external_exports.array(InfraFlowInput).default([])
+  infraFlows: external_exports.array(InfraFlowInput).default([]),
+  mcpServers: external_exports.array(McpServerInput).default([]),
+  agents: external_exports.array(AgentInput).default([])
 });
 
 // src/apply.ts
@@ -4663,7 +4680,7 @@ async function apply(planPath) {
     console.error(`Could not read/validate ${planPath}: ${msg(e)}`);
     return 1;
   }
-  const total = plan.bindings.length + plan.entities.length + plan.entityRelations.length + plan.infraNodes.length + plan.infraEdges.length + plan.infraFlows.length;
+  const total = plan.bindings.length + plan.entities.length + plan.entityRelations.length + plan.infraNodes.length + plan.infraEdges.length + plan.infraFlows.length + plan.mcpServers.length + plan.agents.length;
   if (total === 0) {
     console.error("forward-docs: plan is empty \u2014 nothing to document. Skipping.");
     return 0;
@@ -4674,14 +4691,14 @@ async function apply(planPath) {
     tag: "checkpoint"
   });
   console.error(`forward-docs: checkpoint ${checkpoint.id} created (restore point).`);
-  const [{ entities: exEntities }, { nodes: exNodes }] = await Promise.all([
-    fetchEntities(cfg.api),
-    fetchInfra(cfg.api)
-  ]);
+  const [{ entities: exEntities }, { nodes: exNodes }, { agents: exAgents, servers: exServers }] = await Promise.all([fetchEntities(cfg.api), fetchInfra(cfg.api), fetchAgents(cfg.api)]);
   const entityGeom = geomMap(exEntities);
   const nodeGeom = geomMap(exNodes);
+  const agentGeom = geomMap(exAgents);
+  const serverGeom = geomMap(exServers);
   const entityPlacer = new GridPlacer(entityGeom.values());
   const nodePlacer = new GridPlacer(nodeGeom.values());
+  const agentPlacer = new GridPlacer([...serverGeom.values(), ...agentGeom.values()]);
   const now = () => (/* @__PURE__ */ new Date()).toISOString();
   const report = { ok: [], failed: [] };
   const defaultVersion = cfg.commit ? `ci-${cfg.commit}` : now().slice(0, 10);
@@ -4707,6 +4724,16 @@ async function apply(planPath) {
   for (const f of plan.infraFlows) {
     const flow = InfraFlow.parse({ ...f, updatedAt: now() });
     await run("infra-flow", f.id, () => saveInfraFlow(cfg.api, flow), report);
+  }
+  for (const s of plan.mcpServers) {
+    const g = agentPlacer.place(s, serverGeom.get(s.id), 200, 96);
+    const server = McpServerNode.parse({ ...s, ...g, updatedAt: now() });
+    await run("mcp-server", s.id, () => saveMcpServer(cfg.api, server), report);
+  }
+  for (const a of plan.agents) {
+    const g = agentPlacer.place(a, agentGeom.get(a.id), 200, 96);
+    const agent = AgentNode.parse({ ...a, ...g, updatedAt: now() });
+    await run("agent", a.id, () => saveAgentNode(cfg.api, agent), report);
   }
   for (const b of plan.bindings) {
     const version = {

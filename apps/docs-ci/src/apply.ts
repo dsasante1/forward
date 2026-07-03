@@ -1,21 +1,26 @@
 import { readFile, appendFile } from "node:fs/promises";
 import {
+  AgentNode,
   Entity,
   EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
 } from "forward-core";
 import {
   bindApiToElement,
   createCheckpoint,
+  fetchAgents,
   fetchEntities,
   fetchInfra,
+  saveAgentNode,
   saveEntity,
   saveEntityRelation,
   saveInfraEdge,
   saveInfraFlow,
   saveInfraNode,
+  saveMcpServer,
   type VersionInput,
 } from "forward-core/api";
 import { loadConfig, type CliConfig } from "./config.js";
@@ -89,7 +94,9 @@ export async function apply(planPath: string): Promise<number> {
     plan.entityRelations.length +
     plan.infraNodes.length +
     plan.infraEdges.length +
-    plan.infraFlows.length;
+    plan.infraFlows.length +
+    plan.mcpServers.length +
+    plan.agents.length;
 
   if (total === 0) {
     console.error("forward-docs: plan is empty — nothing to document. Skipping.");
@@ -107,14 +114,17 @@ export async function apply(planPath: string): Promise<number> {
   console.error(`forward-docs: checkpoint ${checkpoint.id} created (restore point).`);
 
   // 2. Existing geometry, so we update nodes in place and only grid-place new ones.
-  const [{ entities: exEntities }, { nodes: exNodes }] = await Promise.all([
-    fetchEntities(cfg.api),
-    fetchInfra(cfg.api),
-  ]);
+  const [{ entities: exEntities }, { nodes: exNodes }, { agents: exAgents, servers: exServers }] =
+    await Promise.all([fetchEntities(cfg.api), fetchInfra(cfg.api), fetchAgents(cfg.api)]);
   const entityGeom = geomMap(exEntities);
   const nodeGeom = geomMap(exNodes);
+  const agentGeom = geomMap(exAgents);
+  const serverGeom = geomMap(exServers);
   const entityPlacer = new GridPlacer(entityGeom.values());
   const nodePlacer = new GridPlacer(nodeGeom.values());
+  // Agents + MCP servers share one overlay, so one placer seeded with both keeps
+  // newly-placed boxes from colliding across the two node types.
+  const agentPlacer = new GridPlacer([...serverGeom.values(), ...agentGeom.values()]);
 
   const now = () => new Date().toISOString();
   const report: Report = { ok: [], failed: [] };
@@ -147,7 +157,19 @@ export async function apply(planPath: string): Promise<number> {
     await run("infra-flow", f.id, () => saveInfraFlow(cfg.api, flow), report);
   }
 
-  // 5. API bindings (independent of the graph layers).
+  // 5. MCP servers, then the agents that wire to them (pillar 8).
+  for (const s of plan.mcpServers) {
+    const g = agentPlacer.place(s, serverGeom.get(s.id), 200, 96);
+    const server = McpServerNode.parse({ ...s, ...g, updatedAt: now() });
+    await run("mcp-server", s.id, () => saveMcpServer(cfg.api, server), report);
+  }
+  for (const a of plan.agents) {
+    const g = agentPlacer.place(a, agentGeom.get(a.id), 200, 96);
+    const agent = AgentNode.parse({ ...a, ...g, updatedAt: now() });
+    await run("agent", a.id, () => saveAgentNode(cfg.api, agent), report);
+  }
+
+  // 6. API bindings (independent of the graph layers).
   for (const b of plan.bindings) {
     const version: VersionInput = {
       version: b.version ?? defaultVersion,

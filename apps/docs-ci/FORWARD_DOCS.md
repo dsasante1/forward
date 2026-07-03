@@ -110,6 +110,29 @@ except the ids/names noted; include only the layers this merge actually affected
           "kind": "sync", "endpointId": "el_9f2c" }
       ]
     }
+  ],
+
+  // Agent / MCP layer. Document MCP servers your project builds or consumes, and
+  // the agents wired to them. A tool's `endpointId` may point at a binding's
+  // elementId; an agent's `mcpServerIds` reference the mcpServers ids below.
+  "mcpServers": [
+    {
+      "id": "mcp_forward", "label": "forward-mcp",
+      "transport": "stdio",           // stdio | http | sse
+      "origin": "built",              // "built" (you expose it) | "consumed" (third-party)
+      "description": "Documents the canvas.",
+      "tools": [
+        { "name": "connectEndpoint", "description": "Attach API docs.", "endpointId": "el_9f2c" }
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "id": "agent_docs", "label": "docs agent",
+      "model": "claude-opus-4-8",
+      "systemPrompt": "You document endpoints on the Forward canvas.",
+      "mcpServerIds": ["mcp_forward"]
+    }
   ]
 }
 ```

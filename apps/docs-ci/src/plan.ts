@@ -1,11 +1,13 @@
 import { z } from "zod";
 import {
+  AgentNode,
   ApiBinding,
   Entity,
   EntityRelation,
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
   VersionAction,
 } from "forward-core";
 
@@ -68,6 +70,14 @@ export type InfraEdgeInput = z.infer<typeof InfraEdgeInput>;
 export const InfraFlowInput = InfraFlow.omit({ updatedAt: true });
 export type InfraFlowInput = z.infer<typeof InfraFlowInput>;
 
+/** An MCP server box (pillar 8). Geometry optional — `apply` owns placement. */
+export const McpServerInput = McpServerNode.omit({ updatedAt: true }).partial(geometry);
+export type McpServerInput = z.infer<typeof McpServerInput>;
+
+/** An agent box; `mcpServerIds` wire it to the MCP servers it can call (by id). */
+export const AgentInput = AgentNode.omit({ updatedAt: true }).partial(geometry);
+export type AgentInput = z.infer<typeof AgentInput>;
+
 /**
  * The whole document. Every layer is optional — a merge that only touched one
  * endpoint produces a plan with a single `bindings` entry and nothing else.
@@ -85,5 +95,7 @@ export const Plan = z.object({
   infraNodes: z.array(InfraNodeInput).default([]),
   infraEdges: z.array(InfraEdgeInput).default([]),
   infraFlows: z.array(InfraFlowInput).default([]),
+  mcpServers: z.array(McpServerInput).default([]),
+  agents: z.array(AgentInput).default([]),
 });
 export type Plan = z.infer<typeof Plan>;

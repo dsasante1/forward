@@ -1,8 +1,8 @@
 # forward-docs
 
 Keep a project's **Forward** documentation (API docs, ER/UML, infrastructure,
-flows) in sync with its code — automatically, on every merge to the default
-branch — **without locking you into any particular AI**.
+flows, and agents/MCP) in sync with its code — automatically, on every merge to
+the default branch — **without locking you into any particular AI**.
 
 ## How it works
 
