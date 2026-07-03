@@ -795,6 +795,24 @@ function syncRailActive(): void {
   set("theme", showTheme);
 }
 
+/**
+ * Keep `view` (and the lit rail button) in step with the lens shown in the shared
+ * diagram panel. The panel is owned by two buttons — Agents (the agent/MCP wiring
+ * lens) and UML (every other lens: the component views, the ER diagram and the
+ * sequence flows) — so re-pointing the panel's dropdown must re-point the rail,
+ * otherwise the button that opened the panel stays lit over a lens it no longer
+ * shows. Only meaningful while the panel is open; both target views share the same
+ * `show*` flags, so this stays consistent without going through `setView`.
+ */
+function syncPanelView(): void {
+  if (!umlOpen) return;
+  const owner: PrimaryView = selectedUmlAgents ? "agents" : "uml";
+  if (view === owner) return;
+  view = owner;
+  if (canvasRootEl) canvasRootEl.dataset.view = owner;
+  syncRailActive();
+}
+
 /** Open the full-area infra graph (or return to design when re-clicked). */
 function toggleInfra(): void {
   setView(view === "infra" ? "design" : "infra");
@@ -3918,6 +3936,11 @@ async function renderUmlPanel(): Promise<void> {
       selectedUmlView = null;
       selectedFlowId = null;
     }
+    // The diagram panel is shared by two rail buttons — UML (component / ER /
+    // sequence lenses) and Agents (the agent/MCP wiring lens). Keep the lit rail
+    // button in step with the lens on show, so switching lens never leaves a
+    // stale highlight on the button that opened the panel.
+    syncPanelView();
     void renderUmlPanel();
   });
   head.append(select);

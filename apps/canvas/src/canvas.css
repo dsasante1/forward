@@ -231,17 +231,19 @@
 .fwd-savebtn:hover { filter: brightness(1.06); }
 .fwd-savebtn svg { display: block; }
 /* "Save design checkpoint" only applies while editing the design canvas. The
-   other workspaces (infra, data model, UML, history, tasks, members) hide it —
-   along with its "saved …" stamp. */
+   other workspaces (infra, data model, UML, agents, history, tasks, members)
+   hide it — along with its "saved …" stamp. */
 .fwd-canvas-root[data-view="infra"] .fwd-savebtn,
 .fwd-canvas-root[data-view="data"] .fwd-savebtn,
 .fwd-canvas-root[data-view="uml"] .fwd-savebtn,
+.fwd-canvas-root[data-view="agents"] .fwd-savebtn,
 .fwd-canvas-root[data-view="history"] .fwd-savebtn,
 .fwd-canvas-root[data-view="tasks"] .fwd-savebtn,
 .fwd-canvas-root[data-view="member"] .fwd-savebtn,
 .fwd-canvas-root[data-view="infra"] .fwd-saved,
 .fwd-canvas-root[data-view="data"] .fwd-saved,
 .fwd-canvas-root[data-view="uml"] .fwd-saved,
+.fwd-canvas-root[data-view="agents"] .fwd-saved,
 .fwd-canvas-root[data-view="history"] .fwd-saved,
 .fwd-canvas-root[data-view="tasks"] .fwd-saved,
 .fwd-canvas-root[data-view="member"] .fwd-saved { display: none; }
@@ -335,10 +337,12 @@
    so hide the design surface + its zoom controls behind their full-area panels.
    The infra/data views still draw into #canvas, so they keep it. */
 .fwd-canvas-root[data-view="uml"] #canvas,
+.fwd-canvas-root[data-view="agents"] #canvas,
 .fwd-canvas-root[data-view="history"] #canvas,
 .fwd-canvas-root[data-view="tasks"] #canvas,
 .fwd-canvas-root[data-view="member"] #canvas,
 .fwd-canvas-root[data-view="uml"] #zoombar,
+.fwd-canvas-root[data-view="agents"] #zoombar,
 .fwd-canvas-root[data-view="history"] #zoombar,
 .fwd-canvas-root[data-view="tasks"] #zoombar,
 .fwd-canvas-root[data-view="member"] #zoombar { display: none; }
