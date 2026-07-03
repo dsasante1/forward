@@ -1,7 +1,7 @@
 {
   "name": "forward-vscode",
   "displayName": "Forward",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "type": "module",
   "publisher": "forward",
   "description": "Annotate a shared design canvas from VS Code — document any API (any language/framework), draw infrastructure & sequence-flow diagrams, track tasks, and browse endpoint history. Synced to your team through the Forward server.",
@@ -158,8 +158,8 @@
       "properties": {
         "forward.apiBaseUrl": {
           "type": "string",
-          "default": "",
-          "description": "Base URL of your Forward server, e.g. http://localhost:8080 or https://api.forward.dev."
+          "default": "https://forward-server-k4cs4wfhpq-uc.a.run.app",
+          "description": "Forward server URL. Only change this for self-hosted or local development servers (e.g. http://localhost:8080)."
         },
         "forward.projectId": {
           "type": "string",

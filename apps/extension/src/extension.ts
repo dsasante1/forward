@@ -147,7 +147,7 @@ async function readConfig(): Promise<ApiConfig | undefined> {
   const projectId = c.get<string>("projectId") ?? "";
   if (!baseUrl) {
     vscode.window.showErrorMessage(
-      "Set forward.apiBaseUrl (your Forward server URL) in Settings.",
+      "forward.apiBaseUrl is empty — restore the default Forward server URL in Settings.",
     );
     return undefined;
   }
@@ -180,7 +180,7 @@ async function signIn(): Promise<void> {
     vscode.workspace.getConfiguration("forward").get<string>("apiBaseUrl") ?? "";
   if (!baseUrl) {
     vscode.window.showErrorMessage(
-      "Set forward.apiBaseUrl (your Forward server URL) before signing in.",
+      "forward.apiBaseUrl is empty — restore the default Forward server URL in Settings before signing in.",
     );
     return;
   }
