@@ -64,8 +64,11 @@ export interface AgentSnapshot {
  * Whether the source's polling currently reaches the backend. A read-only or
  * offline-fixture source has no remote to lose, so it simply never reports
  * `"offline"` (the canvas treats the absence of `subscribeStatus` as online).
+ * `"auth"` is the degraded state a retry can't fix on its own: the backend is
+ * reachable but rejects the caller (expired session / missing token), so the
+ * canvas can tell the user to sign in again instead of implying a network blip.
  */
-export type ConnectionStatus = "online" | "offline";
+export type ConnectionStatus = "online" | "offline" | "auth";
 
 export interface CanvasSource {
   /** Subscribe to all elements in the project; fires on every change. */
