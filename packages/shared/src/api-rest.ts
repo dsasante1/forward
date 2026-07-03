@@ -100,11 +100,19 @@ export async function fetchElements(cfg: ApiConfig): Promise<DesignElement[]> {
   return parseAll(raw, DesignElement);
 }
 
+/** Upsert a whole element. Returns the server's persisted copy, whose
+ * server-owned fields (`updatedAt`, and `author` where applicable) supersede
+ * the values the client sent — the caller should adopt it as authoritative. */
 export async function saveElement(
   cfg: ApiConfig,
   element: DesignElement,
-): Promise<void> {
-  await request(cfg, "PUT", `/elements/${encodeURIComponent(element.id)}`, element);
+): Promise<DesignElement> {
+  return request<DesignElement>(
+    cfg,
+    "PUT",
+    `/elements/${encodeURIComponent(element.id)}`,
+    element,
+  );
 }
 
 export async function patchElement(

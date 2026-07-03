@@ -226,12 +226,13 @@ export function descendantIds(
 export async function saveElement(
   cfg: FirebaseConfig,
   element: DesignElement,
-): Promise<void> {
+): Promise<DesignElement> {
   const body = DesignElement.parse({
     ...element,
     updatedAt: new Date().toISOString(),
   });
   await put(url(cfg, paths.element(cfg.projectId, body.id)), body);
+  return body;
 }
 
 /**

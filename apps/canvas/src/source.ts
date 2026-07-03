@@ -66,8 +66,10 @@ export interface CanvasSource {
   subscribeStatus?(onChange: (status: ConnectionStatus) => void): () => void;
   /** Subscribe to the infrastructure graph; fires on every change. */
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
-  /** Create or update an element (the editor persists geometry/style here). */
-  saveElement(element: DesignElement): Promise<void>;
+  /** Create or update an element (the editor persists geometry/style here).
+   * Resolves with the source's persisted copy, whose server-owned fields (e.g.
+   * `updatedAt`) are authoritative — the editor adopts it to stay in sync. */
+  saveElement(element: DesignElement): Promise<DesignElement>;
   /**
    * Attach/replace the element's API documentation AND append an immutable entry
    * to its version history — the explicit "Save documentation" action. Distinct

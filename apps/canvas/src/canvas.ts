@@ -262,6 +262,11 @@ function destroy(): void {
       console.warn("[canvas] cleanup failed:", err);
     }
   }
+  // Cancel a pending write-retry so it can't fire against a torn-down source.
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+  }
   uiRoot?.replaceChildren();
 }
 
@@ -289,6 +294,20 @@ type InsertableType = Exclude<Tool, "select">;
 const elements = new Map<string, DesignElement>();
 const timelines = new Map<string, ElementSnapshot["timeline"]>();
 const lastSeen = new Map<string, string>();
+/** Elements with a locally-applied edit whose server write hasn't been
+ * confirmed yet. The elements poll skips these (see subscribeAll's guard) so a
+ * stale snapshot can't revert an un-acked local change once the drag gesture
+ * has already ended. `writeSeq` stamps each save with a monotonic id so a slow
+ * older write can't clear the shield a newer edit still needs; `failedWrites`
+ * holds the ids to re-send when the connection recovers. */
+const inflightWrites = new Set<string>();
+const failedWrites = new Set<string>();
+const writeSeq = new Map<string, number>();
+/** Ids deleted while a save was still in flight: the in-flight upsert may land
+ * after the delete and resurrect the row, so its resolution issues a
+ * compensating delete instead of adopting the server copy. */
+const pendingDeletes = new Set<string>();
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 const infraNodes = new Map<string, InfraNode>();
 let infraEdges: InfraEdge[] = [];
 const infraFlows = new Map<string, InfraFlow>();
@@ -386,6 +405,72 @@ type Gesture =
 let gesture: Gesture | null = null;
 let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 
+// ---- optimistic writes --------------------------------------------------
+/** Persist an element optimistically. The element is shielded from the poll
+ * loop (added to `inflightWrites`) until the server confirms the write, so a
+ * snapshot fetched in the gap between drop and the write landing can't snap it
+ * back to its old position. A failed write — common while the connection is
+ * "reconnecting" — is kept and retried rather than silently dropped. */
+async function persistElement(el: DesignElement): Promise<void> {
+  const seq = (writeSeq.get(el.id) ?? 0) + 1;
+  writeSeq.set(el.id, seq);
+  inflightWrites.add(el.id);
+  failedWrites.delete(el.id);
+  try {
+    const saved = await source.saveElement(el);
+    // The element was deleted while this write was in flight — the upsert may
+    // have just resurrected the row, so undo it and drop the shield.
+    if (pendingDeletes.has(el.id)) {
+      pendingDeletes.delete(el.id);
+      writeSeq.delete(el.id);
+      inflightWrites.delete(el.id);
+      void source.deleteElement(el.id).catch(() => {});
+      return;
+    }
+    // A newer local edit issued while this write was in flight owns the
+    // outcome now — only the latest write settles the element.
+    if (writeSeq.get(el.id) !== seq) return;
+    writeSeq.delete(el.id);
+    inflightWrites.delete(el.id);
+    // Adopt the server's persisted copy: its server-owned fields (updatedAt,
+    // author) supersede our optimistic values, so a later poll sees no diff and
+    // we stay converged instead of holding a stale local timestamp forever.
+    elements.set(el.id, saved);
+    if (selectedId === el.id) render(); // refresh the inspector's metadata
+  } catch (err) {
+    console.warn("[canvas] element save failed; will retry on reconnect:", err);
+    if (writeSeq.get(el.id) === seq) {
+      failedWrites.add(el.id); // stays shielded until a retry succeeds
+      scheduleRetry();
+    }
+  }
+}
+
+/** Re-send every write that failed, from the element's current local state.
+ * Called when the connection returns to "online" and as a timed backoff. */
+function flushFailedWrites(): void {
+  if (retryTimer) {
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+  }
+  for (const id of [...failedWrites]) {
+    failedWrites.delete(id);
+    const el = elements.get(id);
+    if (el) void persistElement(el);
+    else inflightWrites.delete(id); // deleted locally in the meantime
+  }
+}
+
+/** Back off and retry, so a lone failure that happens while the pill still
+ * reads "online" is recovered too — not only an offline→online transition. */
+function scheduleRetry(): void {
+  if (retryTimer || failedWrites.size === 0) return;
+  retryTimer = setTimeout(() => {
+    retryTimer = undefined;
+    flushFailedWrites();
+  }, 3000);
+}
+
 // ---- subscriptions ------------------------------------------------------
 /** Open the data subscriptions (called by mountCanvas). Each unsubscribe is
  * tracked in `disposers` so the dashboard route can unmount cleanly. */
@@ -403,6 +488,10 @@ function subscribeAll(): void {
             : null;
       for (const s of snaps) {
         if (active?.has(s.element.id)) continue;
+        // An un-acked local write is still the source of truth for this
+        // element; a stale poll must not revert it (the drag gesture that
+        // shielded it has already ended by the time the write lands).
+        if (inflightWrites.has(s.element.id)) continue;
         elements.set(s.element.id, s.element);
         timelines.set(s.element.id, s.timeline);
       }
@@ -432,10 +521,13 @@ function subscribeAll(): void {
   // Connection health: flip the LIVE SYNC pill to a "reconnecting" state when the
   // poll loop can't reach the backend, so a dropped connection isn't silent.
   const unsubStatus = source.subscribeStatus?.((status) => {
+    const offline = status === "offline";
+    // Back online: re-send any element whose write failed while we were down,
+    // so a move made during the outage isn't silently lost.
+    if (!offline && failedWrites.size > 0) flushFailedWrites();
     const pill = uiRoot?.querySelector("#liveSync");
     const label = pill?.querySelector(".fwd-live-label");
     if (!pill || !label) return;
-    const offline = status === "offline";
     pill.classList.toggle("offline", offline);
     label.textContent = offline ? "RECONNECTING…" : "LIVE SYNC";
   });
@@ -2191,7 +2283,7 @@ svg.addEventListener("pointerup", () => {
     const parentId = findParent(rectOf(el), el.id, elements.values());
     const finalEl = { ...el, parentId, updatedAt: now };
     elements.set(el.id, finalEl);
-    void source.saveElement(finalEl);
+    void persistElement(finalEl);
     // A move drags the element's whole subtree along (see applyMove). Persist
     // the shifted descendants too, or the next sync reverts them to their old
     // stored positions and they appear to "fall out" of the moved frame.
@@ -2201,7 +2293,7 @@ svg.addEventListener("pointerup", () => {
         if (!child) continue;
         const movedChild = { ...child, updatedAt: now };
         elements.set(cid, movedChild);
-        void source.saveElement(movedChild);
+        void persistElement(movedChild);
       }
     }
   }
@@ -2389,7 +2481,7 @@ function addElementAt(
     forceParentId ?? findParent(rectOf(sized), id, elements.values());
   const final = { ...sized, parentId, updatedAt: new Date().toISOString() };
   elements.set(id, final);
-  void source.saveElement(final);
+  void persistElement(final);
   select(id);
 }
 
@@ -2629,6 +2721,13 @@ function deleteSelected(): void {
   for (const cid of [id, ...descendants(id, elements.values())]) {
     elements.delete(cid);
     hiddenIds.delete(cid); // don't leak a stale hidden id
+    // A genuinely in-flight upsert can land after this delete and resurrect the
+    // row; tombstone it so the write's resolution issues a compensating delete.
+    // (A failed/queued write is cleared below, so the retry loop skips it.)
+    if (inflightWrites.has(cid) && !failedWrites.has(cid)) pendingDeletes.add(cid);
+    inflightWrites.delete(cid);
+    failedWrites.delete(cid);
+    writeSeq.delete(cid);
     void source.deleteElement(cid);
   }
   select(null);
@@ -2640,7 +2739,7 @@ function makeComponent(): void {
   if (!el) return;
   const updated = { ...el, type: "component" as const, updatedAt: now() };
   elements.set(el.id, updated);
-  void source.saveElement(updated);
+  void persistElement(updated);
   render();
 }
 
@@ -2665,7 +2764,7 @@ function placeInstance(): void {
     updatedAt: now(),
   });
   elements.set(id, inst);
-  void source.saveElement(inst);
+  void persistElement(inst);
   select(id);
 }
 
@@ -2762,7 +2861,7 @@ function renderSelectionPanel(): void {
       if (!current) return;
       const updated = { ...current, ...patch, updatedAt: now() };
       elements.set(selectedId, updated);
-      void source.saveElement(updated);
+      void persistElement(updated);
       render();
       // "Remove documentation" clears the binding through this same patch path;
       // confirm it after the re-render (live field edits keep a defined binding).
