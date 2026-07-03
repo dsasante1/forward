@@ -1,0 +1,30 @@
+{
+  "name": "forward-docs-ci",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CI write step: validate an AI-produced forward-docs.json and push it to a Forward project (checkpoint-safe, idempotent). The AI is bring-your-own; this only does the credentialed write.",
+  "license": "UNLICENSED",
+  "bin": {
+    "forward-docs": "./dist/cli.js"
+  },
+  "main": "./dist/cli.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && npm run bundle",
+    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/action.mjs",
+    "start": "node dist/cli.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "forward-core": "*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.21.5"
+  }
+}
