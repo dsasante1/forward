@@ -27,13 +27,20 @@ PR merged to default branch
 
 - **The AI never sees the Forward token** and never calls the API. It only writes
   a JSON file. Swap Claude for GPT, Gemini, a local model — nothing here cares.
-- **`apply` is deterministic.** It takes a restorable checkpoint *before* writing,
+- **`apply` is deterministic.** It captures recovery state *before* writing,
   fills in geometry/timestamps, re-validates every object against the canonical
   `forward-core` schema, and writes nodes before the edges/flows that reference
   them. A malformed plan fails loudly and writes nothing.
+- **Recoverable.** The server checkpoint it takes first snapshots **design
+  elements + the infra graph** (and API bindings, which live on elements). The
+  layers the checkpoint doesn't cover — **ER entities/relations and the
+  Agents/MCP layer** — are written to a re-appliable `forward-docs.rollback.json`
+  (prior state) so those can be reverted too. (Re-applying restores overwritten
+  content; it won't delete nodes a run newly created.)
 - **Idempotent.** Elements resolve by their `@adc <id>` anchor and infra/entities
-  by stable ids, so re-runs *update in place* instead of duplicating, and a
-  human-arranged layout is never moved.
+  by stable ids, so re-runs *update in place* instead of duplicating, a
+  human-arranged layout is never moved, and an unchanged API binding is skipped
+  (no duplicate history entry).
 
 ## Setup (in your repo)
 
@@ -108,8 +115,9 @@ forward-docs apply [path]     # default: ./forward-docs.json
 Environment: `FORWARD_API_BASE_URL`, `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN`
 (required); `FORWARD_COMMIT`, `FORWARD_COMMIT_MESSAGE` (optional — default a
 binding's version + change log). Exit code `0` when everything applied (or the
-plan was empty), `1` if any write failed — the checkpoint id is printed so you
-can restore.
+plan was empty), `1` if any write failed — the checkpoint id (design + infra)
+and, when the ER/Agents/MCP layers were touched, the
+`forward-docs.rollback.json` path are printed so you can restore.
 
 ## Access
 

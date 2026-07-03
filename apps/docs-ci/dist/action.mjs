@@ -6,7 +6,7 @@ var __export = (target, all) => {
 };
 
 // src/apply.ts
-import { readFile, appendFile } from "node:fs/promises";
+import { readFile, appendFile, writeFile } from "node:fs/promises";
 
 // ../../node_modules/zod/v3/external.js
 var external_exports = {};
@@ -4480,12 +4480,23 @@ async function request(cfg, method, path, body) {
   return text ? JSON.parse(text) : void 0;
 }
 var get = (cfg, path) => request(cfg, "GET", path);
+async function fetchElements(cfg) {
+  const raw = await get(cfg, "/elements");
+  return parseAll(raw, DesignElement);
+}
 async function bindApiToElement(cfg, elementId, payload, version) {
   await request(cfg, "PUT", `/elements/${encodeURIComponent(elementId)}/binding`, {
     binding: ApiBinding.parse(payload),
     version: version.version,
     changeLog: version.changeLog ?? "",
     action: version.action ?? "modified"
+  });
+}
+async function unbindApiFromElement(cfg, elementId, version) {
+  await request(cfg, "DELETE", `/elements/${encodeURIComponent(elementId)}/binding`, {
+    version: version.version,
+    changeLog: version.changeLog ?? "Removed API documentation",
+    ...version.endpoint?.title ? { title: version.endpoint.title } : {}
   });
 }
 async function fetchInfra(cfg) {
@@ -4690,17 +4701,44 @@ async function apply(planPath) {
     description: plan.checkpoint?.note ?? "Automatic snapshot taken by forward-docs before applying CI-generated documentation.",
     tag: "checkpoint"
   });
-  console.error(`forward-docs: checkpoint ${checkpoint.id} created (restore point).`);
-  const [{ entities: exEntities }, { nodes: exNodes }, { agents: exAgents, servers: exServers }] = await Promise.all([fetchEntities(cfg.api), fetchInfra(cfg.api), fetchAgents(cfg.api)]);
+  console.error(
+    `forward-docs: checkpoint ${checkpoint.id} created (restores design + infra).`
+  );
+  const [
+    { entities: exEntities, relations: exRelations },
+    { nodes: exNodes },
+    { agents: exAgents, servers: exServers }
+  ] = await Promise.all([
+    fetchEntities(cfg.api),
+    fetchInfra(cfg.api),
+    fetchAgents(cfg.api)
+  ]);
   const entityGeom = geomMap(exEntities);
   const nodeGeom = geomMap(exNodes);
   const agentGeom = geomMap(exAgents);
   const serverGeom = geomMap(exServers);
+  const touchesUncovered = plan.entities.length + plan.entityRelations.length + plan.mcpServers.length + plan.agents.length;
+  if (touchesUncovered > 0) {
+    const rollbackPath = process.env.FORWARD_ROLLBACK_PATH ?? "forward-docs.rollback.json";
+    const rollback = {
+      version: 1,
+      note: `Prior state of the ER + Agents/MCP layers before applying to project ${cfg.api.projectId} at ${cfg.commit || "unknown commit"}. Re-apply with: forward-docs apply ${rollbackPath}`,
+      entities: exEntities,
+      entityRelations: exRelations,
+      mcpServers: exServers,
+      agents: exAgents
+    };
+    await writeFile(rollbackPath, `${JSON.stringify(rollback, null, 2)}
+`).catch(
+      (e) => console.error(`forward-docs: could not write rollback file: ${msg(e)}`)
+    );
+    console.error(`forward-docs: wrote ${rollbackPath} (re-appliable rollback for ER + Agents/MCP).`);
+  }
   const entityPlacer = new GridPlacer(entityGeom.values());
   const nodePlacer = new GridPlacer(nodeGeom.values());
   const agentPlacer = new GridPlacer([...serverGeom.values(), ...agentGeom.values()]);
   const now = () => (/* @__PURE__ */ new Date()).toISOString();
-  const report = { ok: [], failed: [] };
+  const report = { ok: [], skipped: [], failed: [] };
   const defaultVersion = cfg.commit ? `ci-${cfg.commit}` : now().slice(0, 10);
   const defaultLog = cfg.commitMessage || "Documented via CI";
   for (const e of plan.entities) {
@@ -4735,33 +4773,59 @@ async function apply(planPath) {
     const agent = AgentNode.parse({ ...a, ...g, updatedAt: now() });
     await run("agent", a.id, () => saveAgentNode(cfg.api, agent), report);
   }
-  for (const b of plan.bindings) {
-    const version = {
-      version: b.version ?? defaultVersion,
-      author: "forward-docs",
-      changeLog: b.changeLog ?? defaultLog,
-      action: b.action ?? "modified"
-    };
-    await run(
-      "binding",
-      b.elementId,
-      () => bindApiToElement(
-        cfg.api,
+  if (plan.bindings.length) {
+    const elements = await fetchElements(cfg.api);
+    const currentBinding = new Map(elements.map((el) => [el.id, el.apiBinding]));
+    for (const b of plan.bindings) {
+      const current = currentBinding.get(b.elementId);
+      const version = {
+        version: b.version ?? defaultVersion,
+        author: "forward-docs",
+        changeLog: b.changeLog ?? defaultLog,
+        action: b.action ?? "modified",
+        endpoint: { title: b.title }
+      };
+      if (b.action === "deleted") {
+        if (!current) {
+          report.skipped.push(`binding ${b.elementId} (already absent)`);
+          console.error(`  = binding ${b.elementId} (already absent, skipped)`);
+          continue;
+        }
+        await run(
+          "binding",
+          b.elementId,
+          () => unbindApiFromElement(cfg.api, b.elementId, version),
+          report
+        );
+        continue;
+      }
+      if (current && current.title === b.title && (current.description ?? "") === (b.description ?? "")) {
+        report.skipped.push(`binding ${b.elementId} (unchanged)`);
+        console.error(`  = binding ${b.elementId} (unchanged, skipped)`);
+        continue;
+      }
+      await run(
+        "binding",
         b.elementId,
-        { title: b.title, description: b.description },
-        version
-      ),
-      report
-    );
+        () => bindApiToElement(
+          cfg.api,
+          b.elementId,
+          { title: b.title, description: b.description },
+          version
+        ),
+        report
+      );
+    }
   }
   await writeSummary(cfg, checkpoint.id, report);
+  const skippedNote = report.skipped.length ? `, ${report.skipped.length} skipped` : "";
   if (report.failed.length) {
     console.error(
-      `forward-docs: ${report.failed.length}/${total} write(s) failed. Restore checkpoint ${checkpoint.id} if the canvas is inconsistent.`
+      `forward-docs: ${report.failed.length}/${total} write(s) failed${skippedNote}. Restore checkpoint ${checkpoint.id} (design + infra)` + (touchesUncovered > 0 ? " and re-apply the rollback file (ER + Agents/MCP)" : "") + ` if the canvas is inconsistent.`
     );
     return 1;
   }
-  console.error(`forward-docs: applied ${report.ok.length} item(s) successfully.`);
+  console.error(`forward-docs: done \u2014 applied ${report.ok.length} item(s)${skippedNote}.`);
   return 0;
 }
 async function writeSummary(cfg, checkpointId, report) {
@@ -4770,9 +4834,10 @@ async function writeSummary(cfg, checkpointId, report) {
   const lines = [
     `### Forward docs updated`,
     ``,
-    `Project \`${cfg.api.projectId}\` \xB7 checkpoint \`${checkpointId}\` (restore point)`,
+    `Project \`${cfg.api.projectId}\` \xB7 checkpoint \`${checkpointId}\` (restores design + infra)`,
     ``,
     `- \u2705 applied: **${report.ok.length}**`,
+    `- \u23ED\uFE0F skipped (already up to date): **${report.skipped.length}**`,
     `- \u274C failed: **${report.failed.length}**`
   ];
   if (report.failed.length) {

@@ -73,3 +73,14 @@ jobs:
           api-token: ${{ secrets.FORWARD_API_TOKEN }}
           commit: ${{ github.event.pull_request.merge_commit_sha }}
           commit-message: ${{ github.event.pull_request.title }}
+
+      # Keep the rollback snapshot (prior ER + Agents/MCP state) recoverable —
+      # the server checkpoint only covers design + infra. Re-apply it with
+      # `forward-docs apply forward-docs.rollback.json` to revert those layers.
+      - name: Upload rollback snapshot
+        if: always() && hashFiles('forward-docs.rollback.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: forward-docs-rollback
+          path: forward-docs.rollback.json
+          retention-days: 30

@@ -63,6 +63,9 @@ except the ids/names noted; include only the layers this merge actually affected
       "title": "POST /auth/login",         // required — method + path or a name
       "description": "Markdown. Params, request/response, auth, errors.",
       "action": "created"                  // "created" | "modified" | "deleted"
+      // Use "deleted" ONLY when the endpoint was removed in this merge: apply
+      // then REMOVES the element's binding (still set title so the history entry
+      // is labelled). "created"/"modified" attach or update the docs.
       // "version" / "changeLog" are auto-filled from the commit if omitted
     }
   ],
