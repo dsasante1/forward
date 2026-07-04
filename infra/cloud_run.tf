@@ -23,6 +23,30 @@ resource "google_cloud_run_v2_service" "server" {
         container_port = 8080
       }
 
+      # /healthz runs `SELECT 1` through the Prisma pool. The 2026-07-02 outage
+      # was an instance whose pool was permanently starved serving 500s for a
+      # day — with only the default TCP startup probe, Cloud Run never recycled
+      # it. Probes hit the container directly (the public URL intercepts
+      # /healthz at Google's front end, so don't test it with curl).
+      startup_probe {
+        http_get {
+          path = "/healthz"
+        }
+        initial_delay_seconds = 5
+        period_seconds        = 10
+        failure_threshold     = 6
+        timeout_seconds       = 5
+      }
+
+      liveness_probe {
+        http_get {
+          path = "/healthz"
+        }
+        period_seconds    = 30
+        failure_threshold = 3
+        timeout_seconds   = 5
+      }
+
       # Secrets from Secret Manager (env var name == secret name).
       dynamic "env" {
         for_each = toset(var.secret_env_names)
