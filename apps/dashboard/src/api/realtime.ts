@@ -1,19 +1,15 @@
 import { useEffect, useRef } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { ChangeEvent } from "forward-core";
 
 /**
- * A change broadcast by the server after a write — mirrors the backend's
- * `RealtimeService.ChangeEvent`. The server publishes on `project:<id>` with the
- * service-role key; clients subscribe here with the public anon key and re-fetch
- * the affected resource (the server stays the only DB writer).
+ * A change broadcast by the server after a write — the shared `ChangeEvent`
+ * contract from forward-core (realtime.ts). The server publishes on the
+ * HMAC-named project channel with the service-role key; clients subscribe here
+ * with the public anon key and re-fetch the affected resource (the server stays
+ * the only DB writer).
  */
-export interface ProjectChange {
-  resource: "elements" | "timeline" | "infra" | "flows" | "tasks" | "members";
-  op: "upsert" | "delete";
-  ids: string[];
-  actor: string;
-  at: number;
-}
+export type ProjectChange = ChangeEvent;
 
 const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;

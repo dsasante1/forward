@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  ApiBinding,
   DesignElement,
   DatabaseTree,
+  LONG_TEXT_MAX,
+  SHORT_TEXT_MAX,
   InfraNode,
   InfraEdge,
   InfraFlow,
@@ -522,5 +525,49 @@ describe("paths", () => {
     expect(paths.task("p", "t")).toBe("tasks/p/t");
     expect(paths.checkpoints("p")).toBe("checkpoints/p");
     expect(paths.checkpoint("p", "c")).toBe("checkpoints/p/c");
+  });
+});
+
+describe("string bounds", () => {
+  const base = {
+    id: "el1",
+    type: "rectangle",
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+    updatedAt: "2026-06-22T10:00:00.000Z",
+  };
+
+  it("accepts values at the bound and keeps existing-size data parsing", () => {
+    const el = DesignElement.parse({
+      ...base,
+      name: "n".repeat(SHORT_TEXT_MAX),
+    });
+    expect(el.name).toHaveLength(SHORT_TEXT_MAX);
+  });
+
+  it("rejects a name over SHORT_TEXT_MAX", () => {
+    const r = DesignElement.safeParse({
+      ...base,
+      name: "n".repeat(SHORT_TEXT_MAX + 1),
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("rejects a Markdown description over LONG_TEXT_MAX", () => {
+    const r = ApiBinding.safeParse({
+      title: "Login",
+      description: "d".repeat(LONG_TEXT_MAX + 1),
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("allows long-form Markdown well past a name's bound", () => {
+    const r = ApiBinding.safeParse({
+      title: "Login",
+      description: "d".repeat(SHORT_TEXT_MAX * 10),
+    });
+    expect(r.success).toBe(true);
   });
 });

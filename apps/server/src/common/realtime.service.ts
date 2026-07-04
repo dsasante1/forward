@@ -2,32 +2,14 @@ import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createHmac } from "node:crypto";
+import type { ChangeEvent, RealtimeResource } from "forward-core";
 
-/** The layers a client can subscribe to — mirrors the old ETag pollers. */
-export type RealtimeResource =
-  | "elements"
-  | "timeline"
-  | "infra"
-  | "flows"
-  | "entities"
-  | "agents"
-  | "tasks"
-  | "checkpoints"
-  | "members";
+// The event shape + resource names live in forward-core (realtime.ts) so the
+// publisher (here) and every subscriber (dashboard, canvas) share one contract.
+export type { ChangeEvent, RealtimeResource };
 
 /** Cap on how long a write may wait for the channel to join before giving up. */
 const SUBSCRIBE_TIMEOUT_MS = 5000;
-
-export interface ChangeEvent {
-  resource: RealtimeResource;
-  /** "upsert" | "delete" — what happened, so clients can patch incrementally. */
-  op: "upsert" | "delete";
-  /** Ids affected (e.g. an element id and its cascade-deleted descendants). */
-  ids: string[];
-  /** Clerk id of the actor, so a client can ignore its own echoes. */
-  actor: string;
-  at: number;
-}
 
 /**
  * The realtime sync bus. Previously Firebase *was* the bus (the canvas

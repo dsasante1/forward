@@ -44,19 +44,28 @@ export class ElementsService {
     });
   }
 
-  /** Create or replace a whole element. Server owns `updatedAt`. */
+  /**
+   * Create or replace a whole element. Server owns `updatedAt`. The apiBinding
+   * is owned by bind()/unbind() (which append the version history), so whatever
+   * binding the client sends is ignored: an existing element keeps its stored
+   * binding, a new element starts without one.
+   */
   async save(
     projectId: string,
     element: DesignElement,
     actor: string,
   ): Promise<DesignElement> {
-    const clean = this.sanitizeElement(element);
-    const next: DesignElement = { ...clean, updatedAt: new Date().toISOString() };
+    const { apiBinding: _ignored, ...clean } = this.sanitizeElement(element);
+    let next: DesignElement = { ...clean, updatedAt: new Date().toISOString() };
     await this.prisma.withUser(actor, async (tx) => {
       const prior = await tx.designElement.findUnique({
         where: { projectId_id: { projectId, id: next.id } },
-        select: { id: true },
+        select: { data: true },
       });
+      const storedBinding = prior
+        ? DesignElement.safeParse(prior.data).data?.apiBinding
+        : undefined;
+      if (storedBinding) next = { ...next, apiBinding: storedBinding };
       await tx.designElement.upsert({
         where: { projectId_id: { projectId, id: next.id } },
         update: { data: next as unknown as Json, updatedAt: new Date() },
@@ -87,29 +96,37 @@ export class ElementsService {
     patch: Partial<Omit<DesignElement, "id">>,
     actor: string,
   ): Promise<DesignElement> {
-    return this.prisma.withUser(actor, async (tx) => {
+    const merged = await this.prisma.withUser(actor, async (tx) => {
       const current = await this.requireElement(tx, projectId, id);
-      const merged = DesignElement.parse({
+      // The binding only changes through bind()/unbind(), which append the
+      // version entry — a plain patch must not silently rewrite the docs.
+      const { apiBinding: _ignored, ...rest } = this.sanitizeElement(
+        patch as DesignElement,
+      );
+      const next = DesignElement.parse({
         ...current,
-        ...this.sanitizeElement(patch as DesignElement),
+        ...rest,
         id,
         updatedAt: new Date().toISOString(),
       });
       await tx.designElement.update({
         where: { projectId_id: { projectId, id } },
-        data: { data: merged as unknown as Json, updatedAt: new Date() },
+        data: { data: next as unknown as Json, updatedAt: new Date() },
       });
       await this.bumpProject(tx, projectId);
       await this.timeline.record(tx, projectId, actor, {
         domain: "design",
         action: "modified",
         targetId: id,
-        title: merged.name || id,
-        detail: `Updated ${merged.type} "${merged.name || id}"`,
+        title: next.name || id,
+        detail: `Updated ${next.type} "${next.name || id}"`,
       });
-      await this.emit(projectId, "upsert", [id], actor);
-      return merged;
+      return next;
     });
+    // After commit: a broadcast must never hold the transaction open (a cold
+    // channel join can take seconds) or roll back a write that already succeeded.
+    await this.emit(projectId, "upsert", [id], actor);
+    return merged;
   }
 
   /** Delete an element; cascades to its `parentId` subtree by default. */

@@ -87,6 +87,12 @@ export class WebhooksController {
         await this.users.sync(evt.data.id);
         break;
 
+      case "user.deleted":
+        // Scrub the mirrored PII and revoke credentials — the local row must
+        // not outlive the Clerk account with a live email/name/avatar.
+        if (evt.data.id) await this.users.handleDeleted(evt.data.id);
+        break;
+
       case "organization.created":
       case "organization.updated":
         await this.orgs.upsertOrg({

@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -143,11 +142,9 @@ export class ProjectsController {
     @CurrentUser() user: AuthUser,
     @Body(new ZodBody(UpdateMemberRole)) body: z.infer<typeof UpdateMemberRole>,
   ) {
-    try {
-      await this.projects.updateMemberRole(projectId, userId, body.role, user.id);
-    } catch (err) {
-      throw new BadRequestException((err as Error).message);
-    }
+    // The service throws typed HTTP exceptions (404 no such member, 400 last
+    // owner); anything else is a genuine 500 and must surface as one.
+    await this.projects.updateMemberRole(projectId, userId, body.role, user.id);
     return { ok: true };
   }
 
@@ -159,11 +156,7 @@ export class ProjectsController {
     @Param("userId") userId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    try {
-      await this.projects.removeMember(projectId, userId, user.id);
-    } catch (err) {
-      throw new BadRequestException((err as Error).message);
-    }
+    await this.projects.removeMember(projectId, userId, user.id);
     return { ok: true };
   }
 }

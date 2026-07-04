@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Forward is a developer-first tool. Designers draw UI on an independent visual canvas; backend developers (from VS Code or an AI agent) annotate those design elements with API, infrastructure, data-model and UML documentation, plus a historical (timeline) view of how development has changed over time — keeping frontend and backend in sync. Organizations and users sign up, manage members, and track tasks against the design.
 
-Forward runs on a **centrally-hosted backend** (`apps/server` — NestJS/Prisma/Supabase Postgres/Clerk) that owns auth, sign-up, the database, tenancy, RBAC, and the realtime sync bus. The migration onto it is mostly done: the **dashboard, canvas and VS Code extension** all talk to the server through `forward-core`. **Only the MCP server (`apps/mcp`) still talks to a Firebase Realtime Database directly** — it is the last surface being migrated, and the reason both a Firebase client and a server client live in `forward-core`.
+Forward runs on a **centrally-hosted backend** (`apps/server` — NestJS/Prisma/Supabase Postgres/Clerk) that owns auth, sign-up, the database, tenancy, RBAC, and the realtime sync bus. The migration onto it is **complete**: the dashboard, canvas, VS Code extension **and the MCP server** all talk to the server through `forward-core/api`. Firebase is retired — the legacy Firebase client (`rtdb-rest`) remains in `forward-core` only as the `api-rest` signature twin and for the canvas's standalone mock-RTDB dev fallback; no deployed surface uses it.
 
 ## Commands
 
@@ -17,7 +17,7 @@ Run from the repo root (npm workspaces; Node >= 20, `.nvmrc` pins 22).
 - `npm test` — run all Vitest suites across workspaces
 - `npm run typecheck` — typecheck all workspaces
 - The web canvas is no longer a standalone app — it is embedded by the dashboard (`apps/dashboard`, route `/app/projects/:projectId/canvas`). Run it via `npm run dev -w apps/dashboard`.
-- `npm run setup` — interactive Firebase config writer (`.vscode/settings.json`, `firebase.json`/`.firebaserc`, deploys rules) for the **Firebase-backed MCP path**
+- `npm run setup` — interactive Firebase config writer (`.vscode/settings.json`, `firebase.json`/`.firebaserc`, deploys rules) for the **legacy Firebase path** (retired; kept only for the mock-RTDB dev fallback)
 - `npm run bootstrap` — `install` → `build` → `setup`
 
 Backend server (`apps/server` — NestJS/Prisma/Supabase/Clerk; needs `apps/server/.env`, copy from `.env.example`):
@@ -72,14 +72,14 @@ A "project id" is a **tenancy namespace** (e.g. `project_xyz`), **not** a GCP pr
 - **`apps/dashboard`** (`forward-dashboard`) — React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members, the org-admin portal, and the host that embeds the canvas.
 - **`apps/canvas`** (`forward-canvas`) — vanilla-TS Figma-lite editor, consumed **only as an embedded library** (no standalone app). Exports `mountCanvas` + `ServerSource` via `forward-canvas/embed` (`src/embed.ts`); the dashboard's `CanvasPage` mounts it into a Shadow DOM with a Clerk-token-backed `ServerSource` (the backend REST API via `forward-core/api`). The `CanvasSource` interface lives in `src/source.ts`; styles are injected from `src/canvas.css` (`?inline`); diagrams render via `mermaid`. A `VITE_MOCK_RTDB_URL` fallback exists for standalone dev.
 - **`apps/extension`** (`forward-vscode`) — VS Code extension. Talks to the **central server** via `forward-core/api`, authenticating with a Clerk session token (`forward.signIn`) or a project API token; configured by `forward.apiBaseUrl` + `forward.projectId`. Contributes the `forward.*` commands (connect endpoint, edit infra/flows, file/update tasks, select project) and settings.
-- **`apps/mcp`** (`forward-mcp`) — Model Context Protocol server giving any AI agent full parity with the canvas/extension (~30 scoped tools). **Still on Firebase**: the server holds the credentials (`ADC_FIREBASE_DATABASE_URL`, `ADC_PROJECT_ID`, `ADC_AUTH_TOKEN`) and writes through `forward-core` (`rtdb-rest`). `match.ts` (fuzzy feature→element matching) and `anchor.ts` (deterministic `@adc <id>` source markers) power element resolution.
+- **`apps/mcp`** (`forward-mcp`) — Model Context Protocol server giving any AI agent full parity with the canvas/extension (~30 scoped tools). Talks to the **central server** via `forward-core/api`, authenticating with a project API token: the process holds `FORWARD_API_BASE_URL`, `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN` (a `fwd_pat_…` PAT); the agent only ever sees the scoped tools. `match.ts` (fuzzy feature→element matching) and `anchor.ts` (deterministic `@adc <id>` source markers) power element resolution.
 - **`apps/admin`** (`forward-admin`) — the platform-admin SPA (Vite + Clerk): a cross-tenant staff console (overview, orgs, users, projects, billing, audit) served by the server's `admin` module behind `PlatformAdminGuard`.
 
 ### Access control & tenancy
 
 The **server enforces access** (the primary path). **Organizations** (mirrored from Clerk) are the top tenancy tier; **projects** are the unit of isolation, each with a member roster and per-project `ProjectRole` — `viewer` (read), `editor` (read/write data layers), `owner` (also manages roster + invites). Ownership is claimed on create; the "can't remove/demote the last owner" rule is guarded by a `FOR UPDATE` row lock. Membership/role is checked by `MembershipGuard`/`@RequireOwner`; the platform-admin tier bypasses tenancy and writes every mutation to an audit trail. The realtime bus (Supabase) broadcasts change events on a per-project channel whose name is an HMAC of the project id — a capability handed only to members via a guarded route.
 
-The **legacy Firebase path** (MCP only) is instead gated by the per-project membership ACL in `apps/canvas/firebase.rules.json`: every project subtree is readable/writable only by uids in that project's `project_members` roster.
+The **legacy Firebase path** (retired — no deployed surface uses it) was gated by the per-project membership ACL in `apps/canvas/firebase.rules.json`; the rules file remains only alongside the mock-RTDB dev fallback.
 
 ## Conventions
 

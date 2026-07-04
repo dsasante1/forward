@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { ProjectRole } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -321,7 +325,7 @@ export class ProjectsService {
         where: { projectId_userId: { projectId, userId } },
         select: { role: true },
       });
-      if (!target) throw new Error("No such member on this project");
+      if (!target) throw new NotFoundException("No such member on this project");
       if (target.role === "owner" && role !== "owner") {
         await this.assertNotLastOwner(tx, projectId, "demote");
       }
@@ -391,7 +395,9 @@ export class ProjectsService {
       where: { projectId, role: "owner" },
     });
     if (owners <= 1) {
-      throw new Error(`Cannot ${action} the last owner of a project`);
+      throw new BadRequestException(
+        `Cannot ${action} the last owner of a project`,
+      );
     }
   }
 }

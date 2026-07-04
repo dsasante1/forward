@@ -13,6 +13,7 @@ import {
 } from "forward-core";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { RealtimeService } from "../common/realtime.service.js";
+import { TimelineService } from "../timeline/timeline.service.js";
 import { sanitizeFields } from "../common/sanitize.js";
 
 type Json = Prisma.InputJsonValue;
@@ -30,6 +31,7 @@ export class CheckpointsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    private readonly timeline: TimelineService,
   ) {}
 
   async list(projectId: string, actor: string): Promise<Checkpoint[]> {
@@ -54,9 +56,9 @@ export class CheckpointsService {
     const clean = sanitizeFields(input, ["title", "description"]);
     const id = `cp_${randomUUID()}`;
     const now = new Date();
-    return this.prisma.withUser(actor, async (tx) => {
+    const cp = await this.prisma.withUser(actor, async (tx) => {
       const snapshot = await this.snapshotOf(tx, projectId);
-      const cp: Checkpoint = Checkpoint.parse({
+      const parsed: Checkpoint = Checkpoint.parse({
         id,
         title: clean.title,
         description: clean.description,
@@ -70,13 +72,16 @@ export class CheckpointsService {
         data: {
           projectId,
           id,
-          data: cp as unknown as Json,
+          data: parsed as unknown as Json,
           createdAt: now,
         },
       });
-      await this.emit(projectId, "upsert", [id], actor);
-      return cp;
+      return parsed;
     });
+    // After commit: a broadcast must never hold the transaction open or roll
+    // back a write that already succeeded.
+    await this.emit(projectId, "upsert", [id], actor);
+    return cp;
   }
 
   async delete(projectId: string, id: string, actor: string): Promise<void> {
@@ -150,6 +155,19 @@ export class CheckpointsService {
       await tx.project.update({
         where: { id: projectId },
         data: { updatedAt: stamp },
+      });
+      // A restore rewinds every layer — leave a record in the activity feed,
+      // in the same transaction as the rewind itself.
+      await this.timeline.record(tx, projectId, actor, {
+        domain: "design",
+        action: "modified",
+        targetId: id,
+        title: parsed.title,
+        detail:
+          `Restored checkpoint "${parsed.title}" ` +
+          `(${parsed.snapshot.elements.length} elements, ` +
+          `${parsed.snapshot.infraNodes.length} infra nodes, ` +
+          `${parsed.snapshot.infraFlows.length} flows)`,
       });
       return parsed;
     });

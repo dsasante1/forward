@@ -20,6 +20,7 @@ import type {
   Task,
   VersionEntry,
 } from "forward-core";
+import type { RealtimeResource } from "forward-core";
 import type { RosterMember } from "forward-core/api";
 
 export type TokenProvider = () => Promise<string | null | undefined>;
@@ -88,6 +89,9 @@ export declare class ServerSource implements CanvasSource {
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
   saveElement(element: DesignElement): Promise<void>;
   deleteElement(elementId: string): Promise<void>;
+  /** Push path: forward a realtime ChangeEvent's resource to re-fetch that
+   * layer immediately (the poll loops remain the reconciliation fallback). */
+  notifyChange(resource: RealtimeResource): void;
 }
 
 export interface MountOptions {

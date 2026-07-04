@@ -17,8 +17,10 @@ import { MembershipGuard } from "../common/membership.guard.js";
 import { ZodBody } from "../common/zod-validation.pipe.js";
 import { ElementsService } from "./elements.service.js";
 
-// A patch is any subset of a DesignElement except its id (server keeps the id).
-const ElementPatch = DesignElement.partial().omit({ id: true });
+// A patch is any subset of a DesignElement except its id (server keeps the id)
+// and its apiBinding: documentation changes must go through the binding routes
+// below so every change lands in the append-only version history.
+const ElementPatch = DesignElement.partial().omit({ id: true, apiBinding: true });
 
 const BindBody = z.object({
   binding: ApiBinding,

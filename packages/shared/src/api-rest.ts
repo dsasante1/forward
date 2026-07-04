@@ -87,6 +87,21 @@ async function request<T>(
 const get = <T>(cfg: ApiConfig, path: string) => request<T>(cfg, "GET", path);
 
 // --------------------------------------------------------------------------
+// realtime
+// --------------------------------------------------------------------------
+
+/**
+ * The project's realtime channel name — the unguessable, member-only capability
+ * a client passes to Supabase Realtime to receive the server's ChangeEvent
+ * broadcasts (see forward-core realtime.ts). Server-issued: the client never
+ * derives it from the project id.
+ */
+export async function fetchRealtimeChannel(cfg: ApiConfig): Promise<string> {
+  const { channel } = await get<{ channel: string }>(cfg, "/realtime");
+  return channel;
+}
+
+// --------------------------------------------------------------------------
 // design elements + API binding + timeline
 // --------------------------------------------------------------------------
 
