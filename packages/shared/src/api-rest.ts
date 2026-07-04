@@ -95,6 +95,10 @@ const get = <T>(cfg: ApiConfig, path: string) => request<T>(cfg, "GET", path);
  * a client passes to Supabase Realtime to receive the server's ChangeEvent
  * broadcasts (see forward-core realtime.ts). Server-issued: the client never
  * derives it from the project id.
+ *
+ * Deliberately has no `rtdb-rest` twin (the one exception to the
+ * signature-identical rule): on the Firebase path the database itself was the
+ * realtime bus, so there is no channel capability to fetch.
  */
 export async function fetchRealtimeChannel(cfg: ApiConfig): Promise<string> {
   const { channel } = await get<{ channel: string }>(cfg, "/realtime");

@@ -124,13 +124,14 @@ export class AdminController {
     @Query("targetId") targetId?: string,
     @Query("limit") limit?: string,
   ) {
+    const take = parseLimit(limit);
     return this.admin.auditTrail({
       ...(scope === "org" || scope === "platform" ? { scope } : {}),
       ...(orgId ? { orgId } : {}),
       ...(actorId ? { actorId } : {}),
       ...(targetType ? { targetType: targetType as AuditTargetType } : {}),
       ...(targetId ? { targetId } : {}),
-      ...(parseLimit(limit) !== undefined ? { limit: parseLimit(limit) } : {}),
+      ...(take !== undefined ? { limit: take } : {}),
     });
   }
 }

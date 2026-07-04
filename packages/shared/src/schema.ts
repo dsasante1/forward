@@ -521,9 +521,9 @@ export const Task = z.object({
   /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
   dueDate: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the design element this task concerns. */
-  elementId: z.string().optional(),
+  elementId: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the narrated infra flow this task implements. */
-  flowId: z.string().optional(),
+  flowId: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the element whose apiBinding defines the endpoint. */
   endpointId: z.string().max(SHORT_TEXT_MAX).optional(),
   /**

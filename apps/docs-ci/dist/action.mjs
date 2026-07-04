@@ -4317,9 +4317,9 @@ var Task = external_exports.object({
   /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
   dueDate: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the design element this task concerns. */
-  elementId: external_exports.string().optional(),
+  elementId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the narrated infra flow this task implements. */
-  flowId: external_exports.string().optional(),
+  flowId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the element whose apiBinding defines the endpoint. */
   endpointId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /**

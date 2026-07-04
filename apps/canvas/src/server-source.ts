@@ -63,19 +63,12 @@ function classifyPollError(err: unknown): ConnectionStatus {
  * clobbering an in-progress edit.
  */
 export class ServerSource implements CanvasSource {
-  private timer: ReturnType<typeof setInterval> | undefined;
-  private infraTimer: ReturnType<typeof setInterval> | undefined;
-  private entityTimer: ReturnType<typeof setInterval> | undefined;
-  private agentTimer: ReturnType<typeof setInterval> | undefined;
-  private taskTimer: ReturnType<typeof setInterval> | undefined;
-  private checkpointTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
   private lastInfraJson = "";
   private lastEntityJson = "";
   private lastAgentJson = "";
   private lastTasksJson = "";
   private lastCheckpointsJson = "";
-  private timelineTimer: ReturnType<typeof setInterval> | undefined;
   private lastTimelineJson = "";
   /** Connection health, driven by the primary (elements) poll loop. Optimistic
    * until the first failure so the indicator doesn't flicker on mount. */
@@ -172,10 +165,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.timer = setInterval(run, this.pollMs);
+    // Closure-local: a second subscribe must not orphan the first's interval.
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["elements", "timeline"], run);
     return () => {
-      if (this.timer) clearInterval(this.timer);
+      clearInterval(timer);
       deregister();
     };
   }
@@ -195,10 +189,10 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.infraTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["infra", "flows"], run);
     return () => {
-      if (this.infraTimer) clearInterval(this.infraTimer);
+      clearInterval(timer);
       deregister();
     };
   }
@@ -218,10 +212,10 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.entityTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["entities"], run);
     return () => {
-      if (this.entityTimer) clearInterval(this.entityTimer);
+      clearInterval(timer);
       deregister();
     };
   }
@@ -241,10 +235,10 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.agentTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["agents"], run);
     return () => {
-      if (this.agentTimer) clearInterval(this.agentTimer);
+      clearInterval(timer);
       deregister();
     };
   }
@@ -264,10 +258,10 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.taskTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["tasks"], run);
     return () => {
-      if (this.taskTimer) clearInterval(this.taskTimer);
+      clearInterval(timer);
       deregister();
     };
   }
@@ -289,10 +283,10 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.checkpointTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["checkpoints"], run);
     return () => {
-      if (this.checkpointTimer) clearInterval(this.checkpointTimer);
+      clearInterval(timer);
       deregister();
     };
   }
@@ -314,10 +308,10 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.timelineTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
     const deregister = this.register(["timeline"], run);
     return () => {
-      if (this.timelineTimer) clearInterval(this.timelineTimer);
+      clearInterval(timer);
       deregister();
     };
   }
