@@ -34,6 +34,9 @@ export class ClerkAuthGuard implements CanActivate {
   private readonly logger = new Logger(ClerkAuthGuard.name);
   private readonly secretKey: string;
   private readonly authorizedParties?: string[];
+  /** Per-user timestamp of the last `lastSeenAt` write from this instance. */
+  private readonly lastSeenWrites = new Map<string, number>();
+  private static readonly LAST_SEEN_INTERVAL_MS = 60_000;
 
   constructor(
     private readonly reflector: Reflector,
@@ -110,7 +113,14 @@ export class ClerkAuthGuard implements CanActivate {
     }
     // Stamp "last seen" fire-and-forget (no row for brand-new users yet → no-op).
     // updateMany never throws on zero matches, and we never await it, so this
-    // tracking write can't slow or fail a request.
+    // tracking write can't slow or fail a request. Throttled to once a minute
+    // per user: it's presence data, and un-throttled every request UPDATEs the
+    // same User row — parallel requests from one user then serialize on the row
+    // lock while each holds a pooled connection (see the 2026-07-02 outage).
+    const now = Date.now();
+    const lastWrite = this.lastSeenWrites.get(userId) ?? 0;
+    if (now - lastWrite < ClerkAuthGuard.LAST_SEEN_INTERVAL_MS) return;
+    this.lastSeenWrites.set(userId, now); // set eagerly to dedupe parallel requests
     void this.prisma.user
       .updateMany({ where: { id: userId }, data: { lastSeenAt: new Date() } })
       .catch(() => undefined);
