@@ -1,8 +1,11 @@
 # Fill these in, then: terraform apply -var-file=envs/prod.tfvars
 # Secret VALUES never go here — only in Secret Manager (see infra/README.md).
 
-project_id      = "forward-500820"
-region          = "us-central1"
+project_id = "forward-500820"
+# europe-west3 (Frankfurt) sits in the same metro as the Supabase Postgres
+# (AWS eu-central-1): keeps per-request DB round trips ~1ms instead of the
+# ~120ms transatlantic penalty us-central1 paid on every query.
+region          = "europe-west3"
 github_repo     = "dsasante1/forward"
 hosting_site_id = "forward-dashboard"
 

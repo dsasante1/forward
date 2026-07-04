@@ -183,7 +183,7 @@
       "properties": {
         "forward.apiBaseUrl": {
           "type": "string",
-          "default": "https://forward-server-k4cs4wfhpq-uc.a.run.app",
+          "default": "https://forward-server-1094036898590.europe-west3.run.app",
           "description": "Forward server URL. Only change this for self-hosted or local development servers (e.g. http://localhost:8080)."
         },
         "forward.projectId": {
