@@ -4,6 +4,7 @@ import {
   UserButton,
   useOrganization,
 } from "@clerk/react";
+import { ThemeToggle } from "./ThemeToggle.js";
 
 /** App chrome for every signed-in route: brand, org switcher, account menu. */
 export function Layout() {
@@ -30,6 +31,7 @@ export function Layout() {
           <Link to="/app/account" className="link">
             Account
           </Link>
+          <ThemeToggle />
           <UserButton />
         </div>
       </header>
