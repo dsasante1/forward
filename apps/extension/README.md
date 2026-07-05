@@ -30,14 +30,15 @@ companion web canvas is where designers draw the UI.
 
 ## Setup
 
-1. Install this extension.
-2. Open **Settings → Forward** and set `forward.apiBaseUrl` to your Forward
-   server URL (e.g. `http://localhost:8080` or `https://api.forward.dev`).
-3. In the Forward dashboard, open **Account → Extension tokens**, generate a
+1. Install this extension. It's preconfigured to talk to the hosted Forward
+   server, so there's nothing to set for `forward.apiBaseUrl` — only change it
+   in **Settings → Forward** if you run a self-hosted or local server (e.g.
+   `http://localhost:8080`).
+2. In the Forward dashboard, open **Account → Extension tokens**, generate a
    Personal Access Token, and copy it (it's shown only once).
-4. Run **Forward: Sign In** (Command Palette) and paste the token. It's stored
+3. Run **Forward: Sign In** (Command Palette) and paste the token. It's stored
    securely in VS Code's SecretStorage — never in settings.
-5. Run **Forward: Select Project** to choose which project to annotate (this sets
+4. Run **Forward: Select Project** to choose which project to annotate (this sets
    `forward.projectId`; it must match the canvas's `VITE_CANVAS_PROJECT_ID`).
 
 Sign out any time with **Forward: Sign Out**. The token grants exactly your own

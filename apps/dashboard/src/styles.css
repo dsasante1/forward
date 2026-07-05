@@ -1,11 +1,18 @@
 :root {
-  /* Warm editorial palette — matches the landing page (landing.css). */
+  /* Warm editorial palette — matches the landing page (landing.css).
+     This block is the LIGHT theme and the shared base. The dark theme (below)
+     only re-declares the colour tokens; everything downstream reads these vars.
+     `--ink-rgb` is the raw ink channel used to compose subtle overlays
+     (hover fills, faint backgrounds, dashed borders) so they invert with the
+     theme; `--shadow-rgb` is kept separate so shadows stay dark, not glowing. */
   --bg: #efe8da;
   --panel: #faf6ee;
   --panel-bright: #fffdf8;
   --bar: #f3ede1;
-  --border: rgba(28, 26, 21, 0.14);
-  --hair: rgba(28, 26, 21, 0.1);
+  --ink-rgb: 28, 26, 21;
+  --shadow-rgb: 28, 26, 22;
+  --border: rgba(var(--ink-rgb), 0.14);
+  --hair: rgba(var(--ink-rgb), 0.1);
   --text: #1c1a15;
   --muted: #57514a;
   --faint: #9c9488;
@@ -13,6 +20,10 @@
   --accent2: #3a6ea8;
   --danger: #b3402a;
   --owner: #8a6db0;
+  /* Foreground for fills painted in `--text` (buttons, active pills). */
+  --btn-fg: #f1ece1;
+  /* Drives native controls (date picker, scrollbars) light/dark. */
+  color-scheme: light;
 
   --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -23,6 +34,53 @@
 
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* ===================================================================== */
+/* Dark theme — warm, low-glare inversion of the editorial palette.       */
+/* Applied when the user forces dark (`[data-theme="dark"]`) or leaves the */
+/* control on "system" and the OS prefers dark. Only colour tokens change; */
+/* every rule downstream reads the vars, so no per-rule dark overrides.    */
+/* Landing.css re-declares its own tokens under `.landing`, so the public  */
+/* marketing page is unaffected by this block.                             */
+/* ===================================================================== */
+:root[data-theme="dark"] {
+  --bg: #17150f;
+  --panel: #211e17;
+  --panel-bright: #29251c;
+  --bar: #1d1a13;
+  --ink-rgb: 236, 231, 221;
+  --shadow-rgb: 0, 0, 0;
+  --text: #ece7dd;
+  --muted: #b0a897;
+  --faint: #7f776a;
+  --accent: #dd8055;
+  --accent2: #74a4d6;
+  --danger: #e5715a;
+  --owner: #b39ad9;
+  --btn-fg: #17150f;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="system"],
+  :root:not([data-theme]) {
+    --bg: #17150f;
+    --panel: #211e17;
+    --panel-bright: #29251c;
+    --bar: #1d1a13;
+    --ink-rgb: 236, 231, 221;
+    --shadow-rgb: 0, 0, 0;
+    --text: #ece7dd;
+    --muted: #b0a897;
+    --faint: #7f776a;
+    --accent: #dd8055;
+    --accent2: #74a4d6;
+    --danger: #e5715a;
+    --owner: #b39ad9;
+    --btn-fg: #17150f;
+    color-scheme: dark;
+  }
 }
 
 * {
@@ -162,7 +220,7 @@ button {
   background: var(--text);
   border: 1px solid var(--text);
   border-radius: 6px;
-  color: #f1ece1;
+  color: var(--btn-fg);
   padding: 0.7rem 1.2rem;
   font-size: 0.9rem;
   font-weight: 500;
@@ -280,7 +338,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .card:hover {
-  border-color: rgba(28, 26, 21, 0.28);
+  border-color: rgba(var(--ink-rgb), 0.28);
   transform: translateY(-1px);
 }
 
@@ -625,11 +683,11 @@ img.tk-avatar {
 .pj-icon-btn.active {
   background: var(--panel-bright);
   color: var(--text);
-  box-shadow: 0 1px 2px rgba(28, 26, 22, 0.16);
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb), 0.16);
 }
 
 .pj-seg .active {
-  background: #fffdf8;
+  background: var(--panel-bright);
 }
 
 .pj-grid-glyph {
@@ -661,7 +719,7 @@ img.tk-avatar {
 
 /* --- empty state --- */
 .pj-empty {
-  border: 1.5px dashed rgba(28, 26, 21, 0.2);
+  border: 1.5px dashed rgba(var(--ink-rgb), 0.2);
   border-radius: 16px;
   padding: 3.5rem 1.5rem;
   display: flex;
@@ -669,7 +727,7 @@ img.tk-avatar {
   align-items: center;
   gap: 0.85rem;
   text-align: center;
-  background: rgba(250, 246, 238, 0.4);
+  background: color-mix(in srgb, var(--panel) 45%, transparent);
 }
 
 .pj-empty-mark {
@@ -712,8 +770,8 @@ img.tk-avatar {
 
 .pj-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 12px 26px rgba(28, 26, 21, 0.1);
-  border-color: rgba(28, 26, 21, 0.24);
+  box-shadow: 0 12px 26px rgba(var(--shadow-rgb), 0.28);
+  border-color: rgba(var(--ink-rgb), 0.24);
 }
 
 /* Stretched link covering the whole card, beneath the star/menu controls. */
@@ -848,7 +906,7 @@ input.pj-rename:focus {
 }
 
 .pj-avatar-more {
-  background: #e6e0d0;
+  background: color-mix(in srgb, var(--text) 12%, var(--panel));
   color: var(--muted);
 }
 
@@ -873,7 +931,7 @@ input.pj-rename:focus {
 
 .pj-row:hover {
   background: var(--bar);
-  border-color: rgba(28, 26, 21, 0.24);
+  border-color: rgba(var(--ink-rgb), 0.24);
 }
 
 .pj-row-square {
@@ -940,7 +998,7 @@ input.pj-rename:focus {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: rgba(250, 246, 238, 0.82);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
   backdrop-filter: blur(2px);
   display: flex;
   align-items: center;
@@ -968,7 +1026,7 @@ input.pj-rename:focus {
 
 .pj-menu-btn:hover:not(:disabled) {
   transform: none;
-  background: rgba(28, 26, 21, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
 }
 
 .pj-menu-btn span {
@@ -986,7 +1044,7 @@ input.pj-rename:focus {
   background: var(--panel-bright);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 14px 30px rgba(28, 26, 21, 0.18);
+  box-shadow: 0 14px 30px rgba(var(--shadow-rgb), 0.34);
   padding: 5px;
   min-width: 148px;
   display: flex;
@@ -1008,7 +1066,7 @@ input.pj-rename:focus {
 
 .pj-menu-pop button:hover:not(:disabled) {
   transform: none;
-  background: rgba(28, 26, 21, 0.06);
+  background: rgba(var(--ink-rgb), 0.06);
 }
 
 .pj-menu-pop button.pj-menu-danger {
@@ -1056,13 +1114,13 @@ input.pj-rename:focus {
 
 .tk-pill:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.3);
+  border-color: rgba(var(--ink-rgb), 0.3);
 }
 
 .tk-pill.active {
   background: var(--text);
   border-color: var(--text);
-  color: #f1ece1;
+  color: var(--btn-fg);
 }
 
 .tk-counts {
@@ -1188,7 +1246,7 @@ input.pj-rename:focus {
 
 .tk-status-btn:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.3);
+  border-color: rgba(var(--ink-rgb), 0.3);
 }
 
 .tk-dot {
@@ -1287,7 +1345,7 @@ input.pj-rename:focus {
   padding: 1.1rem 1.25rem;
   font-size: 0.95rem;
   line-height: 1.65;
-  color: #3a352d;
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
   white-space: pre-wrap;
 }
 
@@ -1328,7 +1386,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-desc-discard:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.3);
+  border-color: rgba(var(--ink-rgb), 0.3);
 }
 
 .tk-links {
@@ -1481,7 +1539,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-mention:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.3);
+  border-color: rgba(var(--ink-rgb), 0.3);
 }
 
 .tk-comment-btn {
@@ -1528,7 +1586,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-choice:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.3);
+  border-color: rgba(var(--ink-rgb), 0.3);
 }
 
 .tk-choice.active {
@@ -1552,7 +1610,7 @@ textarea.tk-desc-edit:focus {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  border: 1px dashed rgba(28, 26, 21, 0.25);
+  border: 1px dashed rgba(var(--ink-rgb), 0.25);
   background: transparent;
   color: var(--muted);
   border-radius: 7px;
@@ -1563,7 +1621,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-add-dashed:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.45);
+  border-color: rgba(var(--ink-rgb), 0.45);
 }
 
 .tk-picker {
@@ -1593,7 +1651,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-picker-row:hover:not(:disabled) {
   transform: none;
-  background: rgba(28, 26, 21, 0.04);
+  background: rgba(var(--ink-rgb), 0.04);
 }
 
 .tk-picker-name {
@@ -1626,7 +1684,6 @@ textarea.tk-desc-edit:focus {
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--text);
-  color-scheme: light;
 }
 
 .tk-date-input:focus {
@@ -1676,7 +1733,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-viewswitch button.active {
   background: var(--text);
-  color: #f1ece1;
+  color: var(--btn-fg);
   font-weight: 500;
 }
 
@@ -1763,7 +1820,7 @@ textarea.tk-desc-edit:focus {
   align-items: center;
   gap: 0.5rem;
   padding: 0 1rem;
-  background: rgba(28, 26, 21, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
   border-bottom: 1px solid var(--border);
   font-family: var(--mono);
   font-size: 0.66rem;
@@ -1790,7 +1847,7 @@ textarea.tk-desc-edit:focus {
 }
 
 .tk-gantt-row-label:hover:not(:disabled) {
-  background: rgba(28, 26, 21, 0.03);
+  background: rgba(var(--ink-rgb), 0.03);
   transform: none;
 }
 
@@ -1823,12 +1880,12 @@ textarea.tk-desc-edit:focus {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgba(28, 26, 21, 0.035);
+  background: rgba(var(--ink-rgb), 0.035);
 }
 
 .tk-gantt-sec-spacer {
   border-bottom: 1px solid var(--border);
-  background: rgba(28, 26, 21, 0.015);
+  background: rgba(var(--ink-rgb), 0.015);
 }
 
 .tk-gantt-rowcell {
@@ -1976,7 +2033,7 @@ textarea.tk-desc-edit:focus {
 
 .tk-dep-chip:hover:not(:disabled) {
   transform: none;
-  border-color: rgba(28, 26, 21, 0.3);
+  border-color: rgba(var(--ink-rgb), 0.3);
 }
 
 .tk-dep-chip .mono {
@@ -2165,5 +2222,60 @@ textarea.tk-desc-edit:focus {
 
   .canvas-link {
     margin-left: 0;
+  }
+}
+
+/* ===================================================================== */
+/* Theme control — three-way segmented switch (System / Light / Dark)     */
+/* lives in the topbar; writes `data-theme` on <html> (see ThemeToggle).  */
+/* ===================================================================== */
+.theme-seg {
+  display: inline-flex;
+  gap: 2px;
+  background: var(--panel-bright);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.theme-seg-btn {
+  width: 30px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--faint);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.theme-seg-btn:hover:not(.active):not(:disabled) {
+  transform: none;
+  color: var(--muted);
+  background: rgba(var(--ink-rgb), 0.05);
+}
+
+.theme-seg-btn.active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(var(--shadow-rgb), 0.16);
+}
+
+.theme-seg-btn svg {
+  width: 15px;
+  height: 15px;
+  display: block;
+}
+
+@media (max-width: 720px) {
+  /* On phones the switch drops its frame and sits inline with the links. */
+  .theme-seg {
+    border: none;
+    background: transparent;
+    padding: 0;
   }
 }

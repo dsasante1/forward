@@ -15,6 +15,20 @@
       rel="stylesheet"
     />
     <title>Forward — Design and API, in sync</title>
+    <script>
+      // Apply the saved colour theme before first paint to avoid a flash of
+      // the light palette. Kept in sync afterwards by ThemeToggle.tsx.
+      (() => {
+        let t = "system";
+        try {
+          const saved = localStorage.getItem("forward-theme");
+          if (saved === "light" || saved === "dark") t = saved;
+        } catch {
+          /* localStorage unavailable — fall back to system */
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
