@@ -15,11 +15,20 @@ import {
   ProjectRole,
   Style,
   Task,
-  addMember,
   agentsToComponentMermaid,
   applyTaskChange,
-  bindApiToElement,
   commentOnTask,
+  digest,
+  entityToMermaid,
+  flattenTimelines,
+  flowToMermaid,
+  infraToComponentMermaid,
+  newTask,
+  type CurrentLabel,
+} from "forward-core";
+import {
+  addMember,
+  bindApiToElement,
   deleteAgentNode,
   deleteElement,
   deleteEntity,
@@ -27,8 +36,6 @@ import {
   deleteInfraNode,
   deleteMcpServer,
   deleteTask,
-  digest,
-  entityToMermaid,
   fetchAgents,
   fetchElements,
   fetchEntities,
@@ -36,11 +43,7 @@ import {
   fetchInfra,
   fetchTasks,
   fetchTimelinesConditional,
-  flattenTimelines,
-  flowToMermaid,
-  infraToComponentMermaid,
   listMembers,
-  newTask,
   patchElement,
   removeMember,
   saveAgentNode,
@@ -53,43 +56,45 @@ import {
   saveMcpServer,
   saveTask,
   unbindApiFromElement,
-  type CurrentLabel,
-  type FirebaseConfig,
-} from "forward-core";
+  type ApiConfig,
+} from "forward-core/api";
 import { findAnchorsInSource, scanPath } from "./anchor.js";
 import { rankElements } from "./match.js";
 
 /**
  * Forward — MCP server.
  *
- * The AI-native surface of the project: it exposes the same RTDB writer the VS
- * Code extension uses (`forward-core`) as a handful of tools any MCP-capable
+ * The AI-native surface of the project: it exposes the same central-server
+ * client the VS Code extension uses (`forward-core/api`) as tools any MCP-capable
  * agent (Claude Code, Cursor, …) can call. So a backend dev who just finished a
  * feature can say "document the login endpoint on the canvas" and the agent
  * finds the right design element and writes the docs — no quick-pick, no form.
  *
- * Trust boundary: this process holds the Firebase credentials (read from env);
+ * Trust boundary: this process holds the Forward API token (read from env);
  * the agent only ever sees the scoped tools below, never the token. Stdout is
  * reserved for the MCP protocol, so all logging goes to stderr.
  */
 
-const AGENT = process.env.ADC_AGENT || "agent";
+const AGENT = process.env.FORWARD_AGENT || process.env.ADC_AGENT || "agent";
 
 /**
  * Configuration from the environment. Thrown errors surface to the agent as a tool
  * error telling the user which variables to set, rather than crashing the server.
+ * The token is a Forward Personal Access Token (`fwd_pat_…`, minted from the
+ * dashboard's Account page) — it carries exactly its owner's project access.
  */
-function getConfig(): FirebaseConfig {
-  const databaseUrl = process.env.ADC_FIREBASE_DATABASE_URL ?? "";
-  const projectId = process.env.ADC_PROJECT_ID ?? "";
-  const authToken = process.env.ADC_AUTH_TOKEN ?? "";
-  if (!databaseUrl || !projectId) {
+function getConfig(): ApiConfig {
+  const baseUrl = process.env.FORWARD_API_BASE_URL ?? "";
+  const projectId =
+    process.env.FORWARD_PROJECT_ID ?? process.env.ADC_PROJECT_ID ?? "";
+  const token = process.env.FORWARD_API_TOKEN ?? "";
+  if (!baseUrl || !projectId || !token) {
     throw new Error(
-      "Missing configuration. Set ADC_FIREBASE_DATABASE_URL and ADC_PROJECT_ID " +
-        "(and ADC_AUTH_TOKEN if your RTDB rules require auth) in the MCP server env.",
+      "Missing configuration. Set FORWARD_API_BASE_URL, FORWARD_PROJECT_ID and " +
+        "FORWARD_API_TOKEN (a Forward PAT from the dashboard) in the MCP server env.",
     );
   }
-  return { databaseUrl, projectId, ...(authToken ? { authToken } : {}) };
+  return { baseUrl, projectId, token };
 }
 
 /** Stable JSON tool result. */
@@ -120,7 +125,7 @@ const WINDOWS: Record<string, number> = {
  * same shape the canvas timeline renders. Labels come from each entry's own
  * snapshot first, then the element's current binding for live endpoints.
  */
-async function loadTimelineEvents(cfg: FirebaseConfig) {
+async function loadTimelineEvents(cfg: ApiConfig) {
   const [timelinesResult, elements] = await Promise.all([
     fetchTimelinesConditional(cfg, undefined),
     fetchElements(cfg),

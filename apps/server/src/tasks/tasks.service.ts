@@ -46,7 +46,7 @@ export class TasksService {
       createdAt: clean.createdAt || now,
       updatedAt: now,
     };
-    return this.prisma.withUser(actor, async (tx) => {
+    await this.prisma.withUser(actor, async (tx) => {
       // Backstop: a task that arrives without a key (e.g. from an older client)
       // gets the next sequential FWD-NN from the keys already in the project.
       if (!next.key) {
@@ -71,9 +71,11 @@ export class TasksService {
           updatedAt: new Date(),
         },
       });
-      await this.emit(projectId, "upsert", [next.id], actor);
-      return next;
     });
+    // After commit: a broadcast must never hold the transaction open or roll
+    // back a write that already succeeded.
+    await this.emit(projectId, "upsert", [next.id], actor);
+    return next;
   }
 
   async delete(projectId: string, id: string, actor: string): Promise<void> {

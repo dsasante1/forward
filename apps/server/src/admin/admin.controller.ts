@@ -16,6 +16,16 @@ import type { AuditTargetType } from "../common/admin-audit.service.js";
 import { ZodBody } from "../common/zod-validation.pipe.js";
 import { AdminService } from "./admin.service.js";
 
+/**
+ * A `?limit=` query param as a safe `take` value: a positive integer, else
+ * undefined (so the service default applies). Without this, `?limit=abc` becomes
+ * `take: NaN` and `?limit=-5` a negative take — both Prisma errors (500s).
+ */
+function parseLimit(limit?: string): number | undefined {
+  const n = Number(limit);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 const SetSuspended = z.object({ suspend: z.boolean() });
 const SetPlatformAdmin = z.object({ value: z.boolean() });
 const SetOrgPlan = z.object({
@@ -41,7 +51,7 @@ export class AdminController {
 
   @Get("users")
   users(@Query("q") q?: string, @Query("limit") limit?: string) {
-    return this.admin.listUsers(q, limit ? Number(limit) : undefined);
+    return this.admin.listUsers(q, parseLimit(limit));
   }
 
   @Post("users/:id/suspend")
@@ -64,7 +74,7 @@ export class AdminController {
 
   @Get("orgs")
   orgs(@Query("q") q?: string, @Query("limit") limit?: string) {
-    return this.admin.listOrgs(q, limit ? Number(limit) : undefined);
+    return this.admin.listOrgs(q, parseLimit(limit));
   }
 
   @Get("orgs/:id")
@@ -97,7 +107,7 @@ export class AdminController {
 
   @Get("projects")
   projects(@Query("q") q?: string, @Query("limit") limit?: string) {
-    return this.admin.listProjects(q, limit ? Number(limit) : undefined);
+    return this.admin.listProjects(q, parseLimit(limit));
   }
 
   @Delete("projects/:id")
@@ -114,13 +124,14 @@ export class AdminController {
     @Query("targetId") targetId?: string,
     @Query("limit") limit?: string,
   ) {
+    const take = parseLimit(limit);
     return this.admin.auditTrail({
       ...(scope === "org" || scope === "platform" ? { scope } : {}),
       ...(orgId ? { orgId } : {}),
       ...(actorId ? { actorId } : {}),
       ...(targetType ? { targetType: targetType as AuditTargetType } : {}),
       ...(targetId ? { targetId } : {}),
-      ...(limit ? { limit: Number(limit) } : {}),
+      ...(take !== undefined ? { limit: take } : {}),
     });
   }
 }

@@ -12,6 +12,7 @@ import type {
   McpServerNode,
   ProjectRole,
   ProjectTimelineEvent,
+  RealtimeResource,
   Task,
 } from "forward-core";
 import * as api from "forward-core/api";
@@ -49,28 +50,33 @@ function classifyPollError(err: unknown): ConnectionStatus {
  *
  * A token is resolved *per request* (`TokenProvider`) rather than captured once,
  * because tokens are short-lived (~60s) and an embedded canvas outlives any single
- * token. The backend has no change socket yet, so we poll and only emit when the
- * data actually changed, to avoid clobbering an in-progress edit.
+ * token.
+ *
+ * Freshness comes from two cooperating paths:
+ *   - push: the host subscribes to the project's realtime channel and calls
+ *     {@link notifyChange} per ChangeEvent, which re-runs the affected loop's
+ *     fetch immediately; and
+ *   - poll: every loop still ticks on `pollMs` as the reconciliation fallback
+ *     (missed broadcast, realtime not configured). Hosts with realtime attached
+ *     should pass a long `pollMs` — the push path carries the latency.
+ * Either way a loop only emits when the data actually changed, to avoid
+ * clobbering an in-progress edit.
  */
 export class ServerSource implements CanvasSource {
-  private timer: ReturnType<typeof setInterval> | undefined;
-  private infraTimer: ReturnType<typeof setInterval> | undefined;
-  private entityTimer: ReturnType<typeof setInterval> | undefined;
-  private agentTimer: ReturnType<typeof setInterval> | undefined;
-  private taskTimer: ReturnType<typeof setInterval> | undefined;
-  private checkpointTimer: ReturnType<typeof setInterval> | undefined;
   private lastJson = "";
   private lastInfraJson = "";
   private lastEntityJson = "";
   private lastAgentJson = "";
   private lastTasksJson = "";
   private lastCheckpointsJson = "";
-  private timelineTimer: ReturnType<typeof setInterval> | undefined;
   private lastTimelineJson = "";
   /** Connection health, driven by the primary (elements) poll loop. Optimistic
    * until the first failure so the indicator doesn't flicker on mount. */
   private status: ConnectionStatus = "online";
   private statusListeners = new Set<(status: ConnectionStatus) => void>();
+  /** Live fetch loops by the realtime resource(s) they cover, so a pushed
+   * ChangeEvent can re-run exactly the affected loop (see notifyChange). */
+  private readonly loops = new Map<RealtimeResource, Set<() => void>>();
 
   constructor(
     private readonly baseUrl: string,
@@ -120,6 +126,28 @@ export class ServerSource implements CanvasSource {
     };
   }
 
+  /**
+   * Push path: the host received a ChangeEvent on the project's realtime
+   * channel — re-run the affected loop's fetch immediately instead of waiting
+   * for its next poll tick. Unknown/uncovered resources are a no-op. The ticks
+   * are `guarded`, so a burst of events while a fetch is in flight collapses.
+   */
+  notifyChange(resource: RealtimeResource): void {
+    for (const run of this.loops.get(resource) ?? []) run();
+  }
+
+  /** Register a loop's tick under the realtime resources it refreshes. */
+  private register(resources: RealtimeResource[], run: () => void): () => void {
+    for (const r of resources) {
+      const set = this.loops.get(r) ?? new Set<() => void>();
+      set.add(run);
+      this.loops.set(r, set);
+    }
+    return () => {
+      for (const r of resources) this.loops.get(r)?.delete(run);
+    };
+  }
+
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void {
     const tick = async () => {
       try {
@@ -137,9 +165,12 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.timer = setInterval(run, this.pollMs);
+    // Closure-local: a second subscribe must not orphan the first's interval.
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["elements", "timeline"], run);
     return () => {
-      if (this.timer) clearInterval(this.timer);
+      clearInterval(timer);
+      deregister();
     };
   }
 
@@ -158,9 +189,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.infraTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["infra", "flows"], run);
     return () => {
-      if (this.infraTimer) clearInterval(this.infraTimer);
+      clearInterval(timer);
+      deregister();
     };
   }
 
@@ -179,9 +212,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.entityTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["entities"], run);
     return () => {
-      if (this.entityTimer) clearInterval(this.entityTimer);
+      clearInterval(timer);
+      deregister();
     };
   }
 
@@ -200,9 +235,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.agentTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["agents"], run);
     return () => {
-      if (this.agentTimer) clearInterval(this.agentTimer);
+      clearInterval(timer);
+      deregister();
     };
   }
 
@@ -221,9 +258,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.taskTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["tasks"], run);
     return () => {
-      if (this.taskTimer) clearInterval(this.taskTimer);
+      clearInterval(timer);
+      deregister();
     };
   }
 
@@ -244,9 +283,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.checkpointTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["checkpoints"], run);
     return () => {
-      if (this.checkpointTimer) clearInterval(this.checkpointTimer);
+      clearInterval(timer);
+      deregister();
     };
   }
 
@@ -267,9 +308,11 @@ export class ServerSource implements CanvasSource {
     };
     const run = ServerSource.guarded(tick);
     run();
-    this.timelineTimer = setInterval(run, this.pollMs);
+    const timer = setInterval(run, this.pollMs);
+    const deregister = this.register(["timeline"], run);
     return () => {
-      if (this.timelineTimer) clearInterval(this.timelineTimer);
+      clearInterval(timer);
+      deregister();
     };
   }
 

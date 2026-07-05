@@ -4050,10 +4050,12 @@ var coerce = {
 var NEVER = INVALID;
 
 // ../../packages/shared/dist/schema.js
+var SHORT_TEXT_MAX = 500;
+var LONG_TEXT_MAX = 1e5;
 var HttpMethod = external_exports.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 var ApiBinding = external_exports.object({
-  title: external_exports.string().min(1),
-  description: external_exports.string().default("")
+  title: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  description: external_exports.string().max(LONG_TEXT_MAX).default("")
 });
 var ElementType = external_exports.enum([
   "frame",
@@ -4083,8 +4085,8 @@ var SideWidths = external_exports.object({
   left: external_exports.number().nonnegative().describe("Left border width.")
 }).partial();
 var Style = external_exports.object({
-  fill: external_exports.string().optional(),
-  stroke: external_exports.string().optional(),
+  fill: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  stroke: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Uniform border width. `strokeWidths` overrides individual sides when set. */
   strokeWidth: external_exports.number().nonnegative().optional().describe("Uniform border width for all four sides."),
   /** Per-side overrides; each side falls back to `strokeWidth` when omitted. */
@@ -4097,24 +4099,24 @@ var Style = external_exports.object({
   radii: CornerRadii.optional().describe("Per-corner radius overrides {tl,tr,br,bl}; each corner falls back to `radius` when omitted. Use to round corners independently; an empty {} clears overrides back to the uniform radius."),
   fontSize: external_exports.number().positive().optional(),
   fontWeight: external_exports.number().int().optional(),
-  fontFamily: external_exports.string().optional(),
-  color: external_exports.string().optional()
+  fontFamily: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  color: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var DesignElement = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   type: ElementType,
-  name: external_exports.string().default(""),
+  name: external_exports.string().max(SHORT_TEXT_MAX).default(""),
   x: external_exports.number(),
   y: external_exports.number(),
   width: external_exports.number().nonnegative(),
   height: external_exports.number().nonnegative(),
   parentId: external_exports.string().nullable().default(null),
-  text: external_exports.string().optional(),
+  text: external_exports.string().max(LONG_TEXT_MAX).optional(),
   style: Style.optional(),
   /** Rotation in degrees, clockwise, about the element's center. */
   rotation: external_exports.number().default(0),
   /** For type === "instance": the id of the source component element. */
-  componentId: external_exports.string().optional(),
+  componentId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional API documentation attached by the backend from VS Code. */
   apiBinding: ApiBinding.optional(),
   /** ISO-8601 timestamp of the last write. */
@@ -4141,14 +4143,14 @@ var InfraKind = external_exports.enum([
   // a container box that visually groups other nodes
 ]);
 var InfraNode = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   kind: InfraKind,
   /** Display name, e.g. "PostgreSQL", "GitHub Actions". */
-  label: external_exports.string().min(1),
+  label: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Optional version/runtime tag, e.g. "v15", "Node 20". */
-  tech: external_exports.string().optional(),
+  tech: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Free-form Markdown notes (rendered with the same subset as apiBinding). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   x: external_exports.number(),
   y: external_exports.number(),
   width: external_exports.number().nonnegative().default(160),
@@ -4157,52 +4159,52 @@ var InfraNode = external_exports.object({
   updatedAt: external_exports.string().datetime()
 });
 var InfraEdge = external_exports.object({
-  id: external_exports.string().min(1),
-  from: external_exports.string().min(1),
-  to: external_exports.string().min(1),
-  label: external_exports.string().optional(),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  from: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  to: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  label: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   updatedAt: external_exports.string().datetime()
 });
 var InfraStepKind = external_exports.enum(["sync", "async", "reply"]);
 var InfraFlowStep = external_exports.object({
   /** Source infra node id. */
-  from: external_exports.string().min(1),
+  from: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Target infra node id. */
-  to: external_exports.string().min(1),
+  to: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** What happens here, e.g. "writes verification token". */
-  label: external_exports.string().default(""),
+  label: external_exports.string().max(SHORT_TEXT_MAX).default(""),
   /** Call style — arrowhead on the overlay, arrow token in Mermaid. */
   kind: InfraStepKind.default("sync"),
   /** Optional design element id whose apiBinding drives this hop. */
-  endpointId: external_exports.string().optional()
+  endpointId: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var InfraFlow = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Display name, e.g. "User signup". */
-  name: external_exports.string().min(1),
+  name: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown overview (same subset as apiBinding/description). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   /** Ordered hops; rendered as numbered arrows + a numbered narrative. */
   steps: external_exports.array(InfraFlowStep).default([]),
   updatedAt: external_exports.string().datetime()
 });
 var EntityKey = external_exports.enum(["PK", "FK", "UK"]);
 var EntityField = external_exports.object({
-  name: external_exports.string().min(1),
+  name: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form data type, e.g. "uuid", "varchar", "int". */
-  type: external_exports.string().default(""),
+  type: external_exports.string().max(SHORT_TEXT_MAX).default(""),
   /** Zero or more key roles; an empty array is a plain attribute. */
   keys: external_exports.array(EntityKey).default([]),
   /** Optional comment, rendered in quotes after the attribute. */
-  note: external_exports.string().optional()
+  note: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var Entity = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Entity/table name, e.g. "Invoice", "VehicleOwnerProfile". */
-  name: external_exports.string().min(1),
+  name: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   fields: external_exports.array(EntityField).default([]),
   /** Free-form Markdown notes (same subset as apiBinding/description). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   x: external_exports.number(),
   y: external_exports.number(),
   width: external_exports.number().nonnegative().default(180),
@@ -4217,15 +4219,15 @@ var RelationCardinality = external_exports.enum([
   "one-or-many"
 ]);
 var EntityRelation = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Source entity id. */
-  from: external_exports.string().min(1),
+  from: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Target entity id. */
-  to: external_exports.string().min(1),
+  to: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   fromCardinality: RelationCardinality.default("exactly-one"),
   toCardinality: RelationCardinality.default("zero-or-many"),
   /** The relationship verb, e.g. "places", "holds", "billed". */
-  label: external_exports.string().optional(),
+  label: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Solid (identifying) vs dashed (non-identifying) line. */
   identifying: external_exports.boolean().default(true),
   updatedAt: external_exports.string().datetime()
@@ -4233,21 +4235,21 @@ var EntityRelation = external_exports.object({
 var McpTransport = external_exports.enum(["stdio", "http", "sse"]);
 var McpOrigin = external_exports.enum(["built", "consumed"]);
 var McpTool = external_exports.object({
-  name: external_exports.string().min(1),
+  name: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown (rendered with the same subset as apiBinding). */
-  description: external_exports.string().default(""),
-  endpointId: external_exports.string().optional()
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
+  endpointId: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var McpServerNode = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Display name, e.g. "forward-mcp". */
-  label: external_exports.string().min(1),
+  label: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   transport: McpTransport.default("stdio"),
   origin: McpOrigin.default("consumed"),
   /** Optional version/runtime tag, e.g. "Node 20". */
-  tech: external_exports.string().optional(),
+  tech: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Free-form Markdown notes (same subset as apiBinding). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   /** The tools this server exposes; each may wrap a documented endpoint. */
   tools: external_exports.array(McpTool).default([]),
   x: external_exports.number(),
@@ -4258,17 +4260,17 @@ var McpServerNode = external_exports.object({
   updatedAt: external_exports.string().datetime()
 });
 var AgentNode = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Display name, e.g. "catch-up-digest agent". */
-  label: external_exports.string().min(1),
+  label: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Model id the agent runs on, e.g. "claude-opus-4-8". */
-  model: external_exports.string().optional(),
+  model: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** The agent's system prompt — Markdown, diffed line-by-line in History. */
-  systemPrompt: external_exports.string().default(""),
+  systemPrompt: external_exports.string().max(LONG_TEXT_MAX).default(""),
   /** Ids of the McpServerNodes this agent is wired to. */
-  mcpServerIds: external_exports.array(external_exports.string()).default([]),
+  mcpServerIds: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
   /** Free-form Markdown notes (same subset as apiBinding). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   x: external_exports.number(),
   y: external_exports.number(),
   width: external_exports.number().nonnegative().default(200),
@@ -4281,52 +4283,52 @@ var TaskType = external_exports.enum(["bug", "feature", "task", "milestone"]);
 var TaskPriority = external_exports.enum(["low", "medium", "high", "urgent"]);
 var TaskActivityKind = external_exports.enum(["comment", "event"]);
 var TaskActivity = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   kind: TaskActivityKind,
   /** uid of who did it (resolved to a display name on read against the roster). */
-  actor: external_exports.string(),
+  actor: external_exports.string().max(SHORT_TEXT_MAX),
   /** ISO-8601 timestamp of the entry. */
   at: external_exports.string().datetime(),
   /** comment: the Markdown body. */
-  body: external_exports.string().optional(),
+  body: external_exports.string().max(LONG_TEXT_MAX).optional(),
   /** event: the verb phrase, e.g. "changed status to". */
-  verb: external_exports.string().optional(),
+  verb: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** event: a free-text value the verb acts on, e.g. a person or a date. */
-  target: external_exports.string().optional(),
+  target: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** event: short chip text (a label or priority name). */
-  badge: external_exports.string().optional()
+  badge: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var Task = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Short human-facing key, e.g. "FWD-12" — assigned on create. */
-  key: external_exports.string().optional(),
-  title: external_exports.string().min(1),
+  key: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  title: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown notes (same subset as apiBinding/description). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   type: TaskType.default("task"),
   status: TaskStatus.default("todo"),
   priority: TaskPriority.default("medium"),
   /** Free-form label names (e.g. "bug", "backend"). */
-  labels: external_exports.array(external_exports.string()).default([]),
+  labels: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
   /** uids from the project's `project_members` roster doing the work. */
-  assignees: external_exports.array(external_exports.string()).default([]),
+  assignees: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
   /** uid of the member who filed the task. */
-  reporter: external_exports.string().optional(),
+  reporter: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
-  dueDate: external_exports.string().optional(),
+  dueDate: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the design element this task concerns. */
-  elementId: external_exports.string().optional(),
+  elementId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the narrated infra flow this task implements. */
-  flowId: external_exports.string().optional(),
+  flowId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the element whose apiBinding defines the endpoint. */
-  endpointId: external_exports.string().optional(),
+  endpointId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /**
    * Ids of other tasks this one depends on (finish-to-start): they should
    * complete before this one starts. Drives the timeline's dependency
    * connectors. Soft references resolved on read, like the layer links —
    * a dangling id (deleted task) is simply ignored, not an error.
    */
-  dependsOn: external_exports.array(external_exports.string()).default([]),
+  dependsOn: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
   /** Chronological history of comments + events (oldest first). */
   activity: external_exports.array(TaskActivity).default([]),
   /** ISO-8601 timestamp the task was created. */
@@ -4346,13 +4348,13 @@ var CheckpointSnapshot = external_exports.object({
   infraFlows: external_exports.array(InfraFlow).default([])
 });
 var Checkpoint = external_exports.object({
-  id: external_exports.string().min(1),
-  title: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  title: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown note (same subset as task/apiBinding descriptions). */
-  description: external_exports.string().default(""),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   tag: CheckpointTag.default("checkpoint"),
   /** uid of the member who saved it — stamped by the server from the session. */
-  author: external_exports.string().optional(),
+  author: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Per-layer change counts, for the card chips. */
   changes: external_exports.array(CheckpointChange).default([]),
   /** The frozen design + infra state, replayed on restore. */
@@ -4361,23 +4363,23 @@ var Checkpoint = external_exports.object({
   createdAt: external_exports.string().datetime()
 });
 var CheckpointInput = external_exports.object({
-  title: external_exports.string().min(1),
-  description: external_exports.string().default(""),
+  title: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   tag: CheckpointTag.default("checkpoint")
 });
 var VersionAction = external_exports.enum(["created", "modified", "deleted"]);
 var EndpointSnapshot = external_exports.object({
-  title: external_exports.string(),
+  title: external_exports.string().max(SHORT_TEXT_MAX),
   method: HttpMethod.optional(),
-  path: external_exports.string().optional()
+  path: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var DiffOp = external_exports.enum(["added", "removed", "unchanged"]);
 var DiffRow = external_exports.object({
   op: DiffOp.default("unchanged"),
-  cols: external_exports.array(external_exports.string()).default([])
+  cols: external_exports.array(external_exports.string().max(LONG_TEXT_MAX)).default([])
 });
 var DiffSection = external_exports.object({
-  label: external_exports.string(),
+  label: external_exports.string().max(SHORT_TEXT_MAX),
   rows: external_exports.array(DiffRow).default([])
 });
 var VersionDiff = external_exports.object({
@@ -4385,18 +4387,18 @@ var VersionDiff = external_exports.object({
   added: external_exports.number().int().nonnegative().default(0),
   removed: external_exports.number().int().nonnegative().default(0),
   /** If set, the change breaks clients — rendered as a warning callout. */
-  breaking: external_exports.string().optional(),
+  breaking: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   sections: external_exports.array(DiffSection).default([])
 });
 var VersionEntry = external_exports.object({
-  version: external_exports.string(),
+  version: external_exports.string().max(SHORT_TEXT_MAX),
   timestamp: external_exports.number().int(),
-  author: external_exports.string(),
+  author: external_exports.string().max(SHORT_TEXT_MAX),
   action: VersionAction.default("modified"),
-  commitHash: external_exports.string().optional(),
-  changeLog: external_exports.string().default(""),
+  commitHash: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  changeLog: external_exports.string().max(LONG_TEXT_MAX).default(""),
   /** The version this entry superseded, for a "v1.1.0 → v1.2.0" transition. */
-  previousVersion: external_exports.string().optional(),
+  previousVersion: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Endpoint method/path/title at write time — needed to render deletions. */
   endpoint: EndpointSnapshot.optional(),
   /** Optional structured diff the timeline expands to show (see VersionDiff). */
@@ -4408,12 +4410,12 @@ var ProjectTimelineEvent = external_exports.object({
   domain: TimelineDomain,
   action: VersionAction.default("modified"),
   /** The element / node / edge / flow id this event is about. */
-  targetId: external_exports.string(),
+  targetId: external_exports.string().max(SHORT_TEXT_MAX),
   /** Human label — the element/node/flow name, or the endpoint for `api`. */
-  title: external_exports.string().default(""),
+  title: external_exports.string().max(SHORT_TEXT_MAX).default(""),
   /** One-line context (e.g. "Linked payments-db to checkout-svc"). */
-  detail: external_exports.string().default(""),
-  author: external_exports.string().default(""),
+  detail: external_exports.string().max(LONG_TEXT_MAX).default(""),
+  author: external_exports.string().max(SHORT_TEXT_MAX).default(""),
   /** Epoch ms the change landed. */
   timestamp: external_exports.number().int()
 });
@@ -4430,7 +4432,7 @@ var ProjectMember = external_exports.object({
 });
 var InviteStatus = external_exports.enum(["pending", "accepted", "revoked", "expired"]);
 var ProjectInvite = external_exports.object({
-  id: external_exports.string().min(1),
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   projectId: external_exports.string().min(1),
   email: external_exports.string().email(),
   role: ProjectRole.default("editor"),

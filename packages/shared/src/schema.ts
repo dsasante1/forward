@@ -23,6 +23,19 @@ import { z } from "zod";
  */
 
 // --------------------------------------------------------------------------
+// String bounds
+// --------------------------------------------------------------------------
+// Upper bounds on user-authored strings. Generous — no legitimate value comes
+// near them, so every already-stored row keeps parsing on read — but they stop
+// a runaway client from persisting megabytes through a name field, which every
+// list fetch and checkpoint snapshot would then drag along forever.
+
+/** Ids, names, titles, labels and other one-liners. */
+export const SHORT_TEXT_MAX = 500;
+/** Markdown bodies, diff lines, change logs. */
+export const LONG_TEXT_MAX = 100_000;
+
+// --------------------------------------------------------------------------
 // API binding (the backend documentation — pillar 2)
 // --------------------------------------------------------------------------
 
@@ -37,8 +50,8 @@ export type HttpMethod = z.infer<typeof HttpMethod>;
  * Nothing here assumes Express or JavaScript.
  */
 export const ApiBinding = z.object({
-  title: z.string().min(1),
-  description: z.string().default(""),
+  title: z.string().min(1).max(SHORT_TEXT_MAX),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
 });
 export type ApiBinding = z.infer<typeof ApiBinding>;
 
@@ -92,8 +105,8 @@ export type SideWidths = z.infer<typeof SideWidths>;
 
 /** Visual styling — all optional, sensible defaults applied at render time. */
 export const Style = z.object({
-  fill: z.string().optional(),
-  stroke: z.string().optional(),
+  fill: z.string().max(SHORT_TEXT_MAX).optional(),
+  stroke: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Uniform border width. `strokeWidths` overrides individual sides when set. */
   strokeWidth: z
     .number()
@@ -120,8 +133,8 @@ export const Style = z.object({
   ),
   fontSize: z.number().positive().optional(),
   fontWeight: z.number().int().optional(),
-  fontFamily: z.string().optional(),
-  color: z.string().optional(),
+  fontFamily: z.string().max(SHORT_TEXT_MAX).optional(),
+  color: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type Style = z.infer<typeof Style>;
 
@@ -131,20 +144,20 @@ export type Style = z.infer<typeof Style>;
  * annotation. `componentId` links an instance back to its master component.
  */
 export const DesignElement = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   type: ElementType,
-  name: z.string().default(""),
+  name: z.string().max(SHORT_TEXT_MAX).default(""),
   x: z.number(),
   y: z.number(),
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
   parentId: z.string().nullable().default(null),
-  text: z.string().optional(),
+  text: z.string().max(LONG_TEXT_MAX).optional(),
   style: Style.optional(),
   /** Rotation in degrees, clockwise, about the element's center. */
   rotation: z.number().default(0),
   /** For type === "instance": the id of the source component element. */
-  componentId: z.string().optional(),
+  componentId: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional API documentation attached by the backend from VS Code. */
   apiBinding: ApiBinding.optional(),
   /** ISO-8601 timestamp of the last write. */
@@ -177,14 +190,14 @@ export type InfraKind = z.infer<typeof InfraKind>;
  * nests a node inside a "group" container.
  */
 export const InfraNode = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   kind: InfraKind,
   /** Display name, e.g. "PostgreSQL", "GitHub Actions". */
-  label: z.string().min(1),
+  label: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Optional version/runtime tag, e.g. "v15", "Node 20". */
-  tech: z.string().optional(),
+  tech: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Free-form Markdown notes (rendered with the same subset as apiBinding). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   x: z.number(),
   y: z.number(),
   width: z.number().nonnegative().default(160),
@@ -196,10 +209,10 @@ export type InfraNode = z.infer<typeof InfraNode>;
 
 /** A directed connection between two infra nodes (e.g. "reads/writes"). */
 export const InfraEdge = z.object({
-  id: z.string().min(1),
-  from: z.string().min(1),
-  to: z.string().min(1),
-  label: z.string().optional(),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
+  from: z.string().min(1).max(SHORT_TEXT_MAX),
+  to: z.string().min(1).max(SHORT_TEXT_MAX),
+  label: z.string().max(SHORT_TEXT_MAX).optional(),
   updatedAt: z.string().datetime(),
 });
 export type InfraEdge = z.infer<typeof InfraEdge>;
@@ -223,15 +236,15 @@ export type InfraStepKind = z.infer<typeof InfraStepKind>;
  */
 export const InfraFlowStep = z.object({
   /** Source infra node id. */
-  from: z.string().min(1),
+  from: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Target infra node id. */
-  to: z.string().min(1),
+  to: z.string().min(1).max(SHORT_TEXT_MAX),
   /** What happens here, e.g. "writes verification token". */
-  label: z.string().default(""),
+  label: z.string().max(SHORT_TEXT_MAX).default(""),
   /** Call style — arrowhead on the overlay, arrow token in Mermaid. */
   kind: InfraStepKind.default("sync"),
   /** Optional design element id whose apiBinding drives this hop. */
-  endpointId: z.string().optional(),
+  endpointId: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type InfraFlowStep = z.infer<typeof InfraFlowStep>;
 
@@ -244,11 +257,11 @@ export type InfraFlowStep = z.infer<typeof InfraFlowStep>;
  * duplicated geometry — both renderers walk these steps.
  */
 export const InfraFlow = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Display name, e.g. "User signup". */
-  name: z.string().min(1),
+  name: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown overview (same subset as apiBinding/description). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   /** Ordered hops; rendered as numbered arrows + a numbered narrative. */
   steps: z.array(InfraFlowStep).default([]),
   updatedAt: z.string().datetime(),
@@ -273,13 +286,13 @@ export type EntityKey = z.infer<typeof EntityKey>;
 
 /** One attribute (column/field) of an entity. */
 export const EntityField = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form data type, e.g. "uuid", "varchar", "int". */
-  type: z.string().default(""),
+  type: z.string().max(SHORT_TEXT_MAX).default(""),
   /** Zero or more key roles; an empty array is a plain attribute. */
   keys: z.array(EntityKey).default([]),
   /** Optional comment, rendered in quotes after the attribute. */
-  note: z.string().optional(),
+  note: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type EntityField = z.infer<typeof EntityField>;
 
@@ -290,12 +303,12 @@ export type EntityField = z.infer<typeof EntityField>;
  * inside a "group"-style container if one is ever added to this layer.
  */
 export const Entity = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Entity/table name, e.g. "Invoice", "VehicleOwnerProfile". */
-  name: z.string().min(1),
+  name: z.string().min(1).max(SHORT_TEXT_MAX),
   fields: z.array(EntityField).default([]),
   /** Free-form Markdown notes (same subset as apiBinding/description). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   x: z.number(),
   y: z.number(),
   width: z.number().nonnegative().default(180),
@@ -326,15 +339,15 @@ export type RelationCardinality = z.infer<typeof RelationCardinality>;
  * render — the same "skip dangling" rule the infra serializers use.
  */
 export const EntityRelation = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Source entity id. */
-  from: z.string().min(1),
+  from: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Target entity id. */
-  to: z.string().min(1),
+  to: z.string().min(1).max(SHORT_TEXT_MAX),
   fromCardinality: RelationCardinality.default("exactly-one"),
   toCardinality: RelationCardinality.default("zero-or-many"),
   /** The relationship verb, e.g. "places", "holds", "billed". */
-  label: z.string().optional(),
+  label: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Solid (identifying) vs dashed (non-identifying) line. */
   identifying: z.boolean().default(true),
   updatedAt: z.string().datetime(),
@@ -366,10 +379,10 @@ export type McpOrigin = z.infer<typeof McpOrigin>;
  * call" is a first-class, resolve-on-read reference (never an enforced FK).
  */
 export const McpTool = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown (rendered with the same subset as apiBinding). */
-  description: z.string().default(""),
-  endpointId: z.string().optional(),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
+  endpointId: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type McpTool = z.infer<typeof McpTool>;
 
@@ -379,15 +392,15 @@ export type McpTool = z.infer<typeof McpTool>;
  * space); `parentId` nests it inside a "group" container just like infra.
  */
 export const McpServerNode = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Display name, e.g. "forward-mcp". */
-  label: z.string().min(1),
+  label: z.string().min(1).max(SHORT_TEXT_MAX),
   transport: McpTransport.default("stdio"),
   origin: McpOrigin.default("consumed"),
   /** Optional version/runtime tag, e.g. "Node 20". */
-  tech: z.string().optional(),
+  tech: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Free-form Markdown notes (same subset as apiBinding). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   /** The tools this server exposes; each may wrap a documented endpoint. */
   tools: z.array(McpTool).default([]),
   x: z.number(),
@@ -405,17 +418,17 @@ export type McpServerNode = z.infer<typeof McpServerNode>;
  * can call (soft references resolved on read). Geometry mirrors InfraNode.
  */
 export const AgentNode = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Display name, e.g. "catch-up-digest agent". */
-  label: z.string().min(1),
+  label: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Model id the agent runs on, e.g. "claude-opus-4-8". */
-  model: z.string().optional(),
+  model: z.string().max(SHORT_TEXT_MAX).optional(),
   /** The agent's system prompt — Markdown, diffed line-by-line in History. */
-  systemPrompt: z.string().default(""),
+  systemPrompt: z.string().max(LONG_TEXT_MAX).default(""),
   /** Ids of the McpServerNodes this agent is wired to. */
-  mcpServerIds: z.array(z.string()).default([]),
+  mcpServerIds: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
   /** Free-form Markdown notes (same subset as apiBinding). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   x: z.number(),
   y: z.number(),
   width: z.number().nonnegative().default(200),
@@ -459,20 +472,20 @@ export const TaskActivityKind = z.enum(["comment", "event"]);
 export type TaskActivityKind = z.infer<typeof TaskActivityKind>;
 
 export const TaskActivity = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   kind: TaskActivityKind,
   /** uid of who did it (resolved to a display name on read against the roster). */
-  actor: z.string(),
+  actor: z.string().max(SHORT_TEXT_MAX),
   /** ISO-8601 timestamp of the entry. */
   at: z.string().datetime(),
   /** comment: the Markdown body. */
-  body: z.string().optional(),
+  body: z.string().max(LONG_TEXT_MAX).optional(),
   /** event: the verb phrase, e.g. "changed status to". */
-  verb: z.string().optional(),
+  verb: z.string().max(SHORT_TEXT_MAX).optional(),
   /** event: a free-text value the verb acts on, e.g. a person or a date. */
-  target: z.string().optional(),
+  target: z.string().max(SHORT_TEXT_MAX).optional(),
   /** event: short chip text (a label or priority name). */
-  badge: z.string().optional(),
+  badge: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type TaskActivity = z.infer<typeof TaskActivity>;
 
@@ -490,36 +503,36 @@ export type TaskActivity = z.infer<typeof TaskActivity>;
  * tolerate that rather than enforcing referential integrity.
  */
 export const Task = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Short human-facing key, e.g. "FWD-12" — assigned on create. */
-  key: z.string().optional(),
-  title: z.string().min(1),
+  key: z.string().max(SHORT_TEXT_MAX).optional(),
+  title: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown notes (same subset as apiBinding/description). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   type: TaskType.default("task"),
   status: TaskStatus.default("todo"),
   priority: TaskPriority.default("medium"),
   /** Free-form label names (e.g. "bug", "backend"). */
-  labels: z.array(z.string()).default([]),
+  labels: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
   /** uids from the project's `project_members` roster doing the work. */
-  assignees: z.array(z.string()).default([]),
+  assignees: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
   /** uid of the member who filed the task. */
-  reporter: z.string().optional(),
+  reporter: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
-  dueDate: z.string().optional(),
+  dueDate: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the design element this task concerns. */
-  elementId: z.string().optional(),
+  elementId: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the narrated infra flow this task implements. */
-  flowId: z.string().optional(),
+  flowId: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the element whose apiBinding defines the endpoint. */
-  endpointId: z.string().optional(),
+  endpointId: z.string().max(SHORT_TEXT_MAX).optional(),
   /**
    * Ids of other tasks this one depends on (finish-to-start): they should
    * complete before this one starts. Drives the timeline's dependency
    * connectors. Soft references resolved on read, like the layer links —
    * a dangling id (deleted task) is simply ignored, not an error.
    */
-  dependsOn: z.array(z.string()).default([]),
+  dependsOn: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
   /** Chronological history of comments + events (oldest first). */
   activity: z.array(TaskActivity).default([]),
   /** ISO-8601 timestamp the task was created. */
@@ -564,13 +577,13 @@ export const CheckpointSnapshot = z.object({
 export type CheckpointSnapshot = z.infer<typeof CheckpointSnapshot>;
 
 export const Checkpoint = z.object({
-  id: z.string().min(1),
-  title: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
+  title: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Free-form Markdown note (same subset as task/apiBinding descriptions). */
-  description: z.string().default(""),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   tag: CheckpointTag.default("checkpoint"),
   /** uid of the member who saved it — stamped by the server from the session. */
-  author: z.string().optional(),
+  author: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Per-layer change counts, for the card chips. */
   changes: z.array(CheckpointChange).default([]),
   /** The frozen design + infra state, replayed on restore. */
@@ -587,8 +600,8 @@ export type Checkpoint = z.infer<typeof Checkpoint>;
  * the client happened to have in memory.
  */
 export const CheckpointInput = z.object({
-  title: z.string().min(1),
-  description: z.string().default(""),
+  title: z.string().min(1).max(SHORT_TEXT_MAX),
+  description: z.string().max(LONG_TEXT_MAX).default(""),
   tag: CheckpointTag.default("checkpoint"),
 });
 export type CheckpointInput = z.infer<typeof CheckpointInput>;
@@ -612,9 +625,9 @@ export type VersionAction = z.infer<typeof VersionAction>;
  * so can't be read back) with its method + path + title.
  */
 export const EndpointSnapshot = z.object({
-  title: z.string(),
+  title: z.string().max(SHORT_TEXT_MAX),
   method: HttpMethod.optional(),
-  path: z.string().optional(),
+  path: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type EndpointSnapshot = z.infer<typeof EndpointSnapshot>;
 
@@ -633,13 +646,13 @@ export type DiffOp = z.infer<typeof DiffOp>;
  */
 export const DiffRow = z.object({
   op: DiffOp.default("unchanged"),
-  cols: z.array(z.string()).default([]),
+  cols: z.array(z.string().max(LONG_TEXT_MAX)).default([]),
 });
 export type DiffRow = z.infer<typeof DiffRow>;
 
 /** A labelled group of diff rows, e.g. "request · body.email" or "responses". */
 export const DiffSection = z.object({
-  label: z.string(),
+  label: z.string().max(SHORT_TEXT_MAX),
   rows: z.array(DiffRow).default([]),
 });
 export type DiffSection = z.infer<typeof DiffSection>;
@@ -655,21 +668,21 @@ export const VersionDiff = z.object({
   added: z.number().int().nonnegative().default(0),
   removed: z.number().int().nonnegative().default(0),
   /** If set, the change breaks clients — rendered as a warning callout. */
-  breaking: z.string().optional(),
+  breaking: z.string().max(SHORT_TEXT_MAX).optional(),
   sections: z.array(DiffSection).default([]),
 });
 export type VersionDiff = z.infer<typeof VersionDiff>;
 
 /** One immutable entry in an element's append-only history. */
 export const VersionEntry = z.object({
-  version: z.string(),
+  version: z.string().max(SHORT_TEXT_MAX),
   timestamp: z.number().int(),
-  author: z.string(),
+  author: z.string().max(SHORT_TEXT_MAX),
   action: VersionAction.default("modified"),
-  commitHash: z.string().optional(),
-  changeLog: z.string().default(""),
+  commitHash: z.string().max(SHORT_TEXT_MAX).optional(),
+  changeLog: z.string().max(LONG_TEXT_MAX).default(""),
   /** The version this entry superseded, for a "v1.1.0 → v1.2.0" transition. */
-  previousVersion: z.string().optional(),
+  previousVersion: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Endpoint method/path/title at write time — needed to render deletions. */
   endpoint: EndpointSnapshot.optional(),
   /** Optional structured diff the timeline expands to show (see VersionDiff). */
@@ -700,12 +713,12 @@ export const ProjectTimelineEvent = z.object({
   domain: TimelineDomain,
   action: VersionAction.default("modified"),
   /** The element / node / edge / flow id this event is about. */
-  targetId: z.string(),
+  targetId: z.string().max(SHORT_TEXT_MAX),
   /** Human label — the element/node/flow name, or the endpoint for `api`. */
-  title: z.string().default(""),
+  title: z.string().max(SHORT_TEXT_MAX).default(""),
   /** One-line context (e.g. "Linked payments-db to checkout-svc"). */
-  detail: z.string().default(""),
-  author: z.string().default(""),
+  detail: z.string().max(LONG_TEXT_MAX).default(""),
+  author: z.string().max(SHORT_TEXT_MAX).default(""),
   /** Epoch ms the change landed. */
   timestamp: z.number().int(),
 });
@@ -765,7 +778,7 @@ export type InviteStatus = z.infer<typeof InviteStatus>;
  * `token` is the capability carried in the link and is never shown in listings.
  */
 export const ProjectInvite = z.object({
-  id: z.string().min(1),
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
   projectId: z.string().min(1),
   email: z.string().email(),
   role: ProjectRole.default("editor"),

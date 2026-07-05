@@ -52,6 +52,29 @@ export class ClerkUserService {
     });
   }
 
+  /**
+   * A user was deleted in Clerk (the identity source of truth): scrub the PII we
+   * mirrored (email/name/avatar), revoke their API tokens so no credential
+   * outlives the account, and drop their org memberships. The `User` row itself
+   * and their project memberships stay — they are FK targets for authored
+   * content and roster history, and a deleted Clerk id can never authenticate
+   * again (ClerkAuthGuard verifies against Clerk; PATs are revoked here).
+   */
+  async handleDeleted(userId: string): Promise<void> {
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.user.updateMany({
+        where: { id: userId },
+        data: { email: null, name: null, imageUrl: null, suspendedAt: now },
+      }),
+      this.prisma.apiToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      }),
+      this.prisma.organizationMember.deleteMany({ where: { userId } }),
+    ]);
+  }
+
   /** The user's Clerk profile, or null if Clerk can't be reached. */
   async fetchProfile(userId: string): Promise<ClerkProfile | null> {
     try {

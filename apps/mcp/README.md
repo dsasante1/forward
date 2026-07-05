@@ -1,7 +1,7 @@
 # Forward — MCP server
 
-The **AI-native** surface of Forward. It exposes the same Firebase
-RTDB writer the VS Code extension uses (`forward-core`) as a small set of
+The **AI-native** surface of Forward. It exposes the same central-server
+client the VS Code extension uses (`forward-core/api`) as a small set of
 [Model Context Protocol](https://modelcontextprotocol.io) tools, so **any**
 MCP-capable agent (Claude Code, Cursor, …) can document a design element for you.
 
@@ -57,14 +57,15 @@ in lock-step with [packages/shared](../../packages/shared).
 
 ## Configuration
 
-The server holds the Firebase credentials; the agent never sees them. Set:
+The server talks to the centrally-hosted Forward backend and holds the API
+token; the agent never sees it. Set:
 
 | Env var | Required | Meaning |
 |---|---|---|
-| `ADC_FIREBASE_DATABASE_URL` | yes | Your Firebase Realtime Database URL |
-| `ADC_PROJECT_ID` | yes | Canvas project id (must match the extension / canvas) |
-| `ADC_AUTH_TOKEN` | if rules require auth | Firebase ID token / DB secret |
-| `ADC_AGENT` | no | Author label recorded in the version history for writes (default `agent`) |
+| `FORWARD_API_BASE_URL` | yes | Base URL of the Forward backend, e.g. `https://api.forward.dev` |
+| `FORWARD_PROJECT_ID` | yes | Project id (must match the extension / canvas; `ADC_PROJECT_ID` still works) |
+| `FORWARD_API_TOKEN` | yes | A Forward Personal Access Token (`fwd_pat_…`) minted from the dashboard's Account page |
+| `FORWARD_AGENT` | no | Author label for local logging (the server records the token's owner as the author) |
 
 ## Build & run
 
@@ -80,9 +81,9 @@ Point your MCP client at the built server. For example, Claude Code:
 
 ```bash
 claude mcp add forward \
-  --env ADC_FIREBASE_DATABASE_URL=https://YOUR-db.firebaseio.com \
-  --env ADC_PROJECT_ID=your-project \
-  --env ADC_AUTH_TOKEN=your-token \
+  --env FORWARD_API_BASE_URL=https://api.forward.dev \
+  --env FORWARD_PROJECT_ID=your-project \
+  --env FORWARD_API_TOKEN=fwd_pat_yourtoken \
   -- node /absolute/path/to/apps/mcp/dist/server.js
 ```
 
@@ -96,9 +97,9 @@ Or the equivalent JSON in any MCP client (Cursor `mcp.json`, Claude Desktop
       "command": "node",
       "args": ["/absolute/path/to/apps/mcp/dist/server.js"],
       "env": {
-        "ADC_FIREBASE_DATABASE_URL": "https://YOUR-db.firebaseio.com",
-        "ADC_PROJECT_ID": "your-project",
-        "ADC_AUTH_TOKEN": "your-token"
+        "FORWARD_API_BASE_URL": "https://api.forward.dev",
+        "FORWARD_PROJECT_ID": "your-project",
+        "FORWARD_API_TOKEN": "fwd_pat_yourtoken"
       }
     }
   }

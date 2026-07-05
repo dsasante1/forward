@@ -2,6 +2,7 @@ export * from "./agents.js";
 export * from "./api-diff.js";
 export * from "./entity.js";
 export * from "./infra-flow.js";
+export * from "./realtime.js";
 export * from "./rtdb.js";
 export * from "./rtdb-rest.js";
 export * from "./schema.js";
