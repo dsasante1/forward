@@ -96,14 +96,14 @@ export function OrgDetailPage() {
           </div>
 
           {/* stat strip */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 14, marginBottom: 14 }}>
+          <div className="kpi-grid">
             <Stat label="SEATS" value={`${d.memberCount}${d.seatLimit ? `/${d.seatLimit}` : ""}`} sub={d.seatLimit ? (d.memberCount >= d.seatLimit ? "at limit" : `${d.seatLimit - d.memberCount} available`) : "unlimited"} />
             <Stat label="PROJECTS" value={String(d.projectCount)} sub={`${d.projects.length} shown`} />
             <Stat label="MRR" value="—" sub="billing not connected" />
             <Stat label="PLAN" value={PLAN_LABEL[d.plan]} sub={d.region ?? "—"} />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div className="two-col">
             {/* members */}
             <div className="card card-pad">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 13 }}>

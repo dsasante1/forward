@@ -33,7 +33,7 @@ export function OverviewPage() {
       {d && (
         <>
           {/* KPIs */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3,minmax(0,1fr))", gap: 14, marginBottom: 14 }}>
+          <div className="kpi-grid">
             <Kpi
               label="ORGANIZATIONS"
               value={d.counts.orgs.toLocaleString()}
@@ -55,7 +55,7 @@ export function OverviewPage() {
             />
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 14, marginBottom: 14 }}>
+          <div className="two-col wide-left" style={{ marginBottom: 14 }}>
             {/* alerts */}
             <div className="card card-pad">
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>

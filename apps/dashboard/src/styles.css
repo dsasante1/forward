@@ -17,6 +17,10 @@
   --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
+  /* The Forward fast-forward mark (outline variant of resources/forward.svg),
+     used as a mask so it renders in whatever currentColor context it sits in. */
+  --brand-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9zm1.5 1.5v10.9L13.5 12 6.25 6.4z'/%3E%3Cpath d='M13.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9zm1.5 1.5v10.9L22.5 12l-7.25-5.6z'/%3E%3C/svg%3E");
+
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
 }
@@ -71,8 +75,9 @@ a {
   content: "";
   width: 18px;
   height: 18px;
-  transform: rotate(45deg);
-  border: 1.6px solid var(--text);
+  background: currentColor;
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
 }
 
 .topbar-right {
@@ -221,25 +226,37 @@ button.danger:hover:not(:disabled) {
   gap: 0.5rem;
 }
 
+/* The brand mark as a spinner: the two chevrons pulse in sequence, a signal
+   travelling forward. Sized in em so it rides along with the label's font. */
 .spinner {
-  display: inline-block;
-  width: 0.9em;
-  height: 0.9em;
-  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-top-color: currentColor;
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  width: 1em;
+  height: 1em;
+  flex: none;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.spinner .c1 {
+  animation: fwd-pulse 1.05s ease-in-out infinite;
+}
+
+.spinner .c2 {
+  animation: fwd-pulse 1.05s ease-in-out infinite 0.35s;
+}
+
+@keyframes fwd-pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+  }
+  20% {
+    opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .spinner {
-    animation-duration: 2s;
+  .spinner .c1,
+  .spinner .c2 {
+    animation-duration: 2.6s;
   }
 }
 
@@ -2049,3 +2066,104 @@ textarea.tk-desc-edit:focus {
 .badge-api { background: #2b8a3e; }
 .badge-infra { background: #9c36b5; }
 .badge-uml { background: #e67700; }
+
+/* ===================================================================== */
+/* Responsive: the signed-in app at tablet/phone widths                   */
+/* (the public landing page has its own breakpoints in landing.css)      */
+/* ===================================================================== */
+
+/* Any data table wide enough to overflow scrolls inside its own box
+   instead of stretching the page. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll .admin-table {
+  min-width: 560px;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    padding: 0.75rem 1rem;
+    gap: 0.5rem 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .brand {
+    letter-spacing: 0.22em;
+  }
+
+  .topbar-right {
+    gap: 0.5rem 0.7rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .topbar-right .link {
+    white-space: nowrap;
+  }
+
+  .content {
+    padding: 1.5rem 1rem 4rem;
+  }
+
+  .org-admin {
+    padding: 1rem;
+  }
+
+  h1 {
+    font-size: 1.55rem;
+  }
+
+  .page-head {
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  /* Tab strips scroll sideways instead of crushing their labels. */
+  .tabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .tk-detail-grid {
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 560px) {
+  /* Input + button rows (invite, create-token, add-task…) stack. */
+  .row,
+  .pj-create {
+    flex-wrap: wrap;
+  }
+
+  .row input,
+  .pj-create input {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+
+  .list-row {
+    flex-wrap: wrap;
+  }
+
+  .doc-head {
+    flex-wrap: wrap;
+  }
+
+  .canvas-link {
+    margin-left: 0;
+  }
+}

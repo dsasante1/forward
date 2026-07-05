@@ -169,8 +169,9 @@
 .l-brand-mark {
   width: 20px;
   height: 20px;
-  transform: rotate(45deg);
-  border: 1.6px solid var(--ink);
+  background: var(--ink);
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
 }
 .l-brand-name {
   font-weight: 600;
@@ -1159,8 +1160,9 @@
 .l-footer-brand .mk {
   width: 16px;
   height: 16px;
-  transform: rotate(45deg);
-  border: 1.5px solid var(--ink);
+  background: var(--ink);
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
 }
 .l-footer-brand .nm {
   font-weight: 600;
