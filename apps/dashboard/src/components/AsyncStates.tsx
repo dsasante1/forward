@@ -30,11 +30,27 @@ export function RetryError({
   );
 }
 
+/** The Forward mark as a spinner: chevrons pulsing in sequence (see .spinner). */
+export function Spinner() {
+  return (
+    <svg className="spinner" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path
+        className="c1"
+        d="M4.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9z"
+      />
+      <path
+        className="c2"
+        d="M13.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9z"
+      />
+    </svg>
+  );
+}
+
 /** A small inline spinner + label for first-load states. */
 export function Loading({ children }: { children: ReactNode }) {
   return (
     <p className="muted loading-row">
-      <span className="spinner" aria-hidden="true" />
+      <Spinner />
       {children}
     </p>
   );

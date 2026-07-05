@@ -21,6 +21,10 @@
   --warn: #d6a85b;
   --bad: #d8654a;
   --info: #5b8fd6;
+
+  /* The Forward fast-forward mark (outline variant of the extension's
+     forward.svg), applied as a mask so it takes any currentColor/var color. */
+  --brand-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9zm1.5 1.5v10.9L13.5 12 6.25 6.4z'/%3E%3Cpath d='M13.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9zm1.5 1.5v10.9L22.5 12l-7.25-5.6z'/%3E%3C/svg%3E");
 }
 
 :root[data-theme="light"] {
@@ -104,6 +108,35 @@ select:focus {
   }
 }
 
+/* The brand mark as a spinner: the two chevrons pulse in sequence. */
+.spinner {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+.spinner .c1 {
+  animation: fwd-pulse 1.05s ease-in-out infinite;
+}
+.spinner .c2 {
+  animation: fwd-pulse 1.05s ease-in-out infinite 0.35s;
+}
+@keyframes fwd-pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+  }
+  20% {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner .c1,
+  .spinner .c2 {
+    animation-duration: 2.6s;
+  }
+}
+
 /* ===== Shell ===== */
 .shell {
   display: flex;
@@ -131,11 +164,12 @@ select:focus {
   gap: 11px;
   flex: none;
 }
-.topbar-brand .diamond {
+.topbar-brand .mark {
   width: 19px;
   height: 19px;
-  transform: rotate(45deg);
-  border: 1.7px solid var(--accent);
+  background: var(--accent);
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
 }
 .topbar-brand .word {
   font-weight: 600;
@@ -216,11 +250,12 @@ select:focus {
   gap: 11px;
   padding: 20px 20px 18px;
 }
-.brand .diamond {
+.brand .mark {
   width: 21px;
   height: 21px;
-  transform: rotate(45deg);
-  border: 1.7px solid var(--accent);
+  background: var(--accent);
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
 }
 .brand .word {
   font-weight: 600;
@@ -582,4 +617,85 @@ button:disabled {
 }
 .error {
   color: var(--bad);
+}
+
+/* ===== Responsive layout helpers ===== */
+/* KPI/stat cards: as many columns as fit, never narrower than ~150px. */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+/* Two-panel layouts collapse to a single column on narrow screens. */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.two-col.wide-left {
+  grid-template-columns: 1.5fr 1fr;
+}
+
+@media (max-width: 900px) {
+  .two-col,
+  .two-col.wide-left {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===== Responsive: the console at tablet/phone widths ===== */
+@media (max-width: 720px) {
+  /* The topbar wraps: brand + controls on the first row, the nav tabs on a
+     full-width second row (otherwise they get squeezed to nothing). */
+  .topbar {
+    padding: 8px 14px;
+    gap: 4px 14px;
+    height: auto;
+    flex-wrap: wrap;
+  }
+  .topnav {
+    order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+    padding-bottom: 4px;
+  }
+  .header {
+    padding: 0 16px;
+  }
+  .content-inner {
+    padding: 20px 16px 60px;
+  }
+  .signin-shell {
+    padding: 0 16px;
+  }
+  /* Grid-row "tables" keep their column layout and scroll sideways. */
+  .tbl {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tbl-head,
+  .tbl-row {
+    min-width: 640px;
+  }
+  .searchbox {
+    min-width: 0;
+    flex: 1 1 160px;
+  }
+}
+
+@media (max-width: 600px) {
+  /* Keep the avatar, drop the name/role text; hide the env label (the
+     colored dot stays) so the topbar fits a phone. */
+  .top-user > div {
+    display: none;
+  }
+  .prod {
+    font-size: 0;
+    gap: 0;
+  }
+  .word {
+    letter-spacing: 0.18em;
+  }
 }

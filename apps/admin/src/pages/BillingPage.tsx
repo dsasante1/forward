@@ -28,7 +28,7 @@ export function BillingPage() {
         <div className="page-sub">Subscriptions, invoices and recurring revenue.</div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,minmax(0,1fr))", gap: 14, marginBottom: 14 }}>
+      <div className="kpi-grid">
         {KPIS.map((k) => (
           <div key={k.label} className="card kpi">
             <div className="kpi-label">{k.label}</div>

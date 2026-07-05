@@ -143,6 +143,7 @@ function ProjectsPanel({ orgId }: { orgId: string }) {
         empty={<p className="muted">No projects in this organization yet.</p>}
       />
       {state.data && state.data.length > 0 && (
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -182,6 +183,7 @@ function ProjectsPanel({ orgId }: { orgId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -198,6 +200,7 @@ function MembersPanel({ orgId }: { orgId: string }) {
       </p>
       <AsyncStates state={state} isEmpty={(d) => d.length === 0} empty={<p className="muted">No members.</p>} />
       {state.data && state.data.length > 0 && (
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -216,6 +219,7 @@ function MembersPanel({ orgId }: { orgId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );
@@ -248,6 +252,7 @@ function TokensPanel({ orgId }: { orgId: string }) {
         empty={<p className="muted">No active personal access tokens.</p>}
       />
       {state.data && state.data.length > 0 && (
+        <div className="table-scroll">
         <table className="admin-table">
           <thead>
             <tr>
@@ -281,6 +286,7 @@ function TokensPanel({ orgId }: { orgId: string }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </>
   );

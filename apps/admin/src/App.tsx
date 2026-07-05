@@ -45,7 +45,7 @@ export default function App() {
       <Show when="signed-out">
         <div className="signin-shell">
           <div className="brand" style={{ padding: 0 }}>
-            <div className="diamond" />
+            <div className="mark" />
             <span className="word">FORWARD</span>
           </div>
           <span className="console-tag" style={{ margin: 0 }}>STAFF CONSOLE</span>
@@ -63,7 +63,7 @@ export default function App() {
 function Shell() {
   const { user } = useUser();
   const { theme, toggle } = useTheme();
-  const { openUserProfile } = useClerk();
+  const { openUserProfile, signOut } = useClerk();
   const env = envBadge();
   const [toast, setToast] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -82,7 +82,7 @@ function Shell() {
       <div className="shell shell-top">
         <header className="topbar">
           <div className="topbar-brand">
-            <div className="diamond" />
+            <div className="mark" />
             <span className="word">FORWARD</span>
             <span className="staff-tag">STAFF</span>
           </div>
@@ -134,6 +134,18 @@ function Shell() {
                 <div className="ellip" style={{ fontSize: 12.5, fontWeight: 500, maxWidth: 160 }}>{opName}</div>
                 <div className="mono" style={{ fontSize: 10, color: "var(--faint)" }}>superadmin</div>
               </div>
+            </button>
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={() => void signOut()}
+              title="Sign out"
+              aria-label="Sign out"
+            >
+              <svg aria-hidden="true" focusable="false" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <path d="M16 17l5-5-5-5M21 12H9" />
+              </svg>
             </button>
           </div>
         </header>

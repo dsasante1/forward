@@ -42,7 +42,7 @@ export function emailLayout({ preview, contentHtml }: EmailLayoutOptions): strin
 <tr><td align="center" style="padding:32px 16px;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;">
     <tr><td style="padding:4px 4px 20px;">
-      <span style="font-family:${font};font-size:15px;font-weight:700;letter-spacing:3px;color:${BRAND.ink};">&#9670;&nbsp; FORWARD</span>
+      <span style="font-family:${font};font-size:15px;font-weight:700;letter-spacing:3px;color:${BRAND.ink};"><span style="color:${BRAND.accent};letter-spacing:0;">&#9656;&#9656;</span>&nbsp; FORWARD</span>
     </td></tr>
     <tr><td style="background:${BRAND.panel};border:1px solid ${BRAND.border};border-radius:12px;padding:32px 32px 28px;">
       ${contentHtml}
