@@ -26,7 +26,7 @@ function area(r: Rect): number {
 /**
  * Find the best parent for `rect`: the smallest frame that fully contains it,
  * excluding the element itself. Returns null when nothing contains it — so a
- * dropped element nests into the tightest frame, Figma-style.
+ * dropped element nests into the tightest frame.
  */
 export function findParent(
   rect: Rect,

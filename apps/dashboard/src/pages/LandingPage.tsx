@@ -35,6 +35,9 @@ export function LandingPage() {
             <a className="l-nav-link l-nav-hide" href="#pricing">
               Pricing
             </a>
+            <Link className="l-nav-link l-nav-hide" to="/docs">
+              Docs
+            </Link>
             <Show when="signed-out">
               <Link className="l-nav-link" to="/sign-in">
                 Sign in
@@ -947,6 +950,7 @@ export function LandingPage() {
             <a href="#surfaces">Surfaces</a>
             <a href="#teams">Teams</a>
             <a href="#pricing">Pricing</a>
+            <Link to="/docs">Docs</Link>
             <a href="#start">Start free</a>
           </div>
           <span className="l-footer-copy">© {new Date().getFullYear()} Forward</span>

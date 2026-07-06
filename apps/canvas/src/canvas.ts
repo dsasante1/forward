@@ -2699,7 +2699,7 @@ on(window, "keydown", (e) => {
     }
     return;
   }
-  // Single-key shortcuts (Figma-style), ignored when modified so they don't
+  // Single-key shortcuts, ignored when modified so they don't
   // clash with browser/OS chords. "v" is select/move; the rest arm a draw tool
   // from the catalog (then drag to size). Same catalog as the Add menu.
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -4640,7 +4640,7 @@ function ellipseIcon(): SVGElement {
 function textIcon(): SVGElement {
   return lineIcon([poly("4 7 4 4 20 4 20 7"), line(12, 4, 12, 20), line(9, 20, 15, 20)]);
 }
-// Component: the Figma-style diamond.
+// Component: the diamond.
 function compIcon(): SVGElement {
   return lineIcon([path("M12 2 22 12 12 22 2 12Z")]);
 }
