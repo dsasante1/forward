@@ -19,7 +19,7 @@ export function ProjectPage() {
       <div className="page">
         <div className="page-head">
           <Link to="/app" className="link">
-            ← Projects
+            <span className="ff-mark ff-mark--back" aria-hidden /> Projects
           </Link>
         </div>
 

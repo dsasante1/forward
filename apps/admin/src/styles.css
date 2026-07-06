@@ -49,6 +49,23 @@
 * {
   box-sizing: border-box;
 }
+
+/* Inline brand glyph — the fast-forward mark used in place of arrow
+   characters (→ ← ↗); currentColor so it follows the surrounding text. */
+.ff-mark {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  background: currentColor;
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
+  vertical-align: -0.06em;
+  flex: none;
+}
+/* Mirrored = rewind, for "back" links. */
+.ff-mark--back {
+  transform: scaleX(-1);
+}
 html,
 body {
   margin: 0;

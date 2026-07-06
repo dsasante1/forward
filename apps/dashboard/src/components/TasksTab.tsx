@@ -408,7 +408,7 @@ function TaskDetail({
   return (
     <div className="tk-detail">
       <button type="button" className="tk-back" onClick={onBack}>
-        ← All tasks
+        <span className="ff-mark ff-mark--back" aria-hidden /> All tasks
       </button>
 
       <div className="tk-detail-grid">

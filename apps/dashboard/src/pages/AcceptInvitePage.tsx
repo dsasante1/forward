@@ -64,7 +64,7 @@ function Redeem({ token }: { token: string }) {
       <h2>You're in! 🎉</h2>
       <p className="muted">You've joined the project.</p>
       <Link className="link" to={`/app/projects/${state.projectId}`}>
-        Open the project →
+        Open the project <span className="ff-mark" aria-hidden />
       </Link>
     </div>
   );

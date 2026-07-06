@@ -96,12 +96,12 @@ export function DocsPage() {
             </a>
             <Show when="signed-out">
               <Link to="/sign-up" className="d-btn">
-                Start free →
+                Start free <span className="ff-mark" aria-hidden />
               </Link>
             </Show>
             <Show when="signed-in">
               <Link to="/app" className="d-btn">
-                Open app →
+                Open app <span className="ff-mark" aria-hidden />
               </Link>
             </Show>
           </div>
@@ -1112,6 +1112,79 @@ export function DocsPage() {
               docs current without a human writing them.
             </p>
 
+            <h3>Document endpoints from your CI/CD pipeline</h3>
+            <p>
+              The key to running documentation in CI is the in-code{" "}
+              <code className="d-code">@adc</code> anchor: a comment a developer
+              drops next to the code that implements a design element, pinning the
+              link in the source itself. Unlike fuzzy matching, an anchor is
+              unambiguous and re-runnable — exactly what an unattended pipeline
+              needs, with no confirm step.
+            </p>
+            <pre className="d-pre">
+              <code>
+                <span className="c">{"// @adc el_login_submit"}</span>
+                {"\n"}app.post(<span className="t">"/api/v1/login"</span>, loginHandler)
+              </code>
+            </pre>
+            <ol className="d-steps">
+              <li>
+                <strong>Anchor the code.</strong> As endpoints are built, tag each
+                handler with <code className="d-code">@adc &lt;elementId&gt;</code>{" "}
+                (any comment syntax works). The{" "}
+                <code className="d-code">resolve_anchors</code> tool scans changed
+                files and resolves every anchor to its design element.
+              </li>
+              <li>
+                <strong>Store a PAT as a pipeline secret.</strong> Mint a dedicated{" "}
+                <code className="d-code">fwd_pat_…</code> token (ideally for a
+                CI-bot member, so timeline authorship reads clearly) and expose it
+                as <code className="d-code">FORWARD_API_TOKEN</code> alongside{" "}
+                <code className="d-code">FORWARD_API_BASE_URL</code> and{" "}
+                <code className="d-code">FORWARD_PROJECT_ID</code>.
+              </li>
+              <li>
+                <strong>Run a headless agent on merge.</strong> Add a job on your
+                main branch that runs an MCP-capable agent with a prompt like:{" "}
+                <em>
+                  "For each changed file containing an @adc anchor, read the
+                  implementation and update its Forward documentation, with a
+                  one-line changeLog referencing the commit."
+                </em>{" "}
+                The agent resolves the anchors, reads existing docs with{" "}
+                <code className="d-code">get_documentation</code>, and writes with{" "}
+                <code className="d-code">write_documentation</code> — so only
+                touched, anchored endpoints are re-documented, and every update
+                lands in the element's version history.
+              </li>
+              <li>
+                <strong>Add guardrails.</strong> A PR-time check can run{" "}
+                <code className="d-code">resolve_anchors</code> and fail on anchors
+                pointing at deleted or mistyped elements, and a scheduled job can
+                post the <code className="d-code">get_catchup_digest</code> output
+                to chat so the frontend team sees what changed since their last
+                integration baseline.
+              </li>
+            </ol>
+            <pre className="d-pre">
+              <code>
+                <span className="c"># e.g. GitHub Actions — runs after merge to main</span>
+                {"\n"}docs-sync:
+                {"\n"}  steps:
+                {"\n"}    - run: claude -p <span className="t">"Update Forward docs for endpoints changed in this commit (use @adc anchors)"</span>
+                {"\n"}      env:
+                {"\n"}        FORWARD_API_BASE_URL: <span className="t">{"$"}{"{{ vars.FORWARD_API_BASE_URL }}"}</span>
+                {"\n"}        FORWARD_PROJECT_ID: <span className="t">{"$"}{"{{ vars.FORWARD_PROJECT_ID }}"}</span>
+                {"\n"}        FORWARD_API_TOKEN: <span className="t">{"$"}{"{{ secrets.FORWARD_API_TOKEN }}"}</span>
+              </code>
+            </pre>
+            <p>
+              The net effect: developers annotate code once with{" "}
+              <code className="d-code">@adc</code>, and every merge keeps the
+              canvas docs, version history and catch-up digest current — without
+              anyone opening the dashboard.
+            </p>
+
             <h3>Automate safely with scoped tokens</h3>
             <ul>
               <li>
@@ -1402,16 +1475,22 @@ export function DocsPage() {
         {/* ---------- right rail: resources ---------- */}
         <aside className="d-toc" aria-label="Resources">
           <p className="d-toc-h">Resources</p>
-          <Link to="/">← Back to home</Link>
+          <Link to="/">
+            <span className="ff-mark ff-mark--back" aria-hidden /> Back to home
+          </Link>
           <a href="#getting-started">Getting started</a>
           <a href="#vscode">VS Code extension</a>
           <a href="#agents">AI agents (MCP)</a>
           <a href="#workflow">Automation &amp; sync</a>
           <Show when="signed-out">
-            <Link to="/sign-up">Start free ↗</Link>
+            <Link to="/sign-up">
+              Start free <span className="ff-mark" aria-hidden />
+            </Link>
           </Show>
           <Show when="signed-in">
-            <Link to="/app">Open app ↗</Link>
+            <Link to="/app">
+              Open app <span className="ff-mark" aria-hidden />
+            </Link>
           </Show>
         </aside>
       </div>

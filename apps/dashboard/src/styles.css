@@ -36,6 +36,24 @@
   -webkit-font-smoothing: antialiased;
 }
 
+/* Inline brand glyph — the fast-forward mark used in place of arrow
+   characters (→ ← ↗) in links, buttons and list bullets. Tinted with
+   currentColor so it follows the surrounding text (incl. hover states). */
+.ff-mark {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  background: currentColor;
+  -webkit-mask: var(--brand-mask) center / contain no-repeat;
+  mask: var(--brand-mask) center / contain no-repeat;
+  vertical-align: -0.06em;
+  flex: none;
+}
+/* Mirrored = rewind, for "back" links. */
+.ff-mark--back {
+  transform: scaleX(-1);
+}
+
 /* ===================================================================== */
 /* Dark theme — warm, low-glare inversion of the editorial palette.       */
 /* Applied when the user forces dark (`[data-theme="dark"]`) or leaves the */
