@@ -2578,6 +2578,9 @@ function openElementMenu(
     });
   }
   ctxSep();
+  ctxItem(docsIcon(), el.apiBinding ? "Edit API docs" : "Add API docs", () =>
+    openApiDocsFor(id),
+  );
   if (el.type !== "component" && el.type !== "instance") {
     ctxItem(compIcon(), "Make component", makeComponent);
   }
@@ -2965,6 +2968,31 @@ function syncInspectorToggle(): void {
   if (!btn) return;
   btn.classList.toggle("active", inspectorOpen);
   btn.setAttribute("aria-pressed", String(inspectorOpen));
+}
+
+/** Context-menu "Add/Edit API docs": seed a minimal binding if the element has
+ * none (the same seed the panel's "Add documentation" button writes), open the
+ * inspector, and land focus in the docs section's title field. */
+function openApiDocsFor(id: string): void {
+  const el = elements.get(id);
+  if (!el) return;
+  if (!el.apiBinding) {
+    const updated = {
+      ...el,
+      apiBinding: { title: el.name || el.id, description: "" },
+      updatedAt: now(),
+    };
+    elements.set(id, updated);
+    void persistElement(updated);
+  }
+  if (!inspectorOpen) {
+    inspectorOpen = true;
+    syncInspectorToggle();
+  }
+  select(id); // render() repaints the canvas and rebuilds the drawer
+  const title = panel.querySelector<HTMLInputElement>(".panel-section--docs input");
+  title?.focus();
+  title?.select();
 }
 
 /** Show or hide the right drawer, collapsing its grid column when hidden so the

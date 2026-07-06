@@ -235,7 +235,7 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   const back = document.createElement("button");
   back.className = "tl2-back";
   back.type = "button";
-  back.append(span("←"), document.createTextNode("Timeline"));
+  back.append(span("", "ff-mark ff-mark--back"), document.createTextNode("Timeline"));
   back.addEventListener("click", () => {
     pickId = null;
     paint();

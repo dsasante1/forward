@@ -131,6 +131,7 @@ export function renderPanel(
   // --- API documentation (authored here in the canvas OR from VS Code; both
   //     write to the same apiBinding sub-tree, so either side can edit) ---
   const docs = section("API documentation");
+  docs.classList.add("panel-section--docs"); // targetable by the canvas's "Add API docs" context-menu action
   renderApiDocs(docs, el, onChange, onDocument);
   root.append(docs);
 

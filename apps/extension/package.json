@@ -4,7 +4,7 @@
   "version": "0.2.3",
   "type": "module",
   "publisher": "forward",
-  "description": "Annotate a shared design canvas from VS Code — document any API (any language/framework), draw infrastructure & sequence-flow diagrams, track tasks, and browse endpoint history. Synced to your team through the Forward server.",
+  "description": "Annotate a shared design canvas from VS Code — document any API (any language/framework), draw infrastructure & sequence-flow diagrams, track tasks, and browse endpoint history. Synced to your team through the Forward server — or automate it from CI via @adc anchors and the Forward MCP server.",
   "license": "UNLICENSED",
   "icon": "resources/icon.png",
   "repository": {
@@ -28,7 +28,10 @@
     "sequence-diagram",
     "tasks",
     "collaboration",
-    "code-connect"
+    "code-connect",
+    "mcp",
+    "ci",
+    "api-docs"
   ],
   "engines": {
     "vscode": "^1.85.0",

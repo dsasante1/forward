@@ -64,7 +64,7 @@ export function OrgDetailPage() {
   return (
     <div>
       <div onClick={() => nav("/organizations")} style={{ display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 11.5, letterSpacing: "0.06em", color: C.faint, cursor: "pointer", marginBottom: 20 }}>
-        ←&nbsp; ALL ORGANIZATIONS
+        <span className="ff-mark ff-mark--back" aria-hidden /> ALL ORGANIZATIONS
       </div>
 
       <States state={state} />

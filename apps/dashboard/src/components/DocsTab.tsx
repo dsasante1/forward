@@ -33,7 +33,7 @@ export function DocsTab({ projectId }: { projectId: string }) {
           onClick={() => openInCanvas()}
           title="Open this project on the web canvas"
         >
-          Open project in canvas ↗
+          Open project in canvas <span className="ff-mark" aria-hidden />
         </button>
       </div>
 
@@ -62,7 +62,7 @@ export function DocsTab({ projectId }: { projectId: string }) {
                   onClick={() => openInCanvas(el.id)}
                   title="Open this element on the web canvas"
                 >
-                  Open in canvas ↗
+                  Open in canvas <span className="ff-mark" aria-hidden />
                 </button>
               </div>
               {b.description && <p className="doc-desc">{b.description}</p>}

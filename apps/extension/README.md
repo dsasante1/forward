@@ -43,6 +43,31 @@ companion web canvas is where designers draw the UI.
 Sign out any time with **Forward: Sign Out**. The token grants exactly your own
 project access — every request is authenticated per-user by the server.
 
+## Automate documentation in your CI/CD
+
+The extension is the human surface; its headless sibling — the **Forward MCP
+server** — lets a pipeline agent do the same documentation work on merge, so
+docs stay current without anyone opening the dashboard.
+
+1. **Anchor your code.** Drop an `@adc <elementId>` comment next to the
+   handler that implements a design element (any comment syntax works):
+
+       // @adc el_login_submit
+       app.post("/api/v1/login", loginHandler)
+
+   The anchor pins the code↔element link in the source itself — unambiguous
+   and re-runnable, so an unattended pipeline needs no confirm step.
+2. **Give CI a token.** Mint a dedicated `fwd_pat_…` PAT (**Account →
+   Extension tokens**) and store it as a pipeline secret
+   (`FORWARD_API_TOKEN`), alongside `FORWARD_API_BASE_URL` and
+   `FORWARD_PROJECT_ID`.
+3. **Run an MCP-capable agent on merge** to resolve the anchors in changed
+   files and update each endpoint's docs. Every update lands in the element's
+   version history, and the canvas reflects it instantly.
+
+Full walkthrough — pipeline example and guardrails included:
+[Forward docs → Automation & sync](https://forward-dashboard.web.app/docs#workflow).
+
 ## License
 
 Proprietary. All rights reserved.

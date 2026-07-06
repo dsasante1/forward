@@ -66,12 +66,12 @@ export function LandingPage() {
         <div className="l-hero-cta">
           <Show when="signed-out">
             <Link className="l-btn l-btn-lg l-btn-dark" to="/sign-up">
-              Create your workspace <span className="l-arrow">→</span>
+              Create your workspace <span className="l-arrow ff-mark" aria-hidden />
             </Link>
           </Show>
           <Show when="signed-in">
             <Link className="l-btn l-btn-lg l-btn-dark" to="/app">
-              Go to your workspace <span className="l-arrow">→</span>
+              Go to your workspace <span className="l-arrow ff-mark" aria-hidden />
             </Link>
           </Show>
           <a className="l-btn l-btn-lg l-btn-outline" href="#capabilities">
@@ -410,15 +410,15 @@ export function LandingPage() {
             </p>
             <div className="l-checks">
               <div>
-                <span className="arr">→</span>
+                <span className="arr ff-mark" aria-hidden />
                 <span>Framework-agnostic — just a title and Markdown.</span>
               </div>
               <div>
-                <span className="arr">→</span>
+                <span className="arr ff-mark" aria-hidden />
                 <span>Syncs to the canvas the moment you save.</span>
               </div>
               <div>
-                <span className="arr">→</span>
+                <span className="arr ff-mark" aria-hidden />
                 <span>Resolve any element by id, without leaving the editor.</span>
               </div>
             </div>
@@ -920,12 +920,12 @@ export function LandingPage() {
             <div className="l-cta-actions">
               <Show when="signed-out">
                 <Link className="l-btn l-btn-lg l-btn-accent" to="/sign-up">
-                  Start free <span className="l-arrow">→</span>
+                  Start free <span className="l-arrow ff-mark" aria-hidden />
                 </Link>
               </Show>
               <Show when="signed-in">
                 <Link className="l-btn l-btn-lg l-btn-accent" to="/app">
-                  Open your workspace <span className="l-arrow">→</span>
+                  Open your workspace <span className="l-arrow ff-mark" aria-hidden />
                 </Link>
               </Show>
               <a className="l-btn l-btn-lg l-btn-ghost-light" href="#start">
