@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { Show, RedirectToSignIn } from "@clerk/react";
 import { Layout } from "./components/Layout.js";
 import { LandingPage } from "./pages/LandingPage.js";
+import { DocsPage } from "./pages/DocsPage.js";
 import { SignInPage } from "./pages/SignInPage.js";
 import { SignUpPage } from "./pages/SignUpPage.js";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage.js";
@@ -28,6 +29,9 @@ export default function App() {
     <Routes>
       {/* Public marketing surface. */}
       <Route path="/" element={<LandingPage />} />
+
+      {/* Public documentation. */}
+      <Route path="/docs" element={<DocsPage />} />
 
       {/* Clerk owns signup / login / reset / MFA / email verification. */}
       <Route path="/sign-in/*" element={<SignInPage />} />

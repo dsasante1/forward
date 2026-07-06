@@ -53,7 +53,7 @@ npm workspaces (Node >= 20; `.nvmrc` pins 22).
 | [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types + `paths`, the timeline/diff/infra/entity helpers, and **two data clients** — `rtdb-rest` (Firebase, used by MCP) and `api-rest` (the central server, exported as `forward-core/api`) |
 | [apps/server](apps/server) | — | Central backend API (NestJS · Prisma · Supabase Postgres · Clerk): auth, sign-up, tenancy, RBAC, invites, tokens, the realtime bus, and CRUD for every data layer |
 | [apps/dashboard](apps/dashboard) | `forward-dashboard` | React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members — and the host that embeds the canvas. Includes the org-admin portal |
-| [apps/canvas](apps/canvas) | `forward-canvas` | Figma-lite design editor, consumed **only as an embedded library** (`forward-canvas/embed`). Renders timeline/infra/ER diagrams via Mermaid |
+| [apps/canvas](apps/canvas) | `forward-canvas` | design editor, consumed **only as an embedded library** (`forward-canvas/embed`). Renders timeline/infra/ER diagrams via Mermaid |
 | [apps/extension](apps/extension) | `forward-vscode` | VS Code extension: pick a design element → write API/infra/flow/task docs onto it. Talks to the central server with a Clerk session token |
 | [apps/mcp](apps/mcp) | `forward-mcp` | MCP server giving any AI agent full parity with the canvas (~30 tools). Still syncs through Firebase RTDB |
 | [apps/admin](apps/admin) | `forward-admin` | Platform-admin SPA — cross-tenant staff console (overview, orgs, users, projects, billing, audit) |

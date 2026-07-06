@@ -1,8 +1,7 @@
 # Forward — VS Code Extension
 
 Document your API endpoints (any language/framework) directly onto design
-elements drawn on a visual canvas — a developer-first alternative to Figma Code
-Connect.
+elements drawn on a visual canvas.
 
 ## What it does
 
