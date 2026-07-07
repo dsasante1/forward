@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Show } from "@clerk/react";
+import { BackToTop } from "../components/BackToTop";
 import "../landing.css";
 
 /**
@@ -956,6 +957,7 @@ export function LandingPage() {
           <span className="l-footer-copy">© {new Date().getFullYear()} Forward</span>
         </div>
       </footer>
+      <BackToTop />
     </div>
   );
 }

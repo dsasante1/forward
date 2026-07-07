@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Show } from "@clerk/react";
+import { BackToTop } from "../components/BackToTop";
 import "../docs.css";
 
 /**
@@ -111,20 +112,25 @@ export function DocsPage() {
       <div className="d-shell">
         {/* ---------- left sidebar ---------- */}
         <aside className="d-side" aria-label="Documentation sections">
-          {NAV.map((g) => (
-            <div className="d-side-group" key={g.group}>
-              <p className="d-side-group-h">{g.group}</p>
-              {g.items.map((it) => (
-                <a
-                  key={it.id}
-                  href={`#${it.id}`}
-                  className={`d-side-link${active === it.id ? " active" : ""}`}
-                >
-                  {it.label}
-                </a>
+          <details className="d-nav-collapse">
+            <summary className="d-side-summary">Documentation menu</summary>
+            <div className="d-side-body">
+              {NAV.map((g) => (
+                <div className="d-side-group" key={g.group}>
+                  <p className="d-side-group-h">{g.group}</p>
+                  {g.items.map((it) => (
+                    <a
+                      key={it.id}
+                      href={`#${it.id}`}
+                      className={`d-side-link${active === it.id ? " active" : ""}`}
+                    >
+                      {it.label}
+                    </a>
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
+          </details>
         </aside>
 
         {/* ---------- content ---------- */}
@@ -1494,6 +1500,29 @@ export function DocsPage() {
           </Show>
         </aside>
       </div>
+
+      {/* ---------- footer ---------- */}
+      <footer className="d-footer">
+        <div className="d-footer-inner">
+          <div className="d-footer-line" />
+          <div className="d-footer-row">
+            <Link to="/" className="d-footer-brand">
+              <span className="d-footer-mark" aria-hidden />
+              <span className="d-footer-nm">FORWARD</span>
+            </Link>
+            <nav className="d-footer-links" aria-label="Footer">
+              <a href="#getting-started">Getting started</a>
+              <a href="#concepts">Core concepts</a>
+              <a href="#vscode">VS Code extension</a>
+              <a href="#agents">AI agents</a>
+              <a href="#reference">Reference</a>
+              <Link to="/">Home</Link>
+            </nav>
+            <span className="d-footer-copy">© {new Date().getFullYear()} Forward</span>
+          </div>
+        </div>
+      </footer>
+      <BackToTop />
     </div>
   );
 }

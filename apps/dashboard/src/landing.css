@@ -50,7 +50,10 @@
   opacity: 0.7;
   z-index: 0;
 }
-.landing > *:not(.l-dotgrid) {
+/* Give the flow content its own stacking layer above the dotgrid. The
+   floating back-to-top button is excluded so it keeps `position: fixed`
+   (this rule would otherwise override it to `relative`). */
+.landing > *:not(.l-dotgrid):not(.back-to-top) {
   position: relative;
   z-index: 1;
 }
