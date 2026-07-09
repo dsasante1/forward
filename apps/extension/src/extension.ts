@@ -12,6 +12,7 @@ import {
   digest,
   flattenTimelines,
   newTask,
+  withoutBinding,
   type ApiBinding,
   type CheckpointInput,
   type CurrentLabel,
@@ -1454,7 +1455,7 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
 
   // --- write side: dispatch a bridge RPC to the matching server call ------
   const rpcHandlers: Record<string, (args: unknown[]) => Promise<unknown>> = {
-    saveElement: ([el]) => saveElement(cfg, el as DesignElement),
+    saveElement: ([el]) => saveElement(cfg, withoutBinding(el as DesignElement)),
     documentElement: ([id, binding, version]) =>
       bindApiToElement(cfg, id as string, binding as ApiBinding, {
         ...(version as { version: string; changeLog: string; action: "created" | "modified" }),

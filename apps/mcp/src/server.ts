@@ -24,6 +24,7 @@ import {
   flowToMermaid,
   infraToComponentMermaid,
   newTask,
+  withoutBinding,
   type CurrentLabel,
 } from "forward-core";
 import {
@@ -1080,7 +1081,7 @@ server.registerTool(
         height: height ?? 40,
         updatedAt: new Date().toISOString(),
       });
-      await saveElement(getConfig(), element);
+      await saveElement(getConfig(), withoutBinding(element));
       return ok({ id: element.id, type: element.type, action: "created" });
     } catch (err) {
       return fail((err as Error).message);

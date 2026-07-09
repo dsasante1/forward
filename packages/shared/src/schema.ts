@@ -152,6 +152,14 @@ export const DesignElement = z.object({
   width: z.number().nonnegative(),
   height: z.number().nonnegative(),
   parentId: z.string().nullable().default(null),
+  /**
+   * Stacking order among siblings: higher `z` paints later, i.e. on top. The
+   * canvas assigns it at creation (and on bring-to-front / send-to-back) so the
+   * true z-order is persisted rather than left implicit in load order — every
+   * surface that reconstructs the design (canvas render, layers tree, history
+   * previews) sorts by it. Defaults to 0 so pre-`z` records still parse.
+   */
+  z: z.number().default(0),
   text: z.string().max(LONG_TEXT_MAX).optional(),
   style: Style.optional(),
   /** Rotation in degrees, clockwise, about the element's center. */
@@ -164,6 +172,82 @@ export const DesignElement = z.object({
   updatedAt: z.string().datetime(),
 });
 export type DesignElement = z.infer<typeof DesignElement>;
+
+/**
+ * A design element as accepted by the writer clients' `saveElement`: the full
+ * element MINUS `apiBinding`. The central server owns the binding through
+ * `bind()`/`unbind()` (so it can version it) and deliberately ignores any binding
+ * sent via `saveElement`. Encoding that here turns "don't persist a binding
+ * through saveElement" from a comment (which drifts) into a **compile error** at
+ * every call site — the guard that would have caught the Firebase→server
+ * migration silently dropping seeded docs. `apiBinding?: never` rather than a bare
+ * `Omit` so passing a *bound* element is rejected structurally, not silently
+ * widened away.
+ */
+export type SaveableElement = Omit<DesignElement, "apiBinding"> & {
+  apiBinding?: never;
+};
+
+/**
+ * Drop the binding so an element can legally go through `saveElement` (see
+ * {@link SaveableElement}). Use at the call site to make the intent explicit:
+ * geometry/style is saved here; documentation is saved via `bind()`/`unbind()`.
+ */
+export function withoutBinding(element: DesignElement): SaveableElement {
+  const { apiBinding: _drop, ...rest } = element;
+  return rest;
+}
+
+/**
+ * Total order for stacking two design elements *within the same parent*: lower
+ * `z` first (so a higher `z` paints later = on top). Ties fall back to text-last
+ * — a label is never hidden behind an equal-`z` fill, which also keeps pre-`z`
+ * snapshots (whose elements all default to `z = 0`) legible — then id, so the
+ * order is deterministic and identical across every surface.
+ */
+export function compareStacking(a: DesignElement, b: DesignElement): number {
+  if (a.z !== b.z) return a.z - b.z;
+  const at = a.type === "text" ? 1 : 0;
+  const bt = b.type === "text" ? 1 : 0;
+  if (at !== bt) return at - bt;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+/**
+ * The canonical paint/stacking order for a flat set of design elements:
+ * depth-first pre-order (each element immediately followed by its own subtree,
+ * so a parent always paints *under* its children) with siblings sorted by
+ * {@link compareStacking}. This is the single source of truth for "what draws on
+ * top of what" — the canvas renders in it, the layers tree lists it, and the
+ * history/checkpoint previews reuse it, so every surface agrees. An element whose
+ * parent isn't in the set is treated as a root; a `parentId` cycle can neither
+ * drop nor loop an element.
+ */
+export function paintOrder(elements: DesignElement[]): DesignElement[] {
+  const present = new Set(elements.map((e) => e.id));
+  const childrenByParent = new Map<string | null, DesignElement[]>();
+  for (const el of elements) {
+    const key = el.parentId && present.has(el.parentId) ? el.parentId : null;
+    const list = childrenByParent.get(key);
+    if (list) list.push(el);
+    else childrenByParent.set(key, [el]);
+  }
+  for (const list of childrenByParent.values()) list.sort(compareStacking);
+  const out: DesignElement[] = [];
+  const seen = new Set<string>();
+  const visit = (key: string | null): void => {
+    for (const el of childrenByParent.get(key) ?? []) {
+      if (seen.has(el.id)) continue; // guard against a parentId cycle
+      seen.add(el.id);
+      out.push(el);
+      visit(el.id);
+    }
+  };
+  visit(null);
+  // Defensive: an element unreachable from any root (e.g. a cycle) still surfaces.
+  for (const el of elements) if (!seen.has(el.id)) out.push(el);
+  return out;
+}
 
 // --------------------------------------------------------------------------
 // Infrastructure layer (the architecture diagram — pillar 3)

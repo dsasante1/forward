@@ -595,7 +595,10 @@ function checkpointBody(d: CheckpointDetail): HTMLElement {
 function previewEl(preview: DesignPreview): HTMLElement {
   const wrap = div("tl2-preview");
   const els = preview.elements;
-  const b = boundsOf(els);
+  // A text element's stored box is its anchor, not its rendered width — long
+  // labels overflow it. Bound against an estimate of the glyphs' extent so the
+  // SVG viewport doesn't clip a label (e.g. "upload file here") at its edge.
+  const b = boundsOf(els.map(textAwareBox));
   const pad = Math.max(8, Math.max(b.w, b.h) * 0.06);
   const view = svgNode("svg", {
     viewBox: `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}`,
@@ -627,6 +630,28 @@ interface Box {
   w: number;
   h: number;
 }
+/**
+ * A box big enough to contain an element's *rendered* form. For text, the
+ * stored width is just the anchor box, so estimate the glyph run (~0.6em/char)
+ * and line height — otherwise a long label overflows the fitted viewBox and the
+ * SVG clips it. Non-text elements are returned unchanged.
+ */
+function textAwareBox(
+  el: DesignPreview["elements"][number],
+): { x: number; y: number; width: number; height: number } {
+  if (el.type !== "text") {
+    return { x: el.x, y: el.y, width: el.width, height: el.height };
+  }
+  const fontSize = el.style?.fontSize ?? 14;
+  const chars = (el.text ?? "").length;
+  return {
+    x: el.x,
+    y: el.y,
+    width: Math.max(el.width, chars * fontSize * 0.6),
+    height: Math.max(el.height, fontSize * 1.3),
+  };
+}
+
 function boundsOf(els: { x: number; y: number; width: number; height: number }[]): Box {
   let minX = Infinity;
   let minY = Infinity;

@@ -68,36 +68,52 @@ export function renderPanel(
   styleSec.append(
     fieldCell("Name", textInput(el.name, (v) => onChange({ name: v }))),
   );
-  if (el.type === "text" || el.text !== undefined) {
-    styleSec.append(
-      fieldCell("Text", textInput(el.text ?? "", (v) => onChange({ text: v }))),
-    );
-  }
-  const border = borderControl(style, onChange);
+  // Any element can carry a text label — a text element's content, or a label
+  // centered on a rectangle/ellipse/frame. A textarea (not a single-line input)
+  // so newlines can be typed here too; it writes the same `\n`-bearing text the
+  // on-canvas inline editor does.
   styleSec.append(
-    fieldGrid([
-      fieldCell(
-        "Fill",
-        colorField(style.fill ?? "", (v) => onChange({ style: { ...style, fill: v } })),
-      ),
-      fieldCell(
-        "Stroke",
-        colorField(style.stroke ?? "", (v) =>
-          onChange({ style: { ...style, stroke: v } }),
-        ),
-      ),
-      fieldCell(
-        "Border",
-        selectInput(
-          style.strokeStyle ?? "solid",
-          ["solid", "dashed", "dotted"],
-          (v) => onChange({ style: { ...style, strokeStyle: v as StrokeStyle } }),
-        ),
-      ),
-      border.cell,
-    ]),
+    fieldCell("Text", textAreaInput(el.text ?? "", (v) => onChange({ text: v }))),
   );
-  styleSec.append(border.grid);
+  if (el.type === "text") {
+    // A text element has no fill/stroke/border — its single colour is the glyph
+    // colour (`style.color`). Falling back to `fill` picks up any colour set
+    // before this dedicated control existed.
+    styleSec.append(
+      fieldCell(
+        "Color",
+        colorField(style.color ?? style.fill ?? "", (v) =>
+          onChange({ style: { ...style, color: v } }),
+        ),
+      ),
+    );
+  } else {
+    const border = borderControl(style, onChange);
+    styleSec.append(
+      fieldGrid([
+        fieldCell(
+          "Fill",
+          colorField(style.fill ?? "", (v) => onChange({ style: { ...style, fill: v } })),
+        ),
+        fieldCell(
+          "Stroke",
+          colorField(style.stroke ?? "", (v) =>
+            onChange({ style: { ...style, stroke: v } }),
+          ),
+        ),
+        fieldCell(
+          "Border",
+          selectInput(
+            style.strokeStyle ?? "solid",
+            ["solid", "dashed", "dotted"],
+            (v) => onChange({ style: { ...style, strokeStyle: v as StrokeStyle } }),
+          ),
+        ),
+        border.cell,
+      ]),
+    );
+    styleSec.append(border.grid);
+  }
   if (el.type === "text") {
     styleSec.append(
       fieldCell(
@@ -874,6 +890,22 @@ function textRow(
   readOnly = false,
 ): HTMLElement {
   return row(label, textInput(value, onChange, readOnly));
+}
+
+/** A multiline `<textarea>` sized for the floating-label cells — used for the
+ * design Text field so `\n`s can be entered. Grows to fit its content. */
+function textAreaInput(
+  value: string,
+  onChange: (v: string) => void,
+  readOnly = false,
+): HTMLTextAreaElement {
+  const ta = document.createElement("textarea");
+  ta.className = "fld-textarea";
+  ta.rows = Math.min(Math.max(value.split("\n").length, 1), 6);
+  ta.value = value;
+  ta.disabled = readOnly;
+  ta.addEventListener("change", () => onChange(ta.value));
+  return ta;
 }
 
 /** Normalize a stored color to the `#rrggbb` a native color input requires;
