@@ -4111,6 +4111,14 @@ var DesignElement = external_exports.object({
   width: external_exports.number().nonnegative(),
   height: external_exports.number().nonnegative(),
   parentId: external_exports.string().nullable().default(null),
+  /**
+   * Stacking order among siblings: higher `z` paints later, i.e. on top. The
+   * canvas assigns it at creation (and on bring-to-front / send-to-back) so the
+   * true z-order is persisted rather than left implicit in load order — every
+   * surface that reconstructs the design (canvas render, layers tree, history
+   * previews) sorts by it. Defaults to 0 so pre-`z` records still parse.
+   */
+  z: external_exports.number().default(0),
   text: external_exports.string().max(LONG_TEXT_MAX).optional(),
   style: Style.optional(),
   /** Rotation in degrees, clockwise, about the element's center. */

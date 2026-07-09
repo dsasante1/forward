@@ -13,6 +13,7 @@ import {
   ProjectInvite,
   ProjectRole,
   ProjectTimelineEvent,
+  type SaveableElement,
   Task,
   VersionEntry,
 } from "./schema.js";
@@ -121,12 +122,14 @@ export async function fetchElements(cfg: ApiConfig): Promise<DesignElement[]> {
   return parseAll(raw, DesignElement);
 }
 
-/** Upsert a whole element. Returns the server's persisted copy, whose
- * server-owned fields (`updatedAt`, and `author` where applicable) supersede
- * the values the client sent — the caller should adopt it as authoritative. */
+/** Upsert an element's geometry/style — NOT its `apiBinding` (the server owns
+ * that via bind()/unbind(); the `SaveableElement` param makes sending one a
+ * compile error). Returns the server's persisted copy, whose server-owned fields
+ * (`updatedAt`, and `author` where applicable) supersede the values the client
+ * sent — the caller should adopt it as authoritative. */
 export async function saveElement(
   cfg: ApiConfig,
-  element: DesignElement,
+  element: SaveableElement,
 ): Promise<DesignElement> {
   return request<DesignElement>(
     cfg,

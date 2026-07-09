@@ -1,4 +1,5 @@
 import { flowToMermaid, infraToComponentMermaid } from "./infra-flow.js";
+import { compareStacking, paintOrder } from "./schema.js";
 import type {
   Checkpoint,
   CheckpointChange,
@@ -528,16 +529,19 @@ function composeFrom(rootId: string, byId: Map<string, DesignElement>): DesignEl
     if (arr) arr.push(el);
     else childrenByParent.set(el.parentId, [el]);
   }
-  const out: DesignElement[] = [root];
-  const stack = [rootId];
-  for (;;) {
-    const id = stack.pop();
-    if (id === undefined) break;
-    for (const child of childrenByParent.get(id) ?? []) {
-      out.push(child);
-      stack.push(child.id);
-    }
-  }
+  // Depth-first, siblings in stacking order (low `z` painted first = underneath),
+  // so a nested preview stacks exactly as the canvas does. `seen` guards against a
+  // parentId cycle (corrupt data) recursing forever — matching `paintOrder`.
+  const out: DesignElement[] = [];
+  const seen = new Set<string>();
+  const visit = (el: DesignElement): void => {
+    if (seen.has(el.id)) return;
+    seen.add(el.id);
+    out.push(el);
+    const kids = [...(childrenByParent.get(el.id) ?? [])].sort(compareStacking);
+    for (const child of kids) visit(child);
+  };
+  visit(root);
   return out;
 }
 
@@ -606,7 +610,7 @@ function checkpointDetail(row: HistoryRow, src: HistorySources): CheckpointDetai
     ...(cp.snapshot.elements.length
       ? {
           preview: {
-            elements: cp.snapshot.elements,
+            elements: paintOrder(cp.snapshot.elements),
             basis: { kind: "checkpoint", label: cp.title, at },
           },
         }

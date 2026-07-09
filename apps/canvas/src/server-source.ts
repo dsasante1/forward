@@ -13,6 +13,7 @@ import type {
   ProjectRole,
   ProjectTimelineEvent,
   RealtimeResource,
+  SaveableElement,
   Task,
 } from "forward-core";
 import * as api from "forward-core/api";
@@ -349,7 +350,7 @@ export class ServerSource implements CanvasSource {
     return { nodes, edges, flows };
   }
 
-  async saveElement(element: DesignElement): Promise<DesignElement> {
+  async saveElement(element: SaveableElement): Promise<DesignElement> {
     return api.saveElement(await this.cfg(), element);
   }
 
@@ -365,6 +366,18 @@ export class ServerSource implements CanvasSource {
       changeLog: version.changeLog,
       action: version.action,
       author: "canvas",
+    });
+  }
+
+  async undocumentElement(
+    elementId: string,
+    version: { version: string; changeLog: string; title?: string },
+  ): Promise<void> {
+    await api.unbindApiFromElement(await this.cfg(), elementId, {
+      version: version.version,
+      changeLog: version.changeLog,
+      author: "canvas",
+      ...(version.title ? { endpoint: { title: version.title } } : {}),
     });
   }
 

@@ -11,6 +11,7 @@ import {
   McpServerNode,
   ProjectMember,
   ProjectRole,
+  type SaveableElement,
   Task,
   type VersionDiff,
   VersionEntry,
@@ -227,8 +228,10 @@ export function descendantIds(
  */
 export async function saveElement(
   cfg: FirebaseConfig,
-  element: DesignElement,
+  element: SaveableElement,
 ): Promise<DesignElement> {
+  // Twin of the server client: `apiBinding` is owned by bind()/unbind(), so it's
+  // excluded at the type level and never written here (parse re-defaults it away).
   const body = DesignElement.parse({
     ...element,
     updatedAt: new Date().toISOString(),

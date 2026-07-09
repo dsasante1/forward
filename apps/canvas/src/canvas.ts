@@ -23,6 +23,8 @@ import {
   flowToMermaid,
   infraViewToMermaid,
   newTask,
+  paintOrder,
+  withoutBinding,
 } from "forward-core";
 import type {
   AgentSnapshot,
@@ -81,6 +83,9 @@ const SKELETON = `
         <span id="zoomLabel">100%</span>
         <button id="zoomIn" title="Zoom in">+</button>
         <button id="zoomFit" title="Fit to content">Fit</button>
+        <button id="edgeScrollToggle" type="button" aria-pressed="true">
+          <svg class="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 12 3 15 6"></polyline><polyline points="9 18 12 21 15 18"></polyline><polyline points="6 9 3 12 6 15"></polyline><polyline points="18 9 21 12 18 15"></polyline><line x1="12" y1="3" x2="12" y2="21"></line><line x1="3" y1="12" x2="21" y2="12"></line><line class="es-slash" x1="4" y1="20" x2="20" y2="4"></line></svg>
+        </button>
       </div>
       <button id="backpill" class="fwd-backpill" type="button" hidden>
         <span class="fwd-backarrow">&larr;</span><span>Back to project</span>
@@ -132,6 +137,7 @@ export interface CanvasHandle {
 let uiRoot: ShadowRoot;
 let source!: CanvasSource;
 let svg!: SVGSVGElement;
+let stageEl!: HTMLElement;
 let panel!: HTMLElement;
 let toolbar!: HTMLElement;
 let zoomLabel: HTMLElement | null = null;
@@ -191,8 +197,10 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   focusApplied = false;
   themeStorageKey = opts.projectId ? `fwd-theme:${opts.projectId}` : null;
   loadTheme();
+  loadHoverScrollPref();
 
   svg = uiRoot.querySelector("#canvas") as unknown as SVGSVGElement;
+  stageEl = uiRoot.querySelector("#stage") as HTMLElement;
   panel = uiRoot.querySelector("#panel") as HTMLElement;
   toolbar = uiRoot.querySelector("#toolbar") as HTMLElement;
   zoomLabel = uiRoot.querySelector("#zoomLabel") as HTMLElement | null;
@@ -294,6 +302,13 @@ function destroy(): void {
     clearTimeout(retryTimer);
     retryTimer = undefined;
   }
+  // Commit any in-flight inline text edit so the user's typing isn't silently
+  // lost on unmount; a no-op (and clears the stale ref) when nothing is open.
+  finishTextEdit(false);
+  // Stop the animation loops so a hover-scroll or camera glide can't keep
+  // painting into the torn-down shadow root after we detach it.
+  stopEdgeScroll();
+  cancelViewAnim();
   uiRoot?.replaceChildren();
 }
 
@@ -346,6 +361,29 @@ type DocVersion = { version: string; changeLog: string; action: "created" | "mod
 const inflightDocs = new Set<string>();
 const failedDocs = new Map<string, { binding: ApiBinding; version: DocVersion }>();
 const docSeq = new Map<string, number>();
+/**
+ * Elements whose apiBinding has uncommitted local edits — seeded by "Add
+ * documentation" or edited in the panel but not yet committed via "Save
+ * documentation". The server owns bindings through bind()/unbind() and strips any
+ * binding sent via saveElement, so these edits live only on the client until
+ * saved; the ids mark them so the poll loop and write-adopt keep the LOCAL binding
+ * instead of the server's copy. Cleared once committed (bind) or removed.
+ */
+const unsavedDocIds = new Set<string>();
+/**
+ * Subset of `unsavedDocIds` whose binding was NEVER committed (a fresh seed on a
+ * previously-undocumented element). Removing one of these needs no server unbind
+ * — there's nothing on the server to remove — whereas removing a committed
+ * binding must call unbind() to drop it and record the deletion.
+ */
+const draftDocIds = new Set<string>();
+/** While a binding has uncommitted local edits, the local copy wins over the
+ * server's — so a poll or write-adopt can't revert an in-progress edit/draft. */
+function preserveUnsavedDoc(incoming: DesignElement): DesignElement {
+  if (!unsavedDocIds.has(incoming.id)) return incoming;
+  const local = elements.get(incoming.id);
+  return local?.apiBinding ? { ...incoming, apiBinding: local.apiBinding } : incoming;
+}
 /** Ids deleted while a save was still in flight: the in-flight upsert may land
  * after the delete and resurrect the row, so its resolution issues a
  * compensating delete instead of adopting the server copy. */
@@ -375,6 +413,7 @@ let tool: Tool = "select";
 let selectedId: string | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
 let showDocs = true; // show/hide the minimized API indicators on documented elements
+let hoverScrollEnabled = true; // bare-cursor edge auto-scroll (drag-scroll is always on)
 let showInfra = false; // show/hide the infrastructure diagram overlay
 let showEntities = false; // show/hide the ER (data-model) diagram overlay
 let showTimeline = false; // show/hide the project endpoint-timeline panel
@@ -427,6 +466,13 @@ let saveDraft: { title: string; description: string; tag: CheckpointTag } = {
 let zoom = 1;
 let panX = 0;
 let panY = 0;
+/** rAF handle for an in-flight viewport tween (centering on a layer); null when idle. */
+let viewAnimFrame: number | null = null;
+
+// Inline text editing: the id of the element currently open in the overlaid
+// <textarea> (its glyph is suppressed while it is), and the textarea itself.
+let editingTextId: string | null = null;
+let textEditor: HTMLTextAreaElement | null = null;
 // The infra overlay rides on its own translation (in world units, inside the
 // zoomed viewport) so it can be dragged clear of the design without panning —
 // or moving — the design beneath it.
@@ -452,6 +498,118 @@ type Gesture =
 let gesture: Gesture | null = null;
 let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 
+// ---- edge auto-scroll ---------------------------------------------------
+// Pan the canvas toward a viewport edge the pointer is near, so off-screen
+// designs scroll into view. Works two ways: while dragging content (the dragged
+// item is carried into the newly-revealed area) and on a bare hover with nothing
+// grabbed (just the view moves). Distinct from the `pan` gestures, which *are*
+// the scroll.
+const EDGE_SCROLL_MARGIN = 48; // px from an edge where auto-scroll begins
+const EDGE_SCROLL_MAX_SPEED = 20; // px/frame at (or past) the very edge
+let edgeScrollRAF: number | null = null;
+let edgeScrollVX = 0;
+let edgeScrollVY = 0;
+// Last pointer position of the in-flight drag, so the loop can keep tracking the
+// dragged item against the moving world even when the pointer is held still.
+let edgeDragClientX = 0;
+let edgeDragClientY = 0;
+let edgeDragShift = false;
+
+/** Gestures that drag content and should trigger edge auto-scroll (rotate stays
+ * in place, and the pan gestures are themselves the scroll). */
+function isDragGesture(g: Gesture): boolean {
+  return (
+    g.kind === "move" ||
+    g.kind === "resize" ||
+    g.kind === "create" ||
+    g.kind === "infra-move" ||
+    g.kind === "entity-move"
+  );
+}
+
+/** Ramp from 0 at the margin to max speed at (or past) the edge. */
+function edgeSpeed(dist: number): number {
+  const t = Math.max(0, Math.min(1, 1 - dist / EDGE_SCROLL_MARGIN));
+  return t * EDGE_SCROLL_MAX_SPEED;
+}
+
+/** Recompute the auto-scroll velocity from the pointer's distance to each edge,
+ * starting or stopping the animation loop as needed. */
+function updateEdgeScroll(
+  clientX: number,
+  clientY: number,
+  shiftKey: boolean,
+  box: DOMRect = svg.getBoundingClientRect(),
+): void {
+  edgeDragClientX = clientX;
+  edgeDragClientY = clientY;
+  edgeDragShift = shiftKey;
+  const rightDist = box.right - clientX;
+  const leftDist = clientX - box.left;
+  const botDist = box.bottom - clientY;
+  const topDist = clientY - box.top;
+  edgeScrollVX =
+    rightDist < EDGE_SCROLL_MARGIN
+      ? edgeSpeed(rightDist)
+      : leftDist < EDGE_SCROLL_MARGIN
+        ? -edgeSpeed(leftDist)
+        : 0;
+  edgeScrollVY =
+    botDist < EDGE_SCROLL_MARGIN
+      ? edgeSpeed(botDist)
+      : topDist < EDGE_SCROLL_MARGIN
+        ? -edgeSpeed(topDist)
+        : 0;
+  if ((edgeScrollVX !== 0 || edgeScrollVY !== 0) && edgeScrollRAF === null) {
+    edgeScrollRAF = requestAnimationFrame(edgeScrollTick);
+  }
+}
+
+function edgeScrollTick(): void {
+  edgeScrollRAF = null;
+  if (edgeScrollVX === 0 && edgeScrollVY === 0) return;
+  // Pan the world opposite the velocity so content near the edge slides into view.
+  panX -= edgeScrollVX;
+  panY -= edgeScrollVY;
+  // Mid-drag, re-apply the gesture from the held pointer position so the dragged
+  // item stays under the cursor as the world scrolls beneath it; on a bare hover
+  // there's nothing to carry, so just repaint at the new pan.
+  if (gesture) {
+    applyGesture({ clientX: edgeDragClientX, clientY: edgeDragClientY, shiftKey: edgeDragShift });
+  } else {
+    render();
+  }
+  edgeScrollRAF = requestAnimationFrame(edgeScrollTick);
+}
+
+function stopEdgeScroll(): void {
+  edgeScrollVX = 0;
+  edgeScrollVY = 0;
+  if (edgeScrollRAF !== null) {
+    cancelAnimationFrame(edgeScrollRAF);
+    edgeScrollRAF = null;
+  }
+}
+
+// Hover-scroll is an input-ergonomics preference, not project data, so it's saved
+// per-user under one global key rather than per-project like the theme.
+const HOVER_SCROLL_KEY = "fwd:hoverScroll";
+function loadHoverScrollPref(): void {
+  try {
+    const raw = window.localStorage.getItem(HOVER_SCROLL_KEY);
+    if (raw !== null) hoverScrollEnabled = raw !== "0";
+  } catch {
+    // Blocked/private-mode storage: keep the in-memory default (enabled).
+  }
+}
+function saveHoverScrollPref(): void {
+  try {
+    window.localStorage.setItem(HOVER_SCROLL_KEY, hoverScrollEnabled ? "1" : "0");
+  } catch {
+    // Storage unavailable — the preference stays in-memory for this session.
+  }
+}
+
 // ---- optimistic writes --------------------------------------------------
 /** Persist an element optimistically. The element is shielded from the poll
  * loop (added to `inflightWrites`) until the server confirms the write, so a
@@ -464,7 +622,10 @@ async function persistElement(el: DesignElement): Promise<void> {
   inflightWrites.add(el.id);
   failedWrites.delete(el.id);
   try {
-    const saved = await source.saveElement(el);
+    // Geometry/style only — the binding is owned by documentElement/undocument
+    // (withoutBinding makes that explicit and keeps the server from silently
+    // dropping a binding this path never persists anyway).
+    const saved = await source.saveElement(withoutBinding(el));
     // The element was deleted while this write was in flight — the upsert may
     // have just resurrected the row, so undo it and drop the shield.
     if (pendingDeletes.has(el.id)) {
@@ -482,7 +643,8 @@ async function persistElement(el: DesignElement): Promise<void> {
     // Adopt the server's persisted copy: its server-owned fields (updatedAt,
     // author) supersede our optimistic values, so a later poll sees no diff and
     // we stay converged instead of holding a stale local timestamp forever.
-    elements.set(el.id, saved);
+    // `preserveUnsavedDoc` keeps an uncommitted binding draft the server strips.
+    elements.set(el.id, preserveUnsavedDoc(saved));
     if (selectedId === el.id) render(); // refresh the inspector's metadata
   } catch (err) {
     console.warn("[canvas] element save failed; will retry on reconnect:", err);
@@ -516,12 +678,44 @@ async function persistDoc(
     if (docSeq.get(id) !== seq) return "superseded";
     docSeq.delete(id);
     inflightDocs.delete(id);
+    unsavedDocIds.delete(id); // the draft is now committed server-side
+    draftDocIds.delete(id);
+    // Our own write won't echo back through realtime for up to a poll interval
+    // (30s when realtime is attached) — refresh the History timeline and the
+    // per-element version list at once so the save shows up immediately.
+    source.notifyChange?.("timeline");
     return "saved";
   } catch (err) {
     console.warn("[canvas] doc save failed; will retry on reconnect:", err);
     if (docSeq.get(id) !== seq) return "superseded";
     failedDocs.set(id, { binding, version }); // stays shielded until a retry succeeds
     scheduleRetry();
+    return "queued";
+  }
+}
+
+/** Persist a documentation *removal* (unbind + a "deleted" version entry),
+ * shielded like a doc save so a poll can't restore the binding mid-flight. */
+async function persistUndoc(id: string, title: string): Promise<"saved" | "queued"> {
+  const undoc = source.undocumentElement?.bind(source);
+  if (!undoc) return "queued"; // source can't unbind — local removal only
+  const seq = (docSeq.get(id) ?? 0) + 1;
+  docSeq.set(id, seq);
+  inflightDocs.add(id);
+  const version = `v${(timelines.get(id) ?? []).length + 1}`;
+  try {
+    await undoc(id, { version, changeLog: "Removed API documentation", title });
+    if (docSeq.get(id) !== seq) return "saved";
+    docSeq.delete(id);
+    inflightDocs.delete(id);
+    source.notifyChange?.("timeline"); // reflect the removal in History at once
+    return "saved";
+  } catch (err) {
+    console.warn("[canvas] doc removal failed:", err);
+    if (docSeq.get(id) === seq) {
+      docSeq.delete(id);
+      inflightDocs.delete(id); // unshield so the poll can reconcile
+    }
     return "queued";
   }
 }
@@ -587,7 +781,7 @@ function subscribeAll(): void {
         // shielded it has already ended by the time the write lands). A pending
         // doc save shields too — it owns the binding and the timeline entry.
         if (inflightWrites.has(s.element.id) || inflightDocs.has(s.element.id)) continue;
-        elements.set(s.element.id, s.element);
+        elements.set(s.element.id, preserveUnsavedDoc(s.element));
         timelines.set(s.element.id, s.timeline);
       }
       render();
@@ -1712,8 +1906,29 @@ function depthOf(el: DesignElement): number {
   return d;
 }
 
+/**
+ * The design tree in paint/stacking order: depth-first pre-order with siblings
+ * sorted by their stored `z`, so every layer sits directly under its frame in the
+ * DESIGN TREE and nested elements draw on top on the canvas. This is the shared
+ * `paintOrder` from forward-core — the same order history/checkpoint previews use,
+ * so the canvas and every reconstruction agree exactly.
+ */
 function ordered(): DesignElement[] {
-  return [...elements.values()].sort((a, b) => depthOf(a) - depthOf(b));
+  return paintOrder([...elements.values()]);
+}
+
+/** Next stacking value that puts a new (or raised) element on top of all others. */
+function nextZ(): number {
+  let max = 0;
+  for (const el of elements.values()) if (el.z > max) max = el.z;
+  return max + 1;
+}
+
+/** Lowest stacking value, minus one — sends an element behind all others. */
+function minZ(): number {
+  let min = 0;
+  for (const el of elements.values()) if (el.z < min) min = el.z;
+  return min - 1;
 }
 
 /** Is `el` hidden — either itself, or because an ancestor frame is hidden? */
@@ -1770,22 +1985,31 @@ function drawElement(raw: DesignElement): SVGGElement {
       class: "el-text-hit",
     });
     g.append(hit);
-    const t = text(
-      el.text ?? "Text",
-      el.x,
-      el.y + (style.fontSize ?? 16),
-      "el-label",
-    );
-    t.setAttribute("font-size", String(style.fontSize ?? 16));
-    t.setAttribute("font-weight", String(style.fontWeight ?? 400));
-    if (style.fontFamily) t.setAttribute("font-family", style.fontFamily);
-    if (style.color) t.style.fill = style.color;
-    g.append(t);
+    // While this element is open in the inline editor its live text lives in the
+    // overlaid <textarea>; suppress the glyph so the two don't render on top of
+    // each other.
+    if (raw.id !== editingTextId) {
+      const t = text(
+        el.text ?? "Text",
+        el.x,
+        el.y + (style.fontSize ?? 16),
+        "el-label",
+      );
+      t.setAttribute("font-size", String(style.fontSize ?? 16));
+      t.setAttribute("font-weight", String(style.fontWeight ?? 400));
+      if (style.fontFamily) t.setAttribute("font-family", style.fontFamily);
+      // The glyph colour is `color`; fall back to `fill` (an older element may
+      // have carried its colour there). Absent both, the theme-aware CSS default
+      // (`.el-label { fill: var(--text) }`) keeps it legible on any background.
+      const glyphColor = style.color ?? style.fill;
+      if (glyphColor) t.style.fill = glyphColor;
+      g.append(t);
+    }
   } else {
     const shape = el.type === "ellipse" ? el2ellipse(el, cls, style) : el2rect(el, cls, style);
     g.append(shape);
-    if (el.text) {
-      const t = text(el.text, el.x + 10, el.y + el.height / 2 + 4, "el-label");
+    if (el.text && raw.id !== editingTextId) {
+      const t = text(el.text, el.x + 10, el.y + el.height / 2 + 4, "el-label", true);
       if (style.fontFamily) t.setAttribute("font-family", style.fontFamily);
       if (style.color) t.style.fill = style.color;
       g.append(t);
@@ -2121,11 +2345,114 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
 // ========================================================================
 // Pointer interaction
 // ========================================================================
+/** Apply the in-flight gesture at a screen point. Split out from the pointermove
+ * listener so the edge auto-scroll loop can re-run it from the held pointer
+ * position as the world scrolls. `e` need only carry the pointer coordinates and
+ * shift state — a real PointerEvent or the loop's synthetic point both work. */
+function applyGesture(
+  e: { clientX: number; clientY: number; shiftKey: boolean },
+  box?: DOMRect,
+): void {
+  if (!gesture) return;
+
+  if (gesture.kind === "pan") {
+    const ddx = e.clientX - gesture.startX;
+    const ddy = e.clientY - gesture.startY;
+    if (Math.abs(ddx) > 3 || Math.abs(ddy) > 3) gesture.moved = true;
+    panX = gesture.origPanX + ddx;
+    panY = gesture.origPanY + ddy;
+    render();
+    return;
+  }
+
+  if (gesture.kind === "infra-pan") {
+    // The overlay sits inside the zoomed viewport, so convert screen pixels to
+    // world units for 1:1 tracking with the cursor.
+    infraPanX = gesture.origX + (e.clientX - gesture.startX) / zoom;
+    infraPanY = gesture.origY + (e.clientY - gesture.startY) / zoom;
+    render();
+    return;
+  }
+
+  if (gesture.kind === "infra-move") {
+    const cur = toCanvas(e, box);
+    const n = infraNodes.get(gesture.id);
+    if (!n) return;
+    const nx = gesture.origX + (cur.x - gesture.startX);
+    const ny = gesture.origY + (cur.y - gesture.startY);
+    if (nx !== n.x || ny !== n.y) gesture.moved = true;
+    infraNodes.set(gesture.id, { ...n, x: nx, y: ny });
+    render();
+    return;
+  }
+
+  if (gesture.kind === "entity-pan") {
+    entityPanX = gesture.origX + (e.clientX - gesture.startX) / zoom;
+    entityPanY = gesture.origY + (e.clientY - gesture.startY) / zoom;
+    render();
+    return;
+  }
+
+  if (gesture.kind === "entity-move") {
+    const cur = toCanvas(e, box);
+    const en = entities.get(gesture.id);
+    if (!en) return;
+    const nx = gesture.origX + (cur.x - gesture.startX);
+    const ny = gesture.origY + (cur.y - gesture.startY);
+    if (nx !== en.x || ny !== en.y) gesture.moved = true;
+    entities.set(gesture.id, { ...en, x: nx, y: ny });
+    render();
+    return;
+  }
+
+  const pt = toCanvas(e, box);
+  const el = elements.get(gesture.id);
+  if (!el) return;
+
+  if (gesture.kind === "rotate") {
+    // Angle from the element center to the pointer; 0° points straight up.
+    let deg = (Math.atan2(pt.x - gesture.cx, -(pt.y - gesture.cy)) * 180) / Math.PI;
+    if (e.shiftKey) deg = Math.round(deg / 15) * 15;
+    update(gesture.id, { rotation: Math.round(deg) });
+    render();
+    return;
+  }
+
+  const dx = pt.x - gesture.startX;
+  const dy = pt.y - gesture.startY;
+
+  if (gesture.kind === "create") {
+    update(gesture.id, {
+      x: Math.min(gesture.startX, pt.x),
+      y: Math.min(gesture.startY, pt.y),
+      width: Math.abs(dx),
+      height: Math.abs(dy),
+    });
+  } else if (gesture.kind === "move") {
+    const moved: Rect = {
+      x: gesture.orig.x + dx,
+      y: gesture.orig.y + dy,
+      width: gesture.orig.width,
+      height: gesture.orig.height,
+    };
+    const s = snap(moved, otherRects(gesture.id));
+    guides = { v: s.vGuides, h: s.hGuides };
+    applyMove(gesture.id, moved.x + s.dx - el.x, moved.y + s.dy - el.y);
+  } else {
+    update(gesture.id, {
+      width: Math.max(8, gesture.orig.width + dx),
+      height: Math.max(8, gesture.orig.height + dy),
+    });
+  }
+  render();
+}
+
 /** Wire the SVG pointer gestures (called by mountCanvas). These live on the svg
  * element, which is discarded when the Shadow DOM is cleared, so they need no
  * explicit removal. */
 function bindPointer(): void {
 svg.addEventListener("pointerdown", (e) => {
+  cancelViewAnim(); // a user gesture wins over an in-flight camera glide
   const pt = toCanvas(e);
   const handleEl = (e.target as Element).closest("[data-handle]");
   const elEl = (e.target as Element).closest("[data-id]");
@@ -2291,103 +2618,37 @@ svg.addEventListener("pointerdown", (e) => {
   svg.setPointerCapture(e.pointerId);
 });
 
-svg.addEventListener("pointermove", (e) => {
-  if (!gesture) return;
-
-  if (gesture.kind === "pan") {
-    const ddx = e.clientX - gesture.startX;
-    const ddy = e.clientY - gesture.startY;
-    if (Math.abs(ddx) > 3 || Math.abs(ddy) > 3) gesture.moved = true;
-    panX = gesture.origPanX + ddx;
-    panY = gesture.origPanY + ddy;
-    render();
-    return;
-  }
-
-  if (gesture.kind === "infra-pan") {
-    // The overlay sits inside the zoomed viewport, so convert screen pixels to
-    // world units for 1:1 tracking with the cursor.
-    infraPanX = gesture.origX + (e.clientX - gesture.startX) / zoom;
-    infraPanY = gesture.origY + (e.clientY - gesture.startY) / zoom;
-    render();
-    return;
-  }
-
-  if (gesture.kind === "infra-move") {
-    const cur = toCanvas(e);
-    const n = infraNodes.get(gesture.id);
-    if (!n) return;
-    const nx = gesture.origX + (cur.x - gesture.startX);
-    const ny = gesture.origY + (cur.y - gesture.startY);
-    if (nx !== n.x || ny !== n.y) gesture.moved = true;
-    infraNodes.set(gesture.id, { ...n, x: nx, y: ny });
-    render();
-    return;
-  }
-
-  if (gesture.kind === "entity-pan") {
-    entityPanX = gesture.origX + (e.clientX - gesture.startX) / zoom;
-    entityPanY = gesture.origY + (e.clientY - gesture.startY) / zoom;
-    render();
-    return;
-  }
-
-  if (gesture.kind === "entity-move") {
-    const cur = toCanvas(e);
-    const en = entities.get(gesture.id);
-    if (!en) return;
-    const nx = gesture.origX + (cur.x - gesture.startX);
-    const ny = gesture.origY + (cur.y - gesture.startY);
-    if (nx !== en.x || ny !== en.y) gesture.moved = true;
-    entities.set(gesture.id, { ...en, x: nx, y: ny });
-    render();
-    return;
-  }
-
-  const pt = toCanvas(e);
-  const el = elements.get(gesture.id);
+// Double-clicking a text element (or any element with a text label) edits its
+// text in place on the canvas.
+svg.addEventListener("dblclick", (e) => {
+  if (tool !== "select") return;
+  const elEl = (e.target as Element).closest("[data-id]");
+  if (!(elEl instanceof SVGElement) || !elEl.dataset.id) return;
+  const el = elements.get(elEl.dataset.id);
   if (!el) return;
+  e.preventDefault();
+  select(el.id);
+  beginTextEdit(el.id);
+});
 
-  if (gesture.kind === "rotate") {
-    // Angle from the element center to the pointer; 0° points straight up.
-    let deg = (Math.atan2(pt.x - gesture.cx, -(pt.y - gesture.cy)) * 180) / Math.PI;
-    if (e.shiftKey) deg = Math.round(deg / 15) * 15;
-    update(gesture.id, { rotation: Math.round(deg) });
-    render();
+svg.addEventListener("pointermove", (e) => {
+  // One layout read shared between the gesture math and the edge-scroll check.
+  const box = svg.getBoundingClientRect();
+  if (gesture) {
+    applyGesture(e, box);
+    // A content drag near a viewport edge scrolls the canvas to reveal more.
+    if (isDragGesture(gesture)) updateEdgeScroll(e.clientX, e.clientY, e.shiftKey, box);
     return;
   }
-
-  const dx = pt.x - gesture.startX;
-  const dy = pt.y - gesture.startY;
-
-  if (gesture.kind === "create") {
-    update(gesture.id, {
-      x: Math.min(gesture.startX, pt.x),
-      y: Math.min(gesture.startY, pt.y),
-      width: Math.abs(dx),
-      height: Math.abs(dy),
-    });
-  } else if (gesture.kind === "move") {
-    const moved: Rect = {
-      x: gesture.orig.x + dx,
-      y: gesture.orig.y + dy,
-      width: gesture.orig.width,
-      height: gesture.orig.height,
-    };
-    const s = snap(moved, otherRects(gesture.id));
-    guides = { v: s.vGuides, h: s.hGuides };
-    applyMove(gesture.id, moved.x + s.dx - el.x, moved.y + s.dy - el.y);
-  } else {
-    update(gesture.id, {
-      width: Math.max(8, gesture.orig.width + dx),
-      height: Math.max(8, gesture.orig.height + dy),
-    });
-  }
-  render();
+  // No gesture: when hover-scroll is enabled, a bare cursor resting near an edge
+  // scrolls to reveal off-screen designs. updateEdgeScroll zeroes the velocity —
+  // stopping the loop — once the cursor pulls back toward the middle.
+  if (hoverScrollEnabled) updateEdgeScroll(e.clientX, e.clientY, e.shiftKey, box);
 });
 
 svg.addEventListener("pointerup", () => {
   if (!gesture) return;
+  stopEdgeScroll();
 
   if (gesture.kind === "pan") {
     svg.classList.remove("panning");
@@ -2468,6 +2729,18 @@ svg.addEventListener("pointerup", () => {
   if (gesture.kind === "create") setTool("select");
   gesture = null;
   render();
+});
+
+// A cancelled/lost pointer (touch interrupted, or capture yanked when the
+// canvas unmounts mid-drag) must not leave the auto-scroll loop spinning after
+// the drag is gone.
+svg.addEventListener("pointercancel", () => stopEdgeScroll());
+svg.addEventListener("lostpointercapture", () => stopEdgeScroll());
+// Bare-hover edge scroll holds no pointer capture, so a cursor that leaves the
+// canvas must stop the loop or it would pan forever. A drag keeps capture and is
+// ended by pointerup instead, so leave it running while a gesture is in flight.
+svg.addEventListener("pointerleave", () => {
+  if (!gesture) stopEdgeScroll();
 });
 
 // Track the element under the pointer so a documented one shows its doc leader
@@ -2587,6 +2860,10 @@ function openElementMenu(
   if (el.type === "component") {
     ctxItem(instIcon(), "Place instance", placeInstance);
   }
+  ctxSep();
+  ctxItem(frontIcon(), "Bring to front", bringToFront);
+  ctxItem(backIcon(), "Send to back", sendToBack);
+  ctxSep();
   ctxItem(delIcon(), "Delete", deleteSelected, {
     shortcut: "⌫",
     danger: true,
@@ -2750,6 +3027,7 @@ function newElement(
     width: type === "text" ? 120 : 8,
     height: type === "text" ? 24 : 8,
     parentId: null,
+    z: nextZ(), // newest element stacks on top, matching draw-on-create order
     text: type === "text" ? "Text" : undefined,
     style:
       type === "frame"
@@ -2758,7 +3036,7 @@ function newElement(
           ? { fill: "#1b2030", stroke: "#3a4250", radius: 6 }
           : type === "ellipse"
             ? { fill: "#1b2030", stroke: "#3a4250" }
-            : { fontSize: 16, color: "#e6e6e6" },
+            : { fontSize: 16 },
     updatedAt: new Date().toISOString(),
   });
 }
@@ -2781,6 +3059,95 @@ function applyMove(id: string, dx: number, dy: number): void {
 function select(id: string | null): void {
   selectedId = id;
   if (id) selectedInfraId = null; // design + infra selection are exclusive
+  render();
+}
+
+// ---- inline text editing ------------------------------------------------
+/** Open an in-place <textarea> over a text element (or any element carrying a
+ * text label) so its content — newlines and all — can be edited on the canvas.
+ * Blur / ⌘Enter commits; Escape cancels. */
+function beginTextEdit(id: string): void {
+  const el = elements.get(id);
+  if (!el) return;
+  finishTextEdit(true); // tear down any editor already open
+  editingTextId = id;
+
+  const style = el.style ?? {};
+  const fontSize = style.fontSize ?? 16;
+  const ta = document.createElement("textarea");
+  ta.className = "fwd-text-editor";
+  ta.value = el.text ?? "";
+  // Position + size it to overlay the element in screen space (world → screen is
+  // `world * zoom + pan`; the textarea sits inside #stage, which the SVG fills).
+  // A text element's glyph starts at its top-left; a shape's label is inset 10px
+  // and vertically centered, so line the editor up with wherever the label sits.
+  const isTextEl = el.type === "text";
+  const worldX = isTextEl ? el.x : el.x + 10;
+  const worldY = isTextEl ? el.y : el.y + el.height / 2 - fontSize;
+  Object.assign(ta.style, {
+    position: "absolute",
+    left: `${worldX * zoom + panX}px`,
+    top: `${worldY * zoom + panY}px`,
+    width: `${Math.max(isTextEl ? el.width : el.width - 20, 40) * zoom}px`,
+    fontSize: `${fontSize * zoom}px`,
+    fontFamily: style.fontFamily || "inherit",
+    fontWeight: String(style.fontWeight ?? 400),
+    // Match the glyph: color, else the legacy fill, else the CSS theme default.
+    color: style.color ?? style.fill ?? "",
+  });
+  stageEl.append(ta);
+  textEditor = ta;
+  render(); // suppress the glyph now hidden behind the editor
+
+  const grow = () => {
+    ta.style.height = "auto";
+    ta.style.height = `${ta.scrollHeight}px`;
+  };
+  grow();
+  ta.addEventListener("input", grow);
+  // Keystrokes here are for the textarea, not canvas shortcuts (delete, tool
+  // hotkeys, etc.); Enter inserts a newline as usual.
+  ta.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      finishTextEdit(true);
+    } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      finishTextEdit(false);
+    }
+  });
+  ta.addEventListener("blur", () => finishTextEdit(false));
+  ta.focus();
+  ta.select();
+}
+
+/** Close the inline editor, committing its text unless `cancel`. Safe to call
+ * when no editor is open. */
+function finishTextEdit(cancel: boolean): void {
+  const ta = textEditor;
+  const id = editingTextId;
+  textEditor = null; // clear first so the blur that `remove()` fires no-ops
+  editingTextId = null;
+  if (!ta) return;
+  const value = ta.value;
+  ta.remove();
+  if (!cancel && id) {
+    const el = elements.get(id);
+    if (el && (el.text ?? "") !== value) {
+      const patch: Partial<DesignElement> = { text: value };
+      // Grow a text element's box to fit its lines so selection + hit area wrap
+      // the whole thing (other shapes keep their author-set height).
+      if (el.type === "text") {
+        const fontSize = el.style?.fontSize ?? 16;
+        const lines = Math.max(value.split("\n").length, 1);
+        patch.height = Math.round(lines * fontSize * 1.2);
+      }
+      const updated = { ...el, ...patch, updatedAt: now() };
+      elements.set(id, updated);
+      void persistElement(updated);
+    }
+  }
   render();
 }
 
@@ -2876,7 +3243,10 @@ function renderLayers(): void {
     });
     row.append(eye);
 
-    row.addEventListener("click", () => select(el.id));
+    row.addEventListener("click", () => {
+      select(el.id);
+      revealElement(el.id); // glide the canvas to it if it's off-screen
+    });
     row.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       select(el.id);
@@ -2902,6 +3272,8 @@ function deleteSelected(): void {
     inflightDocs.delete(cid);
     failedDocs.delete(cid);
     docSeq.delete(cid);
+    unsavedDocIds.delete(cid);
+    draftDocIds.delete(cid);
     void source.deleteElement(cid);
   }
   select(null);
@@ -2915,6 +3287,24 @@ function makeComponent(): void {
   elements.set(el.id, updated);
   void persistElement(updated);
   render();
+}
+
+/** Restack the selected element and persist the new `z` (front = on top). */
+function restack(id: string, z: number): void {
+  const el = elements.get(id);
+  if (!el || el.z === z) return;
+  const updated = { ...el, z, updatedAt: now() };
+  elements.set(id, updated);
+  void persistElement(updated);
+  render();
+}
+
+function bringToFront(): void {
+  if (selectedId) restack(selectedId, nextZ());
+}
+
+function sendToBack(): void {
+  if (selectedId) restack(selectedId, minZ());
 }
 
 function placeInstance(): void {
@@ -2934,6 +3324,7 @@ function placeInstance(): void {
     x: master.x + 24,
     y: master.y + 24,
     parentId: null,
+    z: nextZ(), // a freshly placed instance sits on top
     apiBinding: undefined,
     updatedAt: now(),
   });
@@ -2983,7 +3374,10 @@ function openApiDocsFor(id: string): void {
       updatedAt: now(),
     };
     elements.set(id, updated);
-    void persistElement(updated);
+    // A local draft (the server strips a binding sent via saveElement); it's
+    // committed by "Save documentation" and shielded from polls until then.
+    unsavedDocIds.add(id);
+    draftDocIds.add(id); // fresh seed — nothing on the server to unbind yet
   }
   if (!inspectorOpen) {
     inspectorOpen = true;
@@ -3003,7 +3397,24 @@ function setPanelHidden(hidden: boolean): void {
   canvasRootEl?.classList.toggle("panel-collapsed", hidden);
 }
 
+/** True when keyboard focus is inside an editable inspector field (INPUT /
+ * TEXTAREA / SELECT). While one is focused, a rebuild would `replaceChildren()`
+ * the field out from under the user and discard keystrokes that only commit on
+ * blur — so background re-renders (data polls) skip the panel rebuild. */
+function isPanelFieldFocused(): boolean {
+  const active = uiRoot?.activeElement;
+  if (!active || !panel.contains(active)) return false;
+  const tag = active.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
 function renderSelectionPanel(): void {
+  // A poll-driven render() must not rebuild the inspector while the user is
+  // mid-edit in one of its fields: the docs textarea (and the name/number
+  // inputs) only write back on blur, so replaceChildren() here would wipe text
+  // that hasn't been committed yet. The panel already reflects the selected
+  // element; leave it intact and let the next render (after blur) rebuild it.
+  if (isPanelFieldFocused()) return;
   // The right drawer carries only the design inspector and the Theme editor now.
   // Theme is allowed to take it over in *any* view; every other non-design view
   // suppresses the drawer entirely (their tools live in the view itself).
@@ -3059,17 +3470,45 @@ function renderSelectionPanel(): void {
     tl,
     (patch) => {
       if (!selectedId) return;
-      const current = elements.get(selectedId);
+      const id = selectedId;
+      const current = elements.get(id);
       if (!current) return;
       const updated = { ...current, ...patch, updatedAt: now() };
-      elements.set(selectedId, updated);
+      elements.set(id, updated);
+
+      // The apiBinding is NOT a saveElement field — the server owns it via
+      // bind()/unbind() (so it can version it) and strips anything sent through
+      // saveElement. Route binding changes accordingly instead of persisting the
+      // element (which would revert them on the write-adopt + next poll).
+      if ("apiBinding" in patch) {
+        if (patch.apiBinding === undefined) {
+          const neverCommitted = draftDocIds.delete(id);
+          unsavedDocIds.delete(id);
+          if (!neverCommitted && current.apiBinding) {
+            // A committed binding: unbind on the server (appends a "deleted" entry).
+            void persistUndoc(id, current.apiBinding.title).then((o) =>
+              notify(
+                o === "saved"
+                  ? "Documentation removed."
+                  : "Connection lost — could not remove documentation.",
+              ),
+            );
+          } else {
+            notify("Documentation removed."); // an uncommitted draft — dropped locally
+          }
+        } else {
+          // Seed/edit a draft binding: it lives locally (shielded from polls) until
+          // "Save documentation" commits it. A patch onto a previously-undocumented
+          // element is a fresh seed with nothing yet on the server to unbind.
+          if (!current.apiBinding) draftDocIds.add(id);
+          unsavedDocIds.add(id);
+        }
+        render();
+        return;
+      }
+
       void persistElement(updated);
       render();
-      // "Remove documentation" clears the binding through this same patch path;
-      // confirm it after the re-render (live field edits keep a defined binding).
-      if ("apiBinding" in patch && patch.apiBinding === undefined) {
-        notify("Documentation removed.");
-      }
     },
     onDocument,
     toggleInspector,
@@ -4433,8 +4872,10 @@ function miniBtn(
 // ========================================================================
 // Small helpers
 // ========================================================================
-function toCanvas(e: PointerEvent): { x: number; y: number } {
-  const box = svg.getBoundingClientRect();
+function toCanvas(
+  e: { clientX: number; clientY: number },
+  box: DOMRect = svg.getBoundingClientRect(),
+): { x: number; y: number } {
   // Invert the viewport transform: screen -> world.
   return {
     x: (e.clientX - box.left - panX) / zoom,
@@ -4453,6 +4894,24 @@ function wireZoomControls(): void {
     .getElementById("zoomOut")
     ?.addEventListener("click", () => zoomToCenter(zoom / ZOOM_STEP));
   uiRoot.getElementById("zoomFit")?.addEventListener("click", fitView);
+  const edgeBtn = uiRoot.getElementById("edgeScrollToggle");
+  if (edgeBtn) {
+    const syncEdgeBtn = () => {
+      edgeBtn.setAttribute("aria-pressed", String(hoverScrollEnabled));
+      edgeBtn.title = hoverScrollEnabled
+        ? "Edge hover-scroll: on — click to disable"
+        : "Edge hover-scroll: off — click to enable";
+    };
+    syncEdgeBtn();
+    edgeBtn.addEventListener("click", () => {
+      hoverScrollEnabled = !hoverScrollEnabled;
+      syncEdgeBtn();
+      // Turning it off mid-hover-scroll must halt the loop; a drag holds its own
+      // pointer capture and isn't affected (you can't click a button mid-drag).
+      if (!hoverScrollEnabled && !gesture) stopEdgeScroll();
+      saveHoverScrollPref();
+    });
+  }
   // Ctrl/⌘ + wheel zooms toward the cursor; plain wheel scrolls as usual.
   on(
     window,
@@ -4474,6 +4933,7 @@ function updateZoomLabel(): void {
 }
 /** Zoom toward a screen point, keeping the world point under it fixed. */
 function zoomAt(next: number, clientX: number, clientY: number): void {
+  cancelViewAnim(); // a user zoom wins over an in-flight camera glide
   const box = svg.getBoundingClientRect();
   const z = clampZoom(next);
   const wx = (clientX - box.left - panX) / zoom;
@@ -4489,6 +4949,7 @@ function zoomToCenter(next: number): void {
 }
 /** Fit all elements into the viewport with a little padding. */
 function fitView(): void {
+  cancelViewAnim();
   const els = [...elements.values()];
   if (!els.length) {
     zoom = 1;
@@ -4520,7 +4981,7 @@ function fitView(): void {
 }
 /** Center the viewport on one element (for deep links), keeping the current zoom
  * unless the element is tiny/huge relative to the pane, in which case fit it. */
-function centerOn(id: string): void {
+function centerOn(id: string, animate = false): void {
   const el = elements.get(id);
   if (!el) return;
   const r = rectOf(el);
@@ -4534,12 +4995,95 @@ function centerOn(id: string): void {
   );
   // Zoom out to fit only when the element wouldn't comfortably fit at the
   // current zoom; never zoom further in than where the user already was.
-  zoom = Math.min(zoom, fit);
+  const targetZoom = Math.min(zoom, fit);
   const cx = r.x + r.width / 2;
   const cy = r.y + r.height / 2;
-  panX = box.width / 2 - cx * zoom;
-  panY = box.height / 2 - cy * zoom;
-  render();
+  const targetPanX = box.width / 2 - cx * targetZoom;
+  const targetPanY = box.height / 2 - cy * targetZoom;
+  if (animate) {
+    animateView(targetPanX, targetPanY, targetZoom);
+  } else {
+    cancelViewAnim();
+    zoom = targetZoom;
+    panX = targetPanX;
+    panY = targetPanY;
+    render();
+  }
+}
+
+/** Cancel any in-flight viewport tween (e.g. the user grabbed the canvas). */
+function cancelViewAnim(): void {
+  if (viewAnimFrame !== null) {
+    cancelAnimationFrame(viewAnimFrame);
+    viewAnimFrame = null;
+  }
+}
+
+/**
+ * Ease the viewport (pan + zoom) toward a target over ~340ms so a jump to an
+ * off-screen element reads as a glide, not a teleport. Honours
+ * prefers-reduced-motion (and a zero duration) by snapping instantly.
+ */
+function animateView(
+  toPanX: number,
+  toPanY: number,
+  toZoom: number,
+  ms = 340,
+): void {
+  cancelViewAnim();
+  const reduce =
+    typeof matchMedia === "function" &&
+    matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce || ms <= 0) {
+    panX = toPanX;
+    panY = toPanY;
+    zoom = toZoom;
+    render();
+    return;
+  }
+  const fromPanX = panX;
+  const fromPanY = panY;
+  const fromZoom = zoom;
+  const start = performance.now();
+  const ease = (t: number): number =>
+    t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2; // easeInOutQuad
+  const step = (nowT: number): void => {
+    const t = Math.min(1, (nowT - start) / ms);
+    const k = ease(t);
+    panX = fromPanX + (toPanX - fromPanX) * k;
+    panY = fromPanY + (toPanY - fromPanY) * k;
+    zoom = fromZoom + (toZoom - fromZoom) * k;
+    render();
+    viewAnimFrame = t < 1 ? requestAnimationFrame(step) : null;
+  };
+  viewAnimFrame = requestAnimationFrame(step);
+}
+
+/**
+ * Is the element comfortably framed by the current viewport — either fully
+ * inside it (small element) or covering it (a frame larger than the screen)?
+ * Used to skip needless camera moves when the layer is already on screen.
+ */
+function isInView(el: DesignElement): boolean {
+  const r = rectOf(el);
+  const box = svg.getBoundingClientRect();
+  const left = r.x * zoom + panX;
+  const top = r.y * zoom + panY;
+  const right = (r.x + r.width) * zoom + panX;
+  const bottom = (r.y + r.height) * zoom + panY;
+  const m = 24; // keep a small margin off the viewport edges
+  const contained =
+    left >= m && top >= m && right <= box.width - m && bottom <= box.height - m;
+  const covers =
+    left <= m && top <= m && right >= box.width - m && bottom >= box.height - m;
+  return contained || covers;
+}
+
+/** Glide the canvas to a layer's element only when it isn't already on screen. */
+function revealElement(id: string): void {
+  const el = elements.get(id);
+  if (!el || isInView(el)) return;
+  centerOn(id, true);
 }
 function rectOf(el: DesignElement): Rect {
   const r = resolved(el);
@@ -4679,6 +5223,14 @@ function instIcon(): SVGElement {
     path("M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"),
   ]);
 }
+// Bring to front: a filled square lifted above an outlined one.
+function frontIcon(): SVGElement {
+  return lineIcon([rect(3, 3, 12, 12, 2), path("M9 21h10a2 2 0 0 0 2-2V9")]);
+}
+// Send to back: a square dropped behind an outlined one.
+function backIcon(): SVGElement {
+  return lineIcon([rect(9, 9, 12, 12, 2), path("M15 3H5a2 2 0 0 0-2 2v10")]);
+}
 // Delete: a trash can.
 function delIcon(): SVGElement {
   return lineIcon([
@@ -4776,10 +5328,32 @@ function svgEl(name: string, attrs: Record<string, string>): SVGElement {
   for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
   return node;
 }
-function text(content: string, x: number, y: number, cls = ""): SVGTextElement {
+function text(
+  content: string,
+  x: number,
+  y: number,
+  cls = "",
+  centerBlock = false,
+): SVGTextElement {
   const t = svgEl("text", { x: String(x), y: String(y) }) as SVGTextElement;
   if (cls) t.setAttribute("class", cls);
-  t.textContent = content;
+  // SVG <text> ignores "\n", so a multiline string is laid out as one <tspan>
+  // per line, each dropped a line-height below the previous (dy is relative to
+  // the element's own font-size, so this scales with the text's size).
+  if (content.includes("\n")) {
+    const lines = content.split("\n");
+    // A shape label (centerBlock) is anchored at the box's vertical middle, so
+    // lift the first line by half the block's height to keep the whole run
+    // centered; a text element top-anchors at `y`, so the first line stays put.
+    const firstDy = centerBlock ? `-${((lines.length - 1) * 1.2) / 2}em` : "0";
+    lines.forEach((lineText, i) => {
+      const span = svgEl("tspan", { x: String(x), dy: i === 0 ? firstDy : "1.2em" });
+      span.textContent = lineText;
+      t.append(span);
+    });
+  } else {
+    t.textContent = content;
+  }
   return t;
 }
 function badge(content: string, x: number, y: number): SVGTextElement {

@@ -10,7 +10,10 @@ import {
   InfraFlow,
   Task,
   Checkpoint,
+  compareStacking,
+  paintOrder,
   paths,
+  withoutBinding,
 } from "./schema.js";
 
 describe("DesignElement contract", () => {
@@ -28,6 +31,7 @@ describe("DesignElement contract", () => {
     expect(el.name).toBe("");
     expect(el.apiBinding).toBeUndefined();
     expect(el.rotation).toBe(0);
+    expect(el.z).toBe(0); // pre-`z` records parse with a stable default
   });
 
   it("keeps a non-zero rotation when supplied", () => {
@@ -178,6 +182,77 @@ describe("DesignElement contract", () => {
         updatedAt: "2026-05-28T11:45:00Z",
       }),
     ).toThrow();
+  });
+});
+
+describe("stacking order (compareStacking + paintOrder)", () => {
+  const el = (part: Partial<DesignElement> & { id: string }): DesignElement =>
+    DesignElement.parse({
+      type: "rectangle",
+      x: 0,
+      y: 0,
+      width: 10,
+      height: 10,
+      updatedAt: "2026-05-28T11:45:00Z",
+      ...part,
+    });
+
+  it("orders same-parent siblings by z (low first = painted underneath)", () => {
+    const out = paintOrder([
+      el({ id: "top", z: 5 }),
+      el({ id: "bottom", z: 1 }),
+      el({ id: "mid", z: 3 }),
+    ]);
+    expect(out.map((e) => e.id)).toEqual(["bottom", "mid", "top"]);
+  });
+
+  it("keeps each subtree contiguous, parent before its children (DFS pre-order)", () => {
+    const out = paintOrder([
+      el({ id: "childB", parentId: "frame", z: 2 }),
+      el({ id: "frame", type: "frame", z: 1 }),
+      el({ id: "childA", parentId: "frame", z: 1 }),
+      el({ id: "sibling", z: 0 }),
+    ]);
+    // `sibling` (z=0) paints first; then the frame and, immediately after, its
+    // children in z order — never interleaved with anything outside the subtree.
+    expect(out.map((e) => e.id)).toEqual(["sibling", "frame", "childA", "childB"]);
+  });
+
+  it("breaks a z tie with text-last so a label is never hidden by an equal-z fill", () => {
+    // Both top-level, same z (e.g. legacy z=0 data): the text must paint last.
+    expect(compareStacking(el({ id: "fill" }), el({ id: "label", type: "text" }))).toBeLessThan(0);
+    const out = paintOrder([
+      el({ id: "label", type: "text", z: 0 }),
+      el({ id: "fill", z: 0 }),
+    ]);
+    expect(out.map((e) => e.id)).toEqual(["fill", "label"]);
+  });
+
+  it("treats an element whose parent is absent as a root (never dropped)", () => {
+    const out = paintOrder([el({ id: "orphan", parentId: "ghost", z: 0 })]);
+    expect(out.map((e) => e.id)).toEqual(["orphan"]);
+  });
+
+  it("withoutBinding strips apiBinding so an element can go through saveElement", () => {
+    const bound = el({
+      id: "documented",
+      apiBinding: { title: "Checkout", description: "POST /checkout" },
+    });
+    expect(bound.apiBinding).toBeDefined(); // precondition
+    const saveable = withoutBinding(bound);
+    expect("apiBinding" in saveable).toBe(false); // the property is gone, not undefined
+    // Everything else is preserved verbatim.
+    expect(saveable).toEqual(
+      expect.objectContaining({ id: "documented", type: "rectangle", z: 0 }),
+    );
+  });
+
+  it("surfaces every element even under a parentId cycle", () => {
+    const out = paintOrder([
+      el({ id: "a", parentId: "b" }),
+      el({ id: "b", parentId: "a" }),
+    ]);
+    expect(new Set(out.map((e) => e.id))).toEqual(new Set(["a", "b"]));
   });
 });
 

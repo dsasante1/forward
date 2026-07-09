@@ -12,6 +12,8 @@ import type {
   McpServerNode,
   ProjectRole,
   ProjectTimelineEvent,
+  RealtimeResource,
+  SaveableElement,
   Task,
   VersionEntry,
 } from "forward-core";
@@ -81,21 +83,33 @@ export interface CanvasSource {
   subscribeStatus?(onChange: (status: ConnectionStatus) => void): () => void;
   /** Subscribe to the infrastructure graph; fires on every change. */
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
-  /** Create or update an element (the editor persists geometry/style here).
+  /** Create or update an element's geometry/style — NOT its `apiBinding`, which
+   * the server owns via `documentElement`/`undocumentElement` (the
+   * `SaveableElement` param makes sending a binding here a compile error).
    * Resolves with the source's persisted copy, whose server-owned fields (e.g.
    * `updatedAt`) are authoritative — the editor adopts it to stay in sync. */
-  saveElement(element: DesignElement): Promise<DesignElement>;
+  saveElement(element: SaveableElement): Promise<DesignElement>;
   /**
    * Attach/replace the element's API documentation AND append an immutable entry
-   * to its version history — the explicit "Save documentation" action. Distinct
-   * from `saveElement` (which silently upserts the binding with no history), this
-   * is what populates the History timeline's API tab. Optional: read-only or
+   * to its version history — the explicit "Save documentation" action, and the
+   * ONLY way to persist a binding: the central server owns `apiBinding` so it can
+   * version it, and deliberately ignores a binding sent through `saveElement`.
+   * This is what populates the History timeline's API tab. Optional: read-only or
    * history-less sources omit it and the panel hides the button.
    */
   documentElement?(
     elementId: string,
     binding: ApiBinding,
     version: { version: string; changeLog: string; action: "created" | "modified" },
+  ): Promise<void>;
+  /**
+   * Remove the element's API documentation AND append a "deleted" version entry —
+   * the counterpart to `documentElement` (again, `saveElement` can't: the server
+   * preserves the stored binding). Optional; history-less sources omit it.
+   */
+  undocumentElement?(
+    elementId: string,
+    version: { version: string; changeLog: string; title?: string },
   ): Promise<void>;
   /** Remove an element. */
   deleteElement(elementId: string): Promise<void>;
@@ -152,6 +166,15 @@ export interface CanvasSource {
   subscribeProjectTimeline?(
     onChange: (events: ProjectTimelineEvent[]) => void,
   ): () => void;
+  /**
+   * Re-fetch a realtime resource *now* instead of waiting for its next poll
+   * tick or the realtime echo. The host calls this on inbound ChangeEvents; the
+   * canvas also calls it right after its OWN write (e.g. a doc save) so a
+   * dependent view — the History timeline — reflects the change immediately
+   * rather than lagging the (deliberately long, realtime-backed) poll interval.
+   * Optional; sources without a poll/realtime model omit it.
+   */
+  notifyChange?(resource: RealtimeResource): void;
   /** Save a new checkpoint; the server freezes the current canvas into it. */
   createCheckpoint?(input: CheckpointInput): Promise<Checkpoint>;
   /** Rewind the project's design + infra to a checkpoint's snapshot. */

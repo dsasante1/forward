@@ -313,6 +313,82 @@ describe("buildHistoryDetail", () => {
     expect(d.preview?.basis).toMatchObject({ kind: "checkpoint", label: "v1 launch", at: 5000 });
   });
 
+  it("a checkpoint preview draws parents before children, whatever order they were stored in", () => {
+    // The server returns snapshot elements in no particular order; a child text
+    // stored before its frame must still paint on top (later) in the preview.
+    const cp = checkpoint({
+      id: "cp1",
+      title: "v1",
+      changes: [{ layer: "DESIGN", n: 2 }],
+      snapshot: {
+        elements: [
+          el({ id: "label", type: "text", parentId: "frame" }),
+          el({ id: "frame", type: "frame" }),
+        ],
+        infraNodes: [],
+        infraEdges: [],
+        infraFlows: [],
+      },
+      createdAt: new Date(5000).toISOString(),
+    });
+    const d = buildHistoryDetail(row({ domain: "design", kind: "checkpoint", checkpointId: "cp1" }), {
+      checkpoints: [cp],
+    });
+    if (d.kind !== "checkpoint") throw new Error("expected checkpoint");
+    expect(d.preview?.elements.map((e) => e.id)).toEqual(["frame", "label"]);
+  });
+
+  it("a checkpoint preview paints a same-depth label after an overlapping frame", () => {
+    // "password here!" is a top-level text overlapping a top-level filled frame
+    // (same depth). Legacy snapshots carry no z (both default to 0), so text must
+    // win the tie and paint last — otherwise the frame's fill hides the label.
+    const cp = checkpoint({
+      id: "cp1",
+      title: "v1",
+      changes: [{ layer: "DESIGN", n: 2 }],
+      snapshot: {
+        elements: [
+          el({ id: "label", type: "text", parentId: null }),
+          el({ id: "frame", type: "frame", parentId: null }),
+        ],
+        infraNodes: [],
+        infraEdges: [],
+        infraFlows: [],
+      },
+      createdAt: new Date(5000).toISOString(),
+    });
+    const d = buildHistoryDetail(row({ domain: "design", kind: "checkpoint", checkpointId: "cp1" }), {
+      checkpoints: [cp],
+    });
+    if (d.kind !== "checkpoint") throw new Error("expected checkpoint");
+    expect(d.preview?.elements.map((e) => e.id)).toEqual(["frame", "label"]);
+  });
+
+  it("a checkpoint preview reproduces the canvas's stored z-order", () => {
+    // With z persisted, the preview stacks exactly as the canvas did: the frame
+    // (z=2) sits ON TOP of the label (z=1), regardless of snapshot array order.
+    const cp = checkpoint({
+      id: "cp1",
+      title: "v1",
+      changes: [{ layer: "DESIGN", n: 2 }],
+      snapshot: {
+        elements: [
+          el({ id: "frame", type: "frame", parentId: null, z: 2 }),
+          el({ id: "label", type: "text", parentId: null, z: 1 }),
+        ],
+        infraNodes: [],
+        infraEdges: [],
+        infraFlows: [],
+      },
+      createdAt: new Date(5000).toISOString(),
+    });
+    const d = buildHistoryDetail(row({ domain: "design", kind: "checkpoint", checkpointId: "cp1" }), {
+      checkpoints: [cp],
+    });
+    if (d.kind !== "checkpoint") throw new Error("expected checkpoint");
+    expect(d.preview?.elements.map((e) => e.id)).toEqual(["label", "frame"]);
+  });
+
   it("design: previews the nearest checkpoint at-or-before the event (as-of, not live)", () => {
     // Live shows the rectangle at x=200; a checkpoint before the event froze x=50.
     const elements = new Map<string, DesignElement>([["rect-1", el({ id: "rect-1", x: 200 })]]);
@@ -367,6 +443,21 @@ describe("buildHistoryDetail", () => {
     expect(ids?.[0]).toBe("frame-1"); // root first
     expect(ids).toEqual(expect.arrayContaining(["frame-1", "rect-1", "text-1"]));
     expect(ids).not.toContain("other");
+  });
+
+  it("design: a preview composition terminates on a parentId cycle", () => {
+    // Corrupt data: a and b each claim the other as parent. Building the preview
+    // must not recurse forever — it surfaces both, once, and returns.
+    const elements = new Map<string, DesignElement>([
+      ["a", el({ id: "a", parentId: "b" })],
+      ["b", el({ id: "b", parentId: "a" })],
+    ]);
+    const d = buildHistoryDetail(row({ domain: "design", targetId: "a" }), { elements });
+    if (d.kind !== "design") throw new Error("expected design");
+    const ids = d.preview?.elements.map((e) => e.id) ?? [];
+    expect(ids[0]).toBe("a"); // root first
+    expect(new Set(ids)).toEqual(new Set(["a", "b"]));
+    expect(ids).toHaveLength(2); // each element exactly once, no runaway
   });
 
   it("design: resolves geometry, parent name and fill", () => {
