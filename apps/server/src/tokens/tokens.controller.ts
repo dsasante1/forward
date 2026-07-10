@@ -7,6 +7,7 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { CurrentUser, type AuthUser } from "../auth/current-user.decorator.js";
 import { SessionOnlyGuard } from "../auth/session-only.guard.js";
@@ -44,6 +45,9 @@ export class TokensController {
     return this.tokens.list(user.id);
   }
 
+  // Minting/rotating credentials is low-frequency and sensitive — cap it tightly
+  // so a stolen session can't spray a burst of long-lived tokens.
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } })
   @Post()
   create(
     @CurrentUser() user: AuthUser,
@@ -53,6 +57,7 @@ export class TokensController {
   }
 
   /** Revoke a token and mint a replacement under the same name (returns plaintext). */
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } })
   @Post(":id/rotate")
   rotate(
     @CurrentUser() user: AuthUser,

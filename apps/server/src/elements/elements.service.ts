@@ -58,6 +58,7 @@ export class ElementsService {
     const { apiBinding: _ignored, ...clean } = this.sanitizeElement(element);
     let next: DesignElement = { ...clean, updatedAt: new Date().toISOString() };
     await this.prisma.withUser(actor, async (tx) => {
+      await this.lockElement(tx, projectId, next.id);
       const prior = await tx.designElement.findUnique({
         where: { projectId_id: { projectId, id: next.id } },
         select: { data: true },
@@ -97,6 +98,7 @@ export class ElementsService {
     actor: string,
   ): Promise<DesignElement> {
     const merged = await this.prisma.withUser(actor, async (tx) => {
+      await this.lockElement(tx, projectId, id);
       const current = await this.requireElement(tx, projectId, id);
       // The binding only changes through bind()/unbind(), which append the
       // version entry — a plain patch must not silently rewrite the docs.
@@ -186,6 +188,7 @@ export class ElementsService {
   ): Promise<void> {
     const clean = sanitizeFields(binding, ["description"]);
     await this.prisma.withUser(actor, async (tx) => {
+      await this.lockElement(tx, projectId, id);
       const current = await this.requireElement(tx, projectId, id);
       const next: DesignElement = {
         ...current,
@@ -235,6 +238,7 @@ export class ElementsService {
     actor: string,
   ): Promise<void> {
     await this.prisma.withUser(actor, async (tx) => {
+      await this.lockElement(tx, projectId, id);
       const current = await this.requireElement(tx, projectId, id);
       const { apiBinding: _drop, ...rest } = current;
       const next: DesignElement = {
@@ -308,6 +312,27 @@ export class ElementsService {
       where: { id: projectId },
       data: { updatedAt: new Date() },
     });
+  }
+
+  /**
+   * Serialize concurrent read-modify-write on a single element by taking a row
+   * lock for the rest of the transaction. Without it, two writers can both read
+   * the same prior state and the later commit silently discards the earlier one
+   * (a lost update) — most visibly on `patch`, where each writer merges into the
+   * state it read. Locking makes same-element writes queue instead of clobber;
+   * it does NOT reject, so normal realtime editing sees no spurious conflicts.
+   * A no-op for a not-yet-created element (nothing to lock; the upsert's unique
+   * constraint handles the concurrent-create case).
+   */
+  private async lockElement(
+    tx: Prisma.TransactionClient | PrismaService,
+    projectId: string,
+    id: string,
+  ): Promise<void> {
+    await (tx as PrismaService).$executeRaw`
+      SELECT id FROM "DesignElement"
+      WHERE "projectId" = ${projectId} AND id = ${id}
+      FOR UPDATE`;
   }
 
   private async requireElement(

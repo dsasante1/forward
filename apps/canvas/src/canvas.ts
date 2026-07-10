@@ -314,7 +314,8 @@ function destroy(): void {
 
 // Mermaid is heavy (~700kB), so lazy-load it the first time a UML diagram is
 // opened — the offline/fixture path never pays for it. Dark theme to match the
-// canvas; "loose" security lets the «component» stereotype labels (<br/>) through.
+// canvas; security stays "strict" (sanitizer on) — see getMermaid below. Diagram
+// text is cross-tenant user content, so it must never be rendered "loose".
 let umlSeq = 0; // unique id per render so Mermaid doesn't collide on re-renders
 let umlZoom = 1; // 1 = fit-to-pane; the −/+ controls scale around that fit
 let mermaidPromise: Promise<typeof import("mermaid").default> | undefined;

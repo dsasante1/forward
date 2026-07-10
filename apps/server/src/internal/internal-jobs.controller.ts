@@ -10,6 +10,7 @@ import {
   ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { SkipThrottle } from "@nestjs/throttler";
 import { OAuth2Client } from "google-auth-library";
 import { Public } from "../auth/public.decorator.js";
 import { EmailService, type SendEmailInput } from "../common/email.service.js";
@@ -33,6 +34,7 @@ import type { EmailJob } from "../common/cloud-tasks.service.js";
  *         backoff up to the queue's max attempts.
  */
 @Controller("internal/jobs")
+@SkipThrottle()
 export class InternalJobsController {
   private readonly logger = new Logger(InternalJobsController.name);
   private readonly oauth = new OAuth2Client();

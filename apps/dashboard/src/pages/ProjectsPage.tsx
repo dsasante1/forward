@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   useApi,
@@ -97,6 +97,14 @@ export function ProjectsPage() {
 
   useEffect(() => localStorage.setItem(VIEW_KEY, view), [view]);
   useEffect(() => localStorage.setItem(SORT_KEY, sort), [sort]);
+
+  // A fresh server list is authoritative: drop the optimistic favorite overrides
+  // so a star toggled on another tab/device is reflected rather than shadowed
+  // forever by a stale local override. Runs whenever a new `projects` array
+  // arrives from the server.
+  useEffect(() => {
+    if (projects) setFavOverride({});
+  }, [projects]);
 
   // Close any open card menu when clicking outside it.
   useEffect(() => {
@@ -211,15 +219,21 @@ export function ProjectsPage() {
           {busy ? "Creating…" : "Create project"}
         </button>
       </form>
-      {actionError && <p className="error">{actionError}</p>}
+      {actionError && (
+        <p className="error" role="alert">
+          {actionError}
+        </p>
+      )}
 
       <div className="pj-toolbar">
         <label className="pj-search">
           <SearchIcon />
           <input
+            type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search projects"
+            aria-label="Search projects"
           />
         </label>
         <div className="pj-toolbar-spacer" />
@@ -566,12 +580,54 @@ function Menu({
   onDelete: () => void;
   canDelete: boolean;
 }) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  // On open, move focus into the menu (first item). On close from within (Escape
+  // or picking an item), the trigger is re-focused so keyboard focus is never lost.
+  useEffect(() => {
+    if (open) {
+      popRef.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
+    }
+  }, [open]);
+
+  function close(restoreFocus: boolean) {
+    if (open) onMenu(); // onMenu toggles; only call it while open to close
+    if (restoreFocus) triggerRef.current?.focus();
+  }
+
+  // Roving focus + Escape/close, the expected keyboard model for a menu.
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      close(true);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const items = Array.from(
+        popRef.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]") ?? [],
+      );
+      if (items.length === 0) return;
+      const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next =
+        e.key === "ArrowDown"
+          ? items[(idx + 1) % items.length]
+          : items[(idx - 1 + items.length) % items.length];
+      next?.focus();
+    }
+  }
+
   return (
     <div className="pj-menu" data-keepmenu>
       <button
+        ref={triggerRef}
         type="button"
         className="pj-menu-btn"
         aria-label="Project actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
@@ -583,12 +639,14 @@ function Menu({
         <span />
       </button>
       {open && (
-        <div className="pj-menu-pop">
+        <div className="pj-menu-pop" role="menu" ref={popRef} onKeyDown={onKeyDown}>
           <button
             type="button"
+            role="menuitem"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
+              close(false);
               onDuplicate();
             }}
           >
@@ -597,10 +655,12 @@ function Menu({
           {canDelete && (
             <button
               type="button"
+              role="menuitem"
               className="pj-menu-danger"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                close(false);
                 onDelete();
               }}
             >
