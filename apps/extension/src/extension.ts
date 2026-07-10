@@ -24,6 +24,7 @@ import {
   type InfraEdge,
   type InfraNode,
   type InfraStepKind,
+  type ProjectRole,
   type Task,
   type TimelineEvent,
 } from "forward-core";
@@ -52,7 +53,9 @@ import {
   fetchTasks,
   fetchTimelinesConditional,
   listElements,
+  listMembers,
   listProjects,
+  removeMember,
   restoreCheckpoint,
   saveElement,
   saveEntity,
@@ -62,6 +65,7 @@ import {
   saveInfraNode,
   saveTask,
   unbindApiFromElement,
+  updateMemberRole,
   type ApiConfig,
 } from "./firebase.js";
 import { registerActionsView } from "./actionsView.js";
@@ -1390,6 +1394,7 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
     | "elements"
     | "infra"
     | "entities"
+    | "agents"
     | "tasks"
     | "checkpoints"
     | "timeline";
@@ -1413,6 +1418,7 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
       return { nodes, edges, flows };
     },
     entities: () => fetchEntities(cfg),
+    agents: () => fetchAgents(cfg),
     tasks: () => fetchTasks(cfg),
     checkpoints: () => fetchCheckpoints(cfg),
     timeline: () => fetchProjectTimeline(cfg),
@@ -1461,6 +1467,11 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
         ...(version as { version: string; changeLog: string; action: "created" | "modified" }),
         author: process.env.USER ?? "unknown",
       }),
+    undocumentElement: ([id, version]) =>
+      unbindApiFromElement(cfg, id as string, {
+        ...(version as { version: string; changeLog: string; title?: string }),
+        author: process.env.USER ?? "unknown",
+      }),
     deleteElement: ([id]) => deleteElement(cfg, id as string),
     saveInfraNode: ([n]) => saveInfraNode(cfg, n as InfraNode),
     deleteInfraNode: ([id]) => deleteInfraNode(cfg, id as string),
@@ -1471,12 +1482,20 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
     deleteEntity: ([id]) => deleteEntity(cfg, id as string),
     saveEntityRelation: ([r]) => saveEntityRelation(cfg, r as EntityRelation),
     deleteEntityRelation: ([id]) => deleteEntityRelation(cfg, id as string),
+    saveAgentNode: ([a]) => saveAgentNode(cfg, a as AgentNode),
+    deleteAgentNode: ([id]) => deleteAgentNode(cfg, id as string),
+    saveMcpServer: ([s]) => saveMcpServer(cfg, s as McpServerNode),
+    deleteMcpServer: ([id]) => deleteMcpServer(cfg, id as string),
     saveTask: ([t]) => saveTask(cfg, t as Task),
     deleteTask: ([id]) => deleteTask(cfg, id as string),
     createCheckpoint: ([input]) => createCheckpoint(cfg, input as CheckpointInput),
     restoreCheckpoint: ([id]) => restoreCheckpoint(cfg, id as string),
     deleteCheckpoint: ([id]) => deleteCheckpoint(cfg, id as string),
-    addMember: ([uid]) => addMember(cfg, uid as string),
+    addMember: ([uid, role]) => addMember(cfg, uid as string, role as ProjectRole | undefined),
+    listMembers: () => listMembers(cfg),
+    updateMemberRole: ([uid, role]) =>
+      updateMemberRole(cfg, uid as string, role as ProjectRole),
+    removeMember: ([uid]) => removeMember(cfg, uid as string),
   };
 
   panel.webview.onDidReceiveMessage(async (msg: BridgeMessage) => {
