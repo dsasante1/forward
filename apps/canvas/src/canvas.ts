@@ -408,11 +408,13 @@ let selectedUmlAgents = false; // is the agent/MCP wiring diagram the chosen ren
 let selectedInfraId: string | null = null; // infra node selected for editing/deletion
 let linkMode = false; // Link tool armed: clicks pick two nodes to connect
 let linkSourceId: string | null = null; // first node picked while linking
-let infraSearch = ""; // inspector List-mode search query
-let infraTypeFilter = "all"; // inspector List-mode kind filter ("all" | InfraKind)
-let infraPanelPos = { x: 12, y: 12 }; // floating inspector position (stage px)
-let infraPanelCollapsed = false; // inspector collapsed to its header
-let infraPanelDrag: { ox: number; oy: number; sx: number; sy: number } | null = null;
+let infraSearch = ""; // infra inspector List-mode search query
+let infraTypeFilter = "all"; // infra inspector List-mode kind filter ("all" | InfraKind)
+let infraPanelPos = { x: 12, y: 12 }; // floating infra inspector position (stage px)
+let infraPanelCollapsed = false; // infra inspector collapsed to its header
+let entitySearch = ""; // data inspector List-mode search query
+let entityPanelPos = { x: 12, y: 12 }; // floating data inspector position (stage px)
+let entityPanelCollapsed = false; // data inspector collapsed to its header
 let selectedEntityId: string | null = null; // ER entity selected for editing/deletion
 let selectedRelationId: string | null = null; // ER relation selected for editing/deletion
 let entityLinkMode = false; // Relate tool armed: clicks pick two entities to relate
@@ -1034,6 +1036,7 @@ function setView(next: PrimaryView): void {
   if (prev === "data") {
     selectedEntityId = null;
     selectedRelationId = null;
+    entitySearch = "";
     if (entityLinkMode) {
       entityLinkMode = false;
       entityLinkSourceId = null;
@@ -1552,39 +1555,45 @@ async function completeLink(fromId: string, toId: string): Promise<void> {
   }
 }
 
-/** Collapse the floating inspector to just its header (the header chevron). */
+/** Collapse the floating infra inspector to just its header. */
 function toggleInfraPanelCollapse(): void {
   infraPanelCollapsed = !infraPanelCollapsed;
   renderViewTools();
 }
 
+/** Collapse the floating data (ER) inspector to just its header. */
+function toggleEntityPanelCollapse(): void {
+  entityPanelCollapsed = !entityPanelCollapsed;
+  renderViewTools();
+}
+
 /**
- * Drag the floating inspector by its grip / header. We move it by mutating the
- * element's inline `left`/`top` directly during the drag (rather than a full
- * re-render per mousemove) so it tracks the pointer smoothly; the final position
- * is retained in `infraPanelPos`. Listeners are added on mousedown and removed on
- * mouseup, so they clean themselves up.
+ * Drag a floating inspector (infra or data) by its grip / header. We move it by
+ * mutating the element's inline `left`/`top` directly during the drag (rather than
+ * a full re-render per mousemove) so it tracks the pointer smoothly; `onMove`
+ * commits the final position back to the owning panel's state. Listeners are added
+ * on mousedown and removed on mouseup, so they clean themselves up.
  */
-function onInfraPanelDragStart(e: MouseEvent): void {
+function beginPanelDrag(
+  e: MouseEvent,
+  pos: { x: number; y: number },
+  onMove: (x: number, y: number) => void,
+): void {
   e.preventDefault();
-  infraPanelDrag = {
-    ox: infraPanelPos.x,
-    oy: infraPanelPos.y,
-    sx: e.clientX,
-    sy: e.clientY,
-  };
+  const start = { ox: pos.x, oy: pos.y, sx: e.clientX, sy: e.clientY };
+  let active = true;
   const move = (ev: MouseEvent): void => {
-    if (!infraPanelDrag) return;
-    const nx = Math.max(8, infraPanelDrag.ox + (ev.clientX - infraPanelDrag.sx));
-    const ny = Math.max(8, infraPanelDrag.oy + (ev.clientY - infraPanelDrag.sy));
-    infraPanelPos = { x: nx, y: ny };
+    if (!active) return;
+    const nx = Math.max(8, start.ox + (ev.clientX - start.sx));
+    const ny = Math.max(8, start.oy + (ev.clientY - start.sy));
+    onMove(nx, ny);
     if (viewToolsEl) {
       viewToolsEl.style.left = `${nx}px`;
       viewToolsEl.style.top = `${ny}px`;
     }
   };
   const up = (): void => {
-    infraPanelDrag = null;
+    active = false;
     window.removeEventListener("mousemove", move);
     window.removeEventListener("mouseup", up);
   };
@@ -1845,6 +1854,20 @@ async function deleteSelectedRelation(): Promise<void> {
     notify(`Couldn't remove relation: ${(err as Error).message}`);
   }
   render();
+}
+
+/** Remove one relation by id (the inspector's relation ✕, in Relate mode). */
+async function removeEntityRelation(relationId: string): Promise<void> {
+  if (!source.deleteEntityRelation) return;
+  // Optimistically drop it locally; the entity poller reconciles on its next tick.
+  entityRelations = entityRelations.filter((r) => r.id !== relationId);
+  render();
+  try {
+    await source.deleteEntityRelation(relationId);
+    notify("Relation removed.");
+  } catch (err) {
+    notify(`Couldn't remove relation: ${(err as Error).message}`);
+  }
 }
 
 /** Toggle the Relate tool: click two entities to relate them. */
@@ -3580,16 +3603,14 @@ function renderViewTools(): void {
   if (!viewToolsEl) return;
   const show = view === "infra" || view === "data";
   viewToolsEl.hidden = !show;
-  // The infra inspector owns the `ifp` layout (flex column, self-scrolling body);
-  // the ER panel keeps the default #viewtools scroll, so scope the class to infra.
-  viewToolsEl.classList.toggle("ifp", view === "infra");
+  // Both inspectors share the `ifp` floating-card layout (flex column, own-scroll
+  // body); each is positioned via inline left/top from its own panel state.
+  viewToolsEl.classList.toggle("ifp", show);
   if (!show) {
     viewToolsEl.replaceChildren();
     return;
   }
   if (view === "infra") {
-    // The infra inspector is a floating, draggable card positioned via inline
-    // left/top (driven by infraPanelPos); the ER panel keeps the default anchor.
     viewToolsEl.style.left = `${infraPanelPos.x}px`;
     viewToolsEl.style.top = `${infraPanelPos.y}px`;
     renderInfraPanel(viewToolsEl, {
@@ -3623,7 +3644,10 @@ function renderViewTools(): void {
       onAddNode: () => void addInfraNodeOnCanvas(),
       onToggleLink: toggleLink,
       onToggleCollapse: toggleInfraPanelCollapse,
-      onDragStart: onInfraPanelDragStart,
+      onDragStart: (e) =>
+        beginPanelDrag(e, infraPanelPos, (x, y) => {
+          infraPanelPos = { x, y };
+        }),
       // While the Link tool is armed, a list click picks a link endpoint (same as
       // clicking the node on the canvas); otherwise it opens the node's detail.
       onSelectNode: (id) => {
@@ -3635,25 +3659,55 @@ function renderViewTools(): void {
       onRemoveEdge: (id) => void removeInfraEdge(id),
     });
   } else {
-    // Reset the infra inspector's inline float position so the ER panel falls
-    // back to the default #viewtools anchor (top/left/bottom in CSS).
-    viewToolsEl.style.left = "";
-    viewToolsEl.style.top = "";
+    viewToolsEl.style.left = `${entityPanelPos.x}px`;
+    viewToolsEl.style.top = `${entityPanelPos.y}px`;
     renderEntityPanel(viewToolsEl, {
       canEdit: Boolean(source.saveEntity),
       canRelate: Boolean(source.saveEntityRelation),
+      canUnrelate: Boolean(source.deleteEntityRelation),
       relating: entityLinkMode,
+      relateSourceName: entityLinkSourceId
+        ? entities.get(entityLinkSourceId)?.name
+        : undefined,
+      collapsed: entityPanelCollapsed,
+      entities: [...entities.values()],
+      relations: entityRelations,
       entity: selectedEntityId ? entities.get(selectedEntityId) : undefined,
       relation: selectedRelationId
         ? entityRelations.find((r) => r.id === selectedRelationId)
         : undefined,
+      search: entitySearch,
       entityName: (id) => entities.get(id)?.name ?? id,
+      onSearch: (q) => {
+        entitySearch = q;
+        renderViewTools();
+        // Restore focus + caret after the per-keystroke rebuild (see infra above).
+        const input = viewToolsEl.querySelector<HTMLInputElement>(".ifp-search input");
+        if (input) {
+          input.focus();
+          const end = input.value.length;
+          input.setSelectionRange(end, end);
+        }
+      },
+      onToggleCollapse: toggleEntityPanelCollapse,
+      onDragStart: (e) =>
+        beginPanelDrag(e, entityPanelPos, (x, y) => {
+          entityPanelPos = { x, y };
+        }),
       onAddEntity: () => void addEntityOnCanvas(),
       onToggleRelate: toggleEntityLink,
+      // While the Relate tool is armed, a list click picks a relation endpoint;
+      // otherwise it opens the entity's detail.
+      onSelectEntity: (id) => {
+        if (id && entityLinkMode) onEntityLinkPick(id);
+        else selectEntity(id);
+      },
+      onSelectRelation: (id) => selectRelation(id),
       onChangeEntity: updateEntity,
       onRemoveEntity: () => void deleteSelectedEntity(),
       onChangeRelation: updateRelation,
       onRemoveRelation: () => void deleteSelectedRelation(),
+      onRemoveRelationById: (id) => void removeEntityRelation(id),
     });
   }
 }
