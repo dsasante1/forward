@@ -480,6 +480,14 @@ export async function deleteInfraNode(
   await request(cfg, "DELETE", `/infra/nodes/${encodeURIComponent(nodeId)}`);
 }
 
+/** Delete a single edge, leaving both endpoint nodes in place. */
+export async function deleteInfraEdge(
+  cfg: ApiConfig,
+  edgeId: string,
+): Promise<void> {
+  await request(cfg, "DELETE", `/infra/edges/${encodeURIComponent(edgeId)}`);
+}
+
 export async function saveInfraFlow(
   cfg: ApiConfig,
   flow: InfraFlow,

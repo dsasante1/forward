@@ -488,6 +488,9 @@ server.registerTool(
       ),
       label: InfraNode.shape.label.describe('Display name, e.g. "PostgreSQL".'),
       tech: InfraNode.shape.tech.describe('Optional version/runtime tag, e.g. "v15".'),
+      env: InfraNode.shape.env.describe(
+        "Optional deployment environment: dev, staging, or prod.",
+      ),
       description: InfraNode.shape.description.describe("Free-form Markdown notes."),
       x: z.number().optional().describe("Canvas x (default 80)."),
       y: z.number().optional().describe("Canvas y (default 80)."),

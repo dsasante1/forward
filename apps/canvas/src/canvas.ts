@@ -11,7 +11,6 @@ import {
   type InfraEdge,
   type InfraFlow,
   type InfraFlowStep,
-  type InfraKind,
   type InfraNode,
   type McpServerNode,
   type ProjectTimelineEvent,
@@ -34,7 +33,12 @@ import type {
   RosterMember,
 } from "./source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
-import { renderEntityPanel, renderInfraPanel, renderPanel } from "./panel.js";
+import {
+  INFRA_COLORS,
+  renderEntityPanel,
+  renderInfraPanel,
+  renderPanel,
+} from "./panel.js";
 import { renderTimelineView } from "./timeline-view.js";
 import { renderTasksView } from "./tasks-view.js";
 import { renderMemberView } from "./member-view.js";
@@ -404,6 +408,11 @@ let selectedUmlAgents = false; // is the agent/MCP wiring diagram the chosen ren
 let selectedInfraId: string | null = null; // infra node selected for editing/deletion
 let linkMode = false; // Link tool armed: clicks pick two nodes to connect
 let linkSourceId: string | null = null; // first node picked while linking
+let infraSearch = ""; // inspector List-mode search query
+let infraTypeFilter = "all"; // inspector List-mode kind filter ("all" | InfraKind)
+let infraPanelPos = { x: 12, y: 12 }; // floating inspector position (stage px)
+let infraPanelCollapsed = false; // inspector collapsed to its header
+let infraPanelDrag: { ox: number; oy: number; sx: number; sy: number } | null = null;
 let selectedEntityId: string | null = null; // ER entity selected for editing/deletion
 let selectedRelationId: string | null = null; // ER relation selected for editing/deletion
 let entityLinkMode = false; // Relate tool armed: clicks pick two entities to relate
@@ -1015,6 +1024,8 @@ function setView(next: PrimaryView): void {
   if (prev === "infra") {
     selectedFlowId = null;
     selectedInfraId = null;
+    infraSearch = "";
+    infraTypeFilter = "all";
     if (linkMode) {
       linkMode = false;
       linkSourceId = null;
@@ -1222,18 +1233,6 @@ function render(): void {
 // ========================================================================
 // Infrastructure overlay (pillar 3)
 // ========================================================================
-const INFRA_COLORS: Record<InfraKind, string> = {
-  frontend: "#5b8cff",
-  backend: "#36c275",
-  database: "#c9a227",
-  cache: "#d1603d",
-  queue: "#b06ad6",
-  service: "#3db6c9",
-  devops: "#e0507a",
-  external: "#8a93a3",
-  group: "#6b7280",
-};
-
 /** Ids of every node a flow's steps touch (skipping hops to missing nodes). */
 function flowNodeIds(flow: InfraFlow): Set<string> {
   const ids = new Set<string>();
@@ -1550,6 +1549,61 @@ async function completeLink(fromId: string, toId: string): Promise<void> {
     notify("Edge added.");
   } catch (err) {
     notify(`Couldn't add edge: ${(err as Error).message}`);
+  }
+}
+
+/** Collapse the floating inspector to just its header (the header chevron). */
+function toggleInfraPanelCollapse(): void {
+  infraPanelCollapsed = !infraPanelCollapsed;
+  renderViewTools();
+}
+
+/**
+ * Drag the floating inspector by its grip / header. We move it by mutating the
+ * element's inline `left`/`top` directly during the drag (rather than a full
+ * re-render per mousemove) so it tracks the pointer smoothly; the final position
+ * is retained in `infraPanelPos`. Listeners are added on mousedown and removed on
+ * mouseup, so they clean themselves up.
+ */
+function onInfraPanelDragStart(e: MouseEvent): void {
+  e.preventDefault();
+  infraPanelDrag = {
+    ox: infraPanelPos.x,
+    oy: infraPanelPos.y,
+    sx: e.clientX,
+    sy: e.clientY,
+  };
+  const move = (ev: MouseEvent): void => {
+    if (!infraPanelDrag) return;
+    const nx = Math.max(8, infraPanelDrag.ox + (ev.clientX - infraPanelDrag.sx));
+    const ny = Math.max(8, infraPanelDrag.oy + (ev.clientY - infraPanelDrag.sy));
+    infraPanelPos = { x: nx, y: ny };
+    if (viewToolsEl) {
+      viewToolsEl.style.left = `${nx}px`;
+      viewToolsEl.style.top = `${ny}px`;
+    }
+  };
+  const up = (): void => {
+    infraPanelDrag = null;
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+}
+
+/** Remove a single connection (the inspector's connection ✕) and persist it. */
+async function removeInfraEdge(edgeId: string): Promise<void> {
+  if (!source.deleteInfraEdge) return;
+  // Optimistically drop it locally so the inspector updates immediately; the
+  // infra poller reconciles from the server on its next tick.
+  infraEdges = infraEdges.filter((e) => e.id !== edgeId);
+  render();
+  try {
+    await source.deleteInfraEdge(edgeId);
+    notify("Connection removed.");
+  } catch (err) {
+    notify(`Couldn't remove connection: ${(err as Error).message}`);
   }
 }
 
@@ -3526,22 +3580,65 @@ function renderViewTools(): void {
   if (!viewToolsEl) return;
   const show = view === "infra" || view === "data";
   viewToolsEl.hidden = !show;
+  // The infra inspector owns the `ifp` layout (flex column, self-scrolling body);
+  // the ER panel keeps the default #viewtools scroll, so scope the class to infra.
+  viewToolsEl.classList.toggle("ifp", view === "infra");
   if (!show) {
     viewToolsEl.replaceChildren();
     return;
   }
   if (view === "infra") {
+    // The infra inspector is a floating, draggable card positioned via inline
+    // left/top (driven by infraPanelPos); the ER panel keeps the default anchor.
+    viewToolsEl.style.left = `${infraPanelPos.x}px`;
+    viewToolsEl.style.top = `${infraPanelPos.y}px`;
     renderInfraPanel(viewToolsEl, {
       canEdit: Boolean(source.saveInfraNode),
       canLink: Boolean(source.saveInfraEdge),
+      canUnlink: Boolean(source.deleteInfraEdge),
       linking: linkMode,
+      linkSourceName: linkSourceId ? infraNodes.get(linkSourceId)?.label : undefined,
+      nodes: [...infraNodes.values()],
+      edges: infraEdges,
       node: selectedInfraId ? infraNodes.get(selectedInfraId) : undefined,
+      search: infraSearch,
+      typeFilter: infraTypeFilter,
+      collapsed: infraPanelCollapsed,
+      onSearch: (q) => {
+        infraSearch = q;
+        renderViewTools();
+        // The panel DOM is rebuilt on each keystroke, so restore focus + caret
+        // to the freshly-created search input to keep typing uninterrupted.
+        const input = viewToolsEl.querySelector<HTMLInputElement>(".ifp-search input");
+        if (input) {
+          input.focus();
+          const end = input.value.length;
+          input.setSelectionRange(end, end);
+        }
+      },
+      onFilter: (kind) => {
+        infraTypeFilter = kind;
+        renderViewTools();
+      },
       onAddNode: () => void addInfraNodeOnCanvas(),
       onToggleLink: toggleLink,
+      onToggleCollapse: toggleInfraPanelCollapse,
+      onDragStart: onInfraPanelDragStart,
+      // While the Link tool is armed, a list click picks a link endpoint (same as
+      // clicking the node on the canvas); otherwise it opens the node's detail.
+      onSelectNode: (id) => {
+        if (id && linkMode) onLinkPick(id);
+        else selectInfra(id);
+      },
       onChangeNode: updateInfraNode,
       onRemoveNode: () => void deleteSelectedInfra(),
+      onRemoveEdge: (id) => void removeInfraEdge(id),
     });
   } else {
+    // Reset the infra inspector's inline float position so the ER panel falls
+    // back to the default #viewtools anchor (top/left/bottom in CSS).
+    viewToolsEl.style.left = "";
+    viewToolsEl.style.top = "";
     renderEntityPanel(viewToolsEl, {
       canEdit: Boolean(source.saveEntity),
       canRelate: Boolean(source.saveEntityRelation),

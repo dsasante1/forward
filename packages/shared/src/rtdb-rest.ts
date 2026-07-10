@@ -561,6 +561,14 @@ export async function deleteInfraNode(
   );
 }
 
+/** Remove a single edge, leaving both endpoint nodes in place. */
+export async function deleteInfraEdge(
+  cfg: FirebaseConfig,
+  edgeId: string,
+): Promise<void> {
+  await del(url(cfg, paths.infraEdge(cfg.projectId, edgeId)));
+}
+
 // --------------------------------------------------------------------------
 // Infrastructure flows (narrated paths over the infra graph)
 // --------------------------------------------------------------------------
