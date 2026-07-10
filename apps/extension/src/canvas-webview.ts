@@ -1,4 +1,5 @@
 import {
+  type AgentSnapshot,
   type CanvasHandle,
   type CanvasSource,
   type ElementSnapshot,
@@ -7,6 +8,7 @@ import {
   mountCanvas,
 } from "forward-canvas/embed";
 import type {
+  AgentNode,
   ApiBinding,
   Checkpoint,
   CheckpointInput,
@@ -16,9 +18,12 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
+  ProjectRole,
   ProjectTimelineEvent,
   Task,
 } from "forward-core";
+import type { RosterMember } from "forward-core/api";
 
 /**
  * The VS Code canvas webview. Rather than re-implement the editor, this mounts
@@ -111,6 +116,9 @@ class BridgeSource implements CanvasSource {
   subscribeEntities(onChange: (snapshot: EntitySnapshot) => void): () => void {
     return sub("entities", onChange);
   }
+  subscribeAgents(onChange: (snapshot: AgentSnapshot) => void): () => void {
+    return sub("agents", onChange);
+  }
   subscribeTasks(onChange: (tasks: Task[]) => void): () => void {
     return sub("tasks", onChange);
   }
@@ -131,6 +139,12 @@ class BridgeSource implements CanvasSource {
     version: { version: string; changeLog: string; action: "created" | "modified" },
   ): Promise<void> {
     return rpc("documentElement", [elementId, binding, version]);
+  }
+  undocumentElement(
+    elementId: string,
+    version: { version: string; changeLog: string; title?: string },
+  ): Promise<void> {
+    return rpc("undocumentElement", [elementId, version]);
   }
   deleteElement(elementId: string): Promise<void> {
     return rpc("deleteElement", [elementId]);
@@ -161,6 +175,30 @@ class BridgeSource implements CanvasSource {
   }
   deleteEntityRelation(relationId: string): Promise<void> {
     return rpc("deleteEntityRelation", [relationId]);
+  }
+  saveAgentNode(agent: AgentNode): Promise<void> {
+    return rpc("saveAgentNode", [agent]);
+  }
+  deleteAgentNode(agentId: string): Promise<void> {
+    return rpc("deleteAgentNode", [agentId]);
+  }
+  saveMcpServer(server: McpServerNode): Promise<void> {
+    return rpc("saveMcpServer", [server]);
+  }
+  deleteMcpServer(serverId: string): Promise<void> {
+    return rpc("deleteMcpServer", [serverId]);
+  }
+  addMember(uid: string, role?: ProjectRole): Promise<void> {
+    return rpc("addMember", [uid, role]);
+  }
+  listMembers(): Promise<RosterMember[]> {
+    return rpc("listMembers", []);
+  }
+  updateMemberRole(uid: string, role: ProjectRole): Promise<void> {
+    return rpc("updateMemberRole", [uid, role]);
+  }
+  removeMember(uid: string): Promise<void> {
+    return rpc("removeMember", [uid]);
   }
   saveTask(task: Task): Promise<void> {
     return rpc("saveTask", [task]);

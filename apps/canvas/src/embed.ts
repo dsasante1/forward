@@ -13,6 +13,7 @@ export type { TokenProvider } from "./server-source.js";
 // The data contract a host can implement to drive the editor itself — e.g. the
 // VS Code extension bridges this over postMessage instead of using ServerSource.
 export type {
+  AgentSnapshot,
   CanvasSource,
   ElementSnapshot,
   EntitySnapshot,

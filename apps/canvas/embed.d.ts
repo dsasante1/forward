@@ -7,6 +7,8 @@
  * src/embed.ts; this file only backs the "types" condition.
  */
 import type {
+  AgentNode,
+  ApiBinding,
   Checkpoint,
   CheckpointInput,
   DesignElement,
@@ -15,6 +17,7 @@ import type {
   InfraEdge,
   InfraFlow,
   InfraNode,
+  McpServerNode,
   ProjectRole,
   ProjectTimelineEvent,
   Task,
@@ -38,6 +41,13 @@ export interface EntitySnapshot {
   entities: Entity[];
   relations: EntityRelation[];
 }
+export interface AgentSnapshot {
+  agents: AgentNode[];
+  servers: McpServerNode[];
+}
+
+/** Whether the source's polling currently reaches the backend. */
+export type ConnectionStatus = "online" | "offline" | "auth";
 
 /**
  * The data contract the canvas editor renders against. `ServerSource` is the
@@ -47,8 +57,18 @@ export interface EntitySnapshot {
  */
 export interface CanvasSource {
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
+  subscribeStatus?(onChange: (status: ConnectionStatus) => void): () => void;
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
   saveElement(element: DesignElement): Promise<void>;
+  documentElement?(
+    elementId: string,
+    binding: ApiBinding,
+    version: { version: string; changeLog: string; action: "created" | "modified" },
+  ): Promise<void>;
+  undocumentElement?(
+    elementId: string,
+    version: { version: string; changeLog: string; title?: string },
+  ): Promise<void>;
   deleteElement(elementId: string): Promise<void>;
   saveInfraNode?(node: InfraNode): Promise<void>;
   deleteInfraNode?(nodeId: string): Promise<void>;
@@ -60,6 +80,11 @@ export interface CanvasSource {
   deleteEntity?(entityId: string): Promise<void>;
   saveEntityRelation?(relation: EntityRelation): Promise<void>;
   deleteEntityRelation?(relationId: string): Promise<void>;
+  subscribeAgents?(onChange: (snapshot: AgentSnapshot) => void): () => void;
+  saveAgentNode?(agent: AgentNode): Promise<void>;
+  deleteAgentNode?(agentId: string): Promise<void>;
+  saveMcpServer?(server: McpServerNode): Promise<void>;
+  deleteMcpServer?(serverId: string): Promise<void>;
   addMember?(uid: string, role?: ProjectRole): Promise<void>;
   listMembers?(): Promise<RosterMember[]>;
   updateMemberRole?(uid: string, role: ProjectRole): Promise<void>;
@@ -71,6 +96,7 @@ export interface CanvasSource {
   subscribeProjectTimeline?(
     onChange: (events: ProjectTimelineEvent[]) => void,
   ): () => void;
+  notifyChange?(resource: RealtimeResource): void;
   createCheckpoint?(input: CheckpointInput): Promise<Checkpoint>;
   restoreCheckpoint?(checkpointId: string): Promise<void>;
   deleteCheckpoint?(checkpointId: string): Promise<void>;
