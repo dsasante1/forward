@@ -669,7 +669,7 @@ export async function fetchCheckpoints(cfg: ApiConfig): Promise<Checkpoint[]> {
 }
 
 /**
- * The project's unified activity feed (design / api / infra / uml events) for the
+ * The project's unified activity feed (design / api / infra / flow events) for the
  * History timeline. Server-ordered newest-first; the client groups + filters it.
  */
 export async function fetchProjectTimeline(

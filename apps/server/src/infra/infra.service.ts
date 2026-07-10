@@ -139,7 +139,7 @@ export class InfraService {
       updatedAt: new Date().toISOString(),
     };
     await this.writeOne(projectId, actor, "infraFlow", next.id, next, (existed) => ({
-      domain: "uml",
+      domain: "flow",
       action: existed ? "modified" : "created",
       targetId: next.id,
       title: next.name,
@@ -154,7 +154,7 @@ export class InfraService {
       const name = await this.nameOf(tx, projectId, "infraFlow", flowId);
       await tx.infraFlow.deleteMany({ where: { projectId, id: flowId } });
       await this.timeline.record(tx, projectId, actor, {
-        domain: "uml",
+        domain: "flow",
         action: "deleted",
         targetId: flowId,
         title: name ?? flowId,
@@ -172,7 +172,7 @@ export class InfraService {
       updatedAt: new Date().toISOString(),
     };
     await this.writeOne(projectId, actor, "entity", next.id, next, (existed) => ({
-      domain: "uml",
+      domain: "flow",
       action: existed ? "modified" : "created",
       targetId: next.id,
       title: next.name,
@@ -203,7 +203,7 @@ export class InfraService {
         });
       }
       await this.timeline.record(tx, projectId, actor, {
-        domain: "uml",
+        domain: "flow",
         action: "deleted",
         targetId: entityId,
         title: name ?? entityId,
@@ -225,7 +225,7 @@ export class InfraService {
       next.id,
       next,
       (existed) => ({
-        domain: "uml",
+        domain: "flow",
         action: existed ? "modified" : "created",
         targetId: next.id,
         title: next.label || `${next.from} → ${next.to}`,
@@ -240,7 +240,7 @@ export class InfraService {
     await this.prisma.withUser(actor, async (tx) => {
       await tx.entityRelation.deleteMany({ where: { projectId, id: relationId } });
       await this.timeline.record(tx, projectId, actor, {
-        domain: "uml",
+        domain: "flow",
         action: "deleted",
         targetId: relationId,
         title: "relation",

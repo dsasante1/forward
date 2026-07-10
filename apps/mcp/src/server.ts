@@ -451,7 +451,7 @@ server.registerTool(
       "cache / queue / service / devops / external / group) and the directed edges between " +
       "them. This is the architecture overlay, separate from the design elements. Start here " +
       "before writing to see what already exists and to reuse node ids when connecting them. " +
-      "Also returns `componentDiagram`: the graph rendered as a UML component diagram (Mermaid) " +
+      "Also returns `componentDiagram`: the graph rendered as a component diagram (Mermaid) " +
       "ready to paste into docs.",
     inputSchema: {},
   },
@@ -584,7 +584,7 @@ server.registerTool(
       "fields) and the crow's-foot relations between them. This is the data-model diagram, " +
       "separate from both the design elements and the infrastructure graph. Start here before " +
       "writing to reuse entity ids when relating them. Also returns `erDiagram`: the model " +
-      "rendered as a UML ER diagram (Mermaid) ready to paste into docs.",
+      "rendered as an ER diagram (Mermaid) ready to paste into docs.",
     inputSchema: {},
   },
   async () => {
@@ -724,7 +724,7 @@ server.registerTool(
       "MCP servers each is wired to) and the MCP servers it exposes or consumes (transport + the " +
       "tools they expose, each optionally wrapping a documented endpoint). Start here before " +
       "writing, to reuse agent/server ids. Also returns `wiringDiagram`: the layer rendered as a " +
-      "UML component/wiring diagram (Mermaid) ready to paste into docs.",
+      "component/wiring diagram (Mermaid) ready to paste into docs.",
     inputSchema: {},
   },
   async () => {
@@ -894,7 +894,7 @@ server.registerTool(
     description:
       "Read the project's infrastructure flows — narrated paths through the architecture (e.g. " +
       '"User signup": web → API → Redis → …). Each flow returns its ordered steps and a ready ' +
-      "UML **sequence diagram** as Mermaid (the `sequenceDiagram` field), the same one the canvas " +
+      "**sequence diagram** as Mermaid (the `sequenceDiagram` field), the same one the canvas " +
       "renders. Step from/to are infra node ids (see list_infra); a step may " +
       "carry an endpointId linking it to a documented design element. Start here before writing " +
       "to reuse a flow id and see what's already documented.",
@@ -938,7 +938,7 @@ server.registerTool(
       "Author a narrated flow over the architecture diagram — the AI-native way to capture " +
       '"how signup works" as one call. Pass an ordered list of steps; each step\'s from/to are ' +
       "infra node ids (from list_infra — create the nodes first with write_infra_node). kind sets " +
-      "the UML message style: sync (default, a solid request arrow), async (an open fire-and-" +
+      "the message style: sync (default, a solid request arrow), async (an open fire-and-" +
       "forget arrow), or reply (a dashed return arrow). Set endpointId to tie a step to a " +
       "documented design element. Pass an existing flow id to replace it, or omit to create. " +
       "Replaces all steps — use add_flow_step to append to an existing flow without resending them.",
@@ -987,7 +987,7 @@ server.registerTool(
         'What happens, e.g. "store verification token".',
       ),
       kind: InfraFlowStep.shape.kind.describe(
-        "UML message style: sync (default, solid request), async (open arrow), or reply (dashed return).",
+        "message style: sync (default, solid request), async (open arrow), or reply (dashed return).",
       ),
       endpointId: InfraFlowStep.shape.endpointId.describe(
         "Optional design element id whose apiBinding drives this hop.",

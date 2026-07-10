@@ -271,7 +271,7 @@ model VersionEntry {
 model TimelineEvent {
   seq       BigInt   @id @default(autoincrement())
   projectId String
-  domain    String // 'design' | 'api' | 'infra' | 'uml'
+  domain    String // 'design' | 'api' | 'infra' | 'flow' | 'agent'
   action    String // 'created' | 'modified' | 'deleted'
   targetId  String // element / node / edge / flow id
   title     String

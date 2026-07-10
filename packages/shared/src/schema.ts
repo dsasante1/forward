@@ -263,6 +263,7 @@ export const InfraKind = z.enum([
   "service", // internal microservice
   "devops", // CI/CD, container, IaC, monitoring
   "external", // third-party / SaaS dependency
+  "actor", // a person — user/admin/human initiating a journey (not a system component)
   "group", // a container box that visually groups other nodes
 ]);
 export type InfraKind = z.infer<typeof InfraKind>;
@@ -367,7 +368,7 @@ export type InfraFlow = z.infer<typeof InfraFlow>;
 // DATA model rather than the runtime components. An `Entity` is a table/model;
 // an `EntityRelation` is a crow's-foot association between two of them. It is its
 // own standalone graph (it does NOT reference design elements or infra nodes) and
-// serialises to a Mermaid `erDiagram` for export/print — the one UML grammar the
+// serialises to a Mermaid `erDiagram` for export/print — the one diagram grammar the
 // infra serializers don't cover. Geometry mirrors InfraNode/DesignElement so the
 // same canvas pan/zoom/geometry helpers apply unchanged.
 
@@ -426,7 +427,7 @@ export type RelationCardinality = z.infer<typeof RelationCardinality>;
  * A directed association between two entities. `from`/`to` are Entity ids; each
  * end carries its own cardinality. `identifying` picks the line style (solid when
  * the child cannot exist without the parent, dashed otherwise), mirroring the
- * UML/crow's-foot convention. Relations touching a missing entity are skipped on
+ * crow's-foot convention. Relations touching a missing entity are skipped on
  * render — the same "skip dangling" rule the infra serializers use.
  */
 export const EntityRelation = z.object({
@@ -649,7 +650,7 @@ export type CheckpointTag = z.infer<typeof CheckpointTag>;
 
 /** A per-layer change-count chip shown on a checkpoint card (e.g. DESIGN +8). */
 export const CheckpointChange = z.object({
-  layer: z.enum(["API", "INFRA", "DESIGN", "UML"]),
+  layer: z.enum(["API", "INFRA", "DESIGN", "FLOW"]),
   n: z.number().int().nonnegative(),
 });
 export type CheckpointChange = z.infer<typeof CheckpointChange>;
@@ -783,12 +784,12 @@ export type VersionEntry = z.infer<typeof VersionEntry>;
 
 /**
  * Which data layer a project-timeline event belongs to, driving the History
- * view's Design / API / Infra / UML / Agents grouping + per-domain colouring.
+ * view's Design / API / Infra / Flows / Agents grouping + per-domain colouring.
  * `design`/`api` come from design-element + binding changes, `infra` from the
- * node/edge graph, `uml` from the narrated flows, `agent` from the agent/MCP
+ * node/edge graph, `flow` from the narrated flows, `agent` from the agent/MCP
  * server nodes.
  */
-export const TimelineDomain = z.enum(["design", "api", "infra", "uml", "agent"]);
+export const TimelineDomain = z.enum(["design", "api", "infra", "flow", "agent"]);
 export type TimelineDomain = z.infer<typeof TimelineDomain>;
 
 /**

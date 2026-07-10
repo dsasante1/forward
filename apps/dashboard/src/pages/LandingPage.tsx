@@ -1204,7 +1204,7 @@ const PLANS = [
     feats: [
       "Everything in Solo, plus:",
       "Unlimited projects & editors",
-      "Infrastructure, flows & UML",
+      "Infrastructure, flows & diagrams",
       "Checkpoints & full history",
       "MCP server & member management",
     ],

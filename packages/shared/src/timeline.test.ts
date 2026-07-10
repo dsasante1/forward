@@ -197,14 +197,14 @@ describe("buildHistoryTimeline", () => {
     pe({ seq: 1, domain: "design" }),
     pe({ seq: 2, domain: "api" }),
     pe({ seq: 3, domain: "infra" }),
-    pe({ seq: 4, domain: "uml" }),
+    pe({ seq: 4, domain: "flow" }),
     pe({ seq: 5, domain: "design" }),
   ];
 
   it("drops auto-logged design events; the design layer is shown via checkpoints", () => {
     // The two `design` events are filtered out — design history is the checkpoints.
     const tl = buildHistoryTimeline(events, [], { view: "unified", sort: "new" });
-    expect(tl.counts).toMatchObject({ unified: 3, design: 0, api: 1, infra: 1, uml: 1 });
+    expect(tl.counts).toMatchObject({ unified: 3, design: 0, api: 1, infra: 1, flow: 1 });
     expect(tl.rows).toHaveLength(3);
     expect(tl.rows.some((r) => r.domain === "design")).toBe(false);
   });
@@ -543,7 +543,7 @@ describe("buildHistoryDetail", () => {
     expect(d).toMatchObject({ kind: "infra", subject: "edge", fromLabel: "checkout-svc", toLabel: "payments-db", edgeLabel: "writes" });
   });
 
-  it("uml: a flow resolves numbered steps and a sequence diagram", () => {
+  it("flow: a flow resolves numbered steps and a sequence diagram", () => {
     const infraNodes = new Map<string, InfraNode>([
       ["svc", { id: "svc", kind: "backend", label: "checkout-svc", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
       ["db", { id: "db", kind: "database", label: "payments-db", description: "", x: 0, y: 0, width: 160, height: 72, parentId: null, updatedAt: new Date(0).toISOString() }],
@@ -555,21 +555,21 @@ describe("buildHistoryDetail", () => {
       steps: [{ from: "svc", to: "db", label: "charge card", kind: "sync" }],
       updatedAt: new Date(0).toISOString(),
     };
-    const d = buildHistoryDetail(row({ domain: "uml", targetId: "flow-1" }), {
+    const d = buildHistoryDetail(row({ domain: "flow", targetId: "flow-1" }), {
       infraNodes,
       infraFlows: new Map([["flow-1", flow]]),
     });
-    expect(d).toMatchObject({ kind: "uml", found: true, flowName: "payment" });
-    if (d.kind !== "uml") throw new Error("expected uml");
+    expect(d).toMatchObject({ kind: "flow", found: true, flowName: "payment" });
+    if (d.kind !== "flow") throw new Error("expected flow");
     expect(d.steps).toEqual([{ n: 1, fromLabel: "checkout-svc", toLabel: "payments-db", label: "charge card", kind: "sync" }]);
     expect(d.mermaid).toContain("sequenceDiagram");
   });
 
-  it("uml: an empty flow has no diagram", () => {
+  it("flow: an empty flow has no diagram", () => {
     const flow: InfraFlow = { id: "flow-1", name: "payment", description: "", steps: [], updatedAt: new Date(0).toISOString() };
-    const d = buildHistoryDetail(row({ domain: "uml", targetId: "flow-1" }), { infraFlows: new Map([["flow-1", flow]]) });
-    expect(d).toMatchObject({ kind: "uml", found: true });
-    if (d.kind !== "uml") throw new Error("expected uml");
+    const d = buildHistoryDetail(row({ domain: "flow", targetId: "flow-1" }), { infraFlows: new Map([["flow-1", flow]]) });
+    expect(d).toMatchObject({ kind: "flow", found: true });
+    if (d.kind !== "flow") throw new Error("expected flow");
     expect(d.mermaid).toBeUndefined();
     expect(d.steps).toHaveLength(0);
   });

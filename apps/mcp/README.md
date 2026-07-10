@@ -25,11 +25,11 @@ live.
 | `remove_documentation` | Strip docs off an element |
 | `get_history` | Read one element's full documentation version history (created/modified/deleted) |
 | `get_catchup_digest` | Net to-integrate / to-modify / to-remove since a baseline (24h/7d/30d/all) |
-| `list_infra` | Read the infrastructure graph (nodes + edges) + a UML component diagram (Mermaid) of it |
+| `list_infra` | Read the infrastructure graph (nodes + edges) + a component diagram (Mermaid) of it |
 | `write_infra_node` | Create or update an infra node (database, cache, service, …) |
 | `connect_infra` | Draw a directed edge between two infra nodes |
 | `remove_infra_node` | Delete an infra node and any edges touching it |
-| `list_flows` | Read the narrated flows over the infra graph (steps + a UML sequence diagram in Mermaid) |
+| `list_flows` | Read the narrated flows over the infra graph (steps + a sequence diagram in Mermaid) |
 | `write_flow` | Create or replace a flow — an ordered path of steps through the infra nodes |
 | `add_flow_step` | Append one hop to an existing flow (e.g. document Redis's role in signup) |
 | `remove_flow` | Delete a flow (its infra nodes/edges are left untouched) |
@@ -43,8 +43,8 @@ live.
 These tools give an agent **parity with the canvas and extension** — every data
 pillar is reachable: the **design** layer (read + author), the **API
 documentation** layer (read/write + history), the **infrastructure** graph and
-its narrated **flows** (read/write, plus a UML component diagram from `list_infra`
-and a UML sequence diagram per flow from `list_flows`, both as Mermaid — the same
+its narrated **flows** (read/write, plus a component diagram from `list_infra`
+and a sequence diagram per flow from `list_flows`, both as Mermaid — the same
 diagrams the canvas renders), the project **timeline** (read via `get_history` /
 `get_catchup_digest`; writes flow through the documentation tools), and **access
 control** (the member roster). Designers still normally own the design layer on

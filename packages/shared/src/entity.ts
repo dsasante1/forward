@@ -1,9 +1,9 @@
 import type { Entity, EntityRelation, RelationCardinality } from "./schema.js";
 
 /**
- * The export/print renderer for the entity (ER / data-model) layer, as UML via
+ * The export/print renderer for the entity (ER / data-model) layer, via
  * Mermaid. Where `infra-flow.ts` covers the behavioural (sequence) and structural
- * (component) UML grammars, this covers the **data** grammar: the entities that
+ * (component) grammars, this covers the **data** grammar: the entities that
  * make up the domain and the crow's-foot associations between them — a Mermaid
  * `erDiagram`.
  *
@@ -67,7 +67,7 @@ function token(s: string, fallback: string): string {
 }
 
 /**
- * Serialise an ER model to a UML **entity-relationship diagram** (Mermaid
+ * Serialise an ER model to an **entity-relationship diagram** (Mermaid
  * `erDiagram`). Each entity becomes a table block of `type name KEYS "note"`
  * attribute rows (a fieldless entity renders as a bare, quoted name so isolated
  * tables still appear). Each relation becomes a crow's-foot association whose end

@@ -7,31 +7,36 @@ import type {
 } from "./schema.js";
 
 /**
- * The export/print renderers for the infrastructure layer, both in UML via
- * Mermaid. UML splits into two diagram families and so do these:
+ * The export/print renderers for the infrastructure layer, both via
+ * Mermaid. These split into two diagram families:
  *
- *   • a *flow* → a UML **sequence diagram** (behavioural): how the nodes interact
+ *   • a *flow* → a **sequence diagram** (behavioural): how the nodes interact
  *     over time to complete a process — `flowToMermaid`.
- *   • the *graph* → a UML **component diagram** (structural): the components that
+ *   • the *graph* → a **component diagram** (structural): the components that
  *     make up the system and the dependencies between them — `infraToComponentMermaid`.
  *
  * Both are pure functions of the same single source of truth (the InfraFlow steps
  * / the InfraNode + InfraEdge graph) the on-canvas SVG overlay draws from, so no
- * state is duplicated — the overlay and these UML exports are two views of one model.
+ * state is duplicated — the overlay and these exports are two views of one model.
  */
 
 /** Mermaid sequence-message token per call style (see InfraStepKind). */
 const ARROW: Record<InfraStepKind, string> = {
-  sync: "->>", // synchronous call — a solid arrowhead in UML
+  sync: "->>", // synchronous call — a solid arrowhead
   async: "-)", // asynchronous / fire-and-forget — an open arrowhead
-  reply: "-->>", // return message — a dashed line in UML
+  reply: "-->>", // return message — a dashed line
 };
 
 /**
- * Kinds that sit on the edge of the system act as UML *actors* (the stick figure)
- * rather than internal lifelines: the user-facing client and third-party services.
+ * Kinds that sit on the edge of the system act as *actors* (the stick figure)
+ * rather than internal lifelines: a human initiator (`actor`), the user-facing
+ * client, and third-party services.
  */
-const ACTOR_KINDS = new Set<InfraNode["kind"]>(["frontend", "external"]);
+const ACTOR_KINDS = new Set<InfraNode["kind"]>([
+  "actor",
+  "frontend",
+  "external",
+]);
 
 /**
  * Mermaid forbids a bare label after the colon containing a newline, and aliases
@@ -60,9 +65,9 @@ function escapeLabel(s: string): string {
 }
 
 /**
- * Serialise a flow to a UML **sequence diagram** (Mermaid `sequenceDiagram`).
+ * Serialise a flow to a **sequence diagram** (Mermaid `sequenceDiagram`).
  * Each node becomes a lifeline declared in first-seen order under its human
- * label; client/third-party nodes are declared as UML `actor`s, internal nodes
+ * label; client/third-party nodes are declared as `actor`s, internal nodes
  * as `participant`s. Messages are numbered to match the on-canvas overlay, use
  * the per-kind arrow (sync/async/return), and append a step's `endpointId` when
  * present. Steps referencing a node not in the map are skipped — the same
@@ -110,11 +115,11 @@ export function flowToMermaid(
 }
 
 /**
- * Serialise the infrastructure graph to a UML **component diagram** (rendered as
- * a Mermaid `flowchart`). Every node is a UML component — a box carrying the
+ * Serialise the infrastructure graph to a **component diagram** (rendered as
+ * a Mermaid `flowchart`). Every node is a component — a box carrying the
  * «component» stereotype, its label, and its kind — and every edge is a
  * dependency arrow (optionally labelled with the interface it uses, e.g.
- * "reads/writes"). A `group` node becomes a UML package/subsystem boundary
+ * "reads/writes"). A `group` node becomes a package/subsystem boundary
  * (a Mermaid subgraph) holding the nodes nested in it by `parentId`. Edges to or
  * from a node missing from the list are skipped.
  */
@@ -185,6 +190,7 @@ export type InfraView = "architecture" | "infrastructure" | "modules";
 
 export const INFRA_VIEW_KINDS: Record<InfraView, InfraKind[]> = {
   architecture: [
+    "actor",
     "frontend",
     "backend",
     "database",
@@ -241,7 +247,7 @@ export function filterInfraGraph(
 }
 
 /**
- * Convenience: filter the infra graph to a view and serialise it to the UML
+ * Convenience: filter the infra graph to a view and serialise it to the
  * component diagram in one step — the §1/§2/§4 diagrams as three framings of one
  * model. Equivalent to `infraToComponentMermaid(filterInfraGraph(...))`.
  */

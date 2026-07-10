@@ -791,9 +791,9 @@ async function removeInfraNode(): Promise<void> {
 }
 
 // ==========================================================================
-// Narrated flows (pillar 3b) — UML sequence diagrams authored from the palette.
+// Narrated flows (pillar 3b) — sequence diagrams authored from the palette.
 // A flow walks existing infra nodes, so add the nodes first; both canvases and
-// the UML view render the result read-only. Mirrors the MCP write_flow /
+// the Flows view render the result read-only. Mirrors the MCP write_flow /
 // add_flow_step / remove_flow tools so the surfaces stay at parity.
 // ==========================================================================
 
@@ -844,7 +844,7 @@ async function promptForStep(
 
 /**
  * Author a narrated flow: name it, then add steps one at a time until done.
- * Saved as an InfraFlow that renders as a UML sequence diagram.
+ * Saved as an InfraFlow that renders as a sequence diagram.
  */
 async function addFlow(): Promise<void> {
   const cfg = await readConfig();
@@ -1352,7 +1352,7 @@ interface BridgeMessage {
 /**
  * Open the design canvas in a webview. Rather than a bespoke viewer, this mounts
  * the real `forward-canvas` editor — identical toolbar and full authoring
- * (Layers / Data / UML / Tasks / Infra / checkpoints) to the dashboard's canvas —
+ * (Layers / Data / Flows / Tasks / Infra / checkpoints) to the dashboard's canvas —
  * and drives it through a postMessage bridge. The webview's CanvasSource forwards
  * every subscription and mutation here; the host answers them against the Forward
  * server. The access token never leaves the extension process (the webview makes

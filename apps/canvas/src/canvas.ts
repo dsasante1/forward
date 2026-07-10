@@ -15,12 +15,9 @@ import {
   type McpServerNode,
   type ProjectTimelineEvent,
   type Task,
-  type InfraView,
   agentsToComponentMermaid,
   applyTaskChange,
-  entityToMermaid,
   flowToMermaid,
-  infraViewToMermaid,
   newTask,
   paintOrder,
   withoutBinding,
@@ -94,7 +91,7 @@ const SKELETON = `
       <button id="backpill" class="fwd-backpill" type="button" hidden>
         <span class="fwd-backarrow">&larr;</span><span>Back to project</span>
       </button>
-      <div id="umlpanel" hidden></div>
+      <div id="flowpanel" hidden></div>
       <div id="history" hidden></div>
       <div id="tasks" hidden></div>
       <div id="viewtools" hidden></div>
@@ -146,7 +143,7 @@ let panel!: HTMLElement;
 let toolbar!: HTMLElement;
 let zoomLabel: HTMLElement | null = null;
 let historyEl!: HTMLElement;
-let umlPanelEl!: HTMLElement;
+let flowPanelEl!: HTMLElement;
 let tasksEl!: HTMLElement;
 let viewToolsEl!: HTMLElement;
 let memberEl!: HTMLElement;
@@ -209,7 +206,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   toolbar = uiRoot.querySelector("#toolbar") as HTMLElement;
   zoomLabel = uiRoot.querySelector("#zoomLabel") as HTMLElement | null;
   historyEl = uiRoot.querySelector("#history") as HTMLElement;
-  umlPanelEl = uiRoot.querySelector("#umlpanel") as HTMLElement;
+  flowPanelEl = uiRoot.querySelector("#flowpanel") as HTMLElement;
   tasksEl = uiRoot.querySelector("#tasks") as HTMLElement;
   viewToolsEl = uiRoot.querySelector("#viewtools") as HTMLElement;
   memberEl = uiRoot.querySelector("#member") as HTMLElement;
@@ -316,12 +313,12 @@ function destroy(): void {
   uiRoot?.replaceChildren();
 }
 
-// Mermaid is heavy (~700kB), so lazy-load it the first time a UML diagram is
+// Mermaid is heavy (~700kB), so lazy-load it the first time a flow diagram is
 // opened — the offline/fixture path never pays for it. Dark theme to match the
 // canvas; security stays "strict" (sanitizer on) — see getMermaid below. Diagram
 // text is cross-tenant user content, so it must never be rendered "loose".
-let umlSeq = 0; // unique id per render so Mermaid doesn't collide on re-renders
-let umlZoom = 1; // 1 = fit-to-pane; the −/+ controls scale around that fit
+let flowSeq = 0; // unique id per render so Mermaid doesn't collide on re-renders
+let flowZoom = 1; // 1 = fit-to-pane; the −/+ controls scale around that fit
 let mermaidPromise: Promise<typeof import("mermaid").default> | undefined;
 function getMermaid(): Promise<typeof import("mermaid").default> {
   if (!mermaidPromise) {
@@ -401,10 +398,8 @@ const entities = new Map<string, Entity>(); // ER (data-model) layer
 let entityRelations: EntityRelation[] = [];
 const agentNodes = new Map<string, AgentNode>(); // Agent / MCP layer
 const mcpServers = new Map<string, McpServerNode>();
-let selectedFlowId: string | null = null; // flow chosen in the UML view (null = component diagram)
-let selectedUmlView: InfraView | null = "architecture"; // component-diagram lens; null when a flow/ER is shown
-let selectedUmlEr = false; // is the ER diagram the chosen UML render?
-let selectedUmlAgents = false; // is the agent/MCP wiring diagram the chosen render?
+let selectedFlowId: string | null = null; // sequence flow chosen in the Flows view
+let selectedFlowAgents = false; // is the agent/MCP wiring diagram the chosen render?
 let selectedInfraId: string | null = null; // infra node selected for editing/deletion
 let linkMode = false; // Link tool armed: clicks pick two nodes to connect
 let linkSourceId: string | null = null; // first node picked while linking
@@ -419,8 +414,8 @@ let selectedEntityId: string | null = null; // ER entity selected for editing/de
 let selectedRelationId: string | null = null; // ER relation selected for editing/deletion
 let entityLinkMode = false; // Relate tool armed: clicks pick two entities to relate
 let entityLinkSourceId: string | null = null; // first entity picked while relating
-let umlOpen = false; // is the rendered-UML view showing?
-let umlEdit = false; // is the UML flow editor (right column) open?
+let flowOpen = false; // is the rendered Flows view showing?
+let flowEdit = false; // is the flow editor (right column) open?
 let tool: Tool = "select";
 let selectedId: string | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
@@ -434,7 +429,7 @@ let showTheme = false; // show/hide the theme editor drawer
 let taskFilterLinked = false; // restrict the task list to the current selection
 
 // The rail behaves as a set of mutually-exclusive workspace modes. `view` is the
-// single source of truth; the legacy `show*`/`umlOpen` booleans above are derived
+// single source of truth; the legacy `show*`/`flowOpen` booleans above are derived
 // from it inside setView() so the many existing read-sites keep working. `showDocs`
 // (decoration, design-only) and `showTheme` (drawer overlay, allowed in any view)
 // stay independent.
@@ -442,7 +437,7 @@ type PrimaryView =
   | "design"
   | "infra"
   | "data"
-  | "uml"
+  | "flow"
   | "agents"
   | "history"
   | "tasks"
@@ -465,7 +460,7 @@ const TASK_ACTOR = "canvas";
 // source can persist them (otherwise the Save button + History cards stay hidden).
 let checkpoints: Checkpoint[] = [];
 // The unified, domain-tagged activity feed behind the History timeline (design /
-// api / infra / uml events); populated only when the source serves it.
+// api / infra / flow events); populated only when the source serves it.
 let projectTimeline: ProjectTimelineEvent[] = [];
 // Draft kept while the save-checkpoint modal is open, so re-renders don't lose it.
 let saveDraft: { title: string; description: string; tag: CheckpointTag } = {
@@ -816,7 +811,7 @@ function subscribeAll(): void {
       // Drop a stale selection if its flow was deleted upstream.
       if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
       render();
-      if (umlOpen) void renderUmlPanel(); // keep an open diagram in sync with new data
+      if (flowOpen) void renderFlowPanel(); // keep an open diagram in sync with new data
     }),
   );
   // Connection health: flip the LIVE SYNC pill to a "reconnecting" state when the
@@ -857,7 +852,7 @@ function subscribeAll(): void {
   };
   window.addEventListener("beforeunload", onBeforeUnload);
   disposers.push(() => window.removeEventListener("beforeunload", onBeforeUnload));
-  // ER / data-model graph (pillar 3c) — read-only render in the UML panel; only
+  // ER / data-model graph (pillar 3c) — read-only render in the Flows panel; only
   // sources that expose it (ServerSource) drive this, others simply never fire.
   const unsubEntities = source.subscribeEntities?.((snapshot) => {
     entities.clear();
@@ -872,7 +867,7 @@ function subscribeAll(): void {
       selectedRelationId = null;
     }
     if (showEntities) render(); // keep the overlay live
-    if (umlOpen) void renderUmlPanel(); // keep an open ER diagram in sync
+    if (flowOpen) void renderFlowPanel(); // keep an open ER diagram in sync
   });
   if (unsubEntities) disposers.push(unsubEntities);
   // Agent / MCP graph (pillar 8) — read + wiring diagram in the diagram panel;
@@ -883,7 +878,7 @@ function subscribeAll(): void {
     mcpServers.clear();
     for (const s of snapshot.servers) mcpServers.set(s.id, s);
     if (view === "agents") render();
-    if (umlOpen) void renderUmlPanel(); // keep an open wiring diagram in sync
+    if (flowOpen) void renderFlowPanel(); // keep an open wiring diagram in sync
   });
   if (unsubAgents) disposers.push(unsubAgents);
   // Tasks (pillar 4) — present only on sources that can persist them; the panel
@@ -902,7 +897,7 @@ function subscribeAll(): void {
   });
   if (unsubCheckpoints) disposers.push(unsubCheckpoints);
 
-  // The unified activity feed behind the History timeline (design/api/infra/uml).
+  // The unified activity feed behind the History timeline (design/api/infra/flow).
   const unsubTimeline = source.subscribeProjectTimeline?.((next) => {
     projectTimeline = next;
     if (showTimeline) renderTimelinePanel();
@@ -963,9 +958,9 @@ function buildToolbar(): void {
   // The infra editing tools (add node / link / node editor) live in the right
   // drawer — see renderInfraPanel — not the toolbar, so they don't read as
   // general element-creation tools.
-  const umlBtn = iconButton(umlIcon(), "UML", toggleUml);
-  umlBtn.dataset.toggle = "uml";
-  toolbar.append(umlBtn);
+  const flowBtn = iconButton(flowIcon(), "Flows", toggleFlows);
+  flowBtn.dataset.toggle = "flow";
+  toolbar.append(flowBtn);
   // Agent / MCP layer — the wiring diagram of agents + MCP servers. Only shown
   // when the source serves it (ServerSource); a read-only/fixture source omits it.
   if (source.subscribeAgents) {
@@ -1006,7 +1001,7 @@ function buildToolbar(): void {
  */
 /**
  * Switch the active workspace mode. The one place mutual exclusivity lives: it
- * derives the legacy `show*`/`umlOpen` booleans from `next`, clears the transient
+ * derives the legacy `show*`/`flowOpen` booleans from `next`, clears the transient
  * state of the mode being left, drives the per-view chrome (which surfaces the
  * CSS shows), and repaints. Re-clicking the active mode's rail button returns to
  * the design view.
@@ -1043,22 +1038,18 @@ function setView(next: PrimaryView): void {
     }
   }
 
-  // UML and Agents both own the async diagram surface; open/close it here. The
+  // Flows and Agents both own the async diagram surface; open/close it here. The
   // Agents view opens it pre-focused on the agent/MCP wiring lens.
-  if (next === "uml" || next === "agents") {
-    umlOpen = true;
-    umlZoom = 1; // open at fit
-    umlEdit = false; // open in view mode
-    selectedUmlAgents = next === "agents";
-    if (next === "agents") {
-      selectedUmlView = null;
-      selectedUmlEr = false;
-      selectedFlowId = null;
-    }
-  } else if (umlOpen) {
-    umlOpen = false;
-    umlEdit = false;
-    umlPanelEl.replaceChildren();
+  if (next === "flow" || next === "agents") {
+    flowOpen = true;
+    flowZoom = 1; // open at fit
+    flowEdit = false; // open in view mode
+    selectedFlowAgents = next === "agents";
+    if (next === "agents") selectedFlowId = null;
+  } else if (flowOpen) {
+    flowOpen = false;
+    flowEdit = false;
+    flowPanelEl.replaceChildren();
   }
 
   // The Member view loads its roster lazily on entry.
@@ -1071,7 +1062,7 @@ function setView(next: PrimaryView): void {
   syncRailActive();
   render(); // repaints the canvas + refreshes the drawer/view-tools/panels
   renderMemberPanel();
-  void renderUmlPanel();
+  void renderFlowPanel();
 }
 
 /** Reflect the active view + flags on the rail buttons' `.active` state. */
@@ -1084,30 +1075,12 @@ function syncRailActive(): void {
   set("docs", view === "design" && showDocs);
   set("infra", view === "infra");
   set("entities", view === "data");
-  set("uml", view === "uml");
+  set("flow", view === "flow");
   set("agents", view === "agents");
   set("timeline", view === "history");
   set("tasks", view === "tasks");
   set("member", view === "member");
   set("theme", showTheme);
-}
-
-/**
- * Keep `view` (and the lit rail button) in step with the lens shown in the shared
- * diagram panel. The panel is owned by two buttons — Agents (the agent/MCP wiring
- * lens) and UML (every other lens: the component views, the ER diagram and the
- * sequence flows) — so re-pointing the panel's dropdown must re-point the rail,
- * otherwise the button that opened the panel stays lit over a lens it no longer
- * shows. Only meaningful while the panel is open; both target views share the same
- * `show*` flags, so this stays consistent without going through `setView`.
- */
-function syncPanelView(): void {
-  if (!umlOpen) return;
-  const owner: PrimaryView = selectedUmlAgents ? "agents" : "uml";
-  if (view === owner) return;
-  view = owner;
-  if (canvasRootEl) canvasRootEl.dataset.view = owner;
-  syncRailActive();
 }
 
 /** Open the full-area infra graph (or return to design when re-clicked). */
@@ -1618,7 +1591,7 @@ async function removeInfraEdge(edgeId: string): Promise<void> {
 
 // ========================================================================
 // ER (data-model) overlay (pillar 3c) — entities + crow's-foot relations.
-// A standalone graph like the infra overlay; renders the same model the UML
+// A standalone graph like the infra overlay; renders the same model the Flows
 // panel's `entityToMermaid` exports. Gated on the source's optional entity
 // writers, so a read-only source shows it but can't edit.
 // ========================================================================
@@ -3902,7 +3875,7 @@ function renderTimelinePanel(): void {
   historyEl.hidden = !showTimeline;
   if (!showTimeline) return;
 
-  // The History timeline merges the server activity feed (design/api/infra/uml)
+  // The History timeline merges the server activity feed (design/api/infra/flow)
   // with the manual checkpoints, grouped by domain on a date-rail. Selecting an
   // event deep-links its element on the canvas; restoring rewinds a checkpoint.
   renderTimelineView(
@@ -3929,7 +3902,7 @@ function renderTimelinePanel(): void {
         : {}),
       renderMermaid: async (src) => {
         const mermaid = await getMermaid();
-        const { svg } = await mermaid.render(`hist_${++umlSeq}`, src);
+        const { svg } = await mermaid.render(`hist_${++flowSeq}`, src);
         return svg;
       },
       onClose: toggleTimeline,
@@ -4436,55 +4409,55 @@ function saveTaskOptimistic(
 }
 
 // ========================================================================
-// Infrastructure UML (rendered Mermaid diagrams)
+// Infrastructure flows (rendered Mermaid diagrams)
 // ========================================================================
 
 /**
- * Toggle the rendered UML view (defaults to the architecture component diagram).
+ * Toggle the rendered Flows view (defaults to the architecture component diagram).
  * Clicking the button again closes it — matching the Infra/Docs/Timeline buttons
  * — so the full-stage backdrop never traps the user with a button that does
  * nothing on a second click.
  */
-function toggleUml(): void {
-  setView(view === "uml" ? "design" : "uml");
+function toggleFlows(): void {
+  setView(view === "flow" ? "design" : "flow");
 }
 
 /**
- * Size the rendered diagram to the body: at umlZoom 1 it fits the pane (so no
+ * Size the rendered diagram to the body: at flowZoom 1 it fits the pane (so no
  * scrollbar), and the −/+ controls scale around that fit. We set explicit pixel
  * width/height (rather than a CSS transform) so the body's overflow can pan to
  * every edge when the user zooms past the pane.
  */
-function fitUmlSvg(): void {
-  const body = umlPanelEl.querySelector(".uml-body") as HTMLElement | null;
+function fitFlowSvg(): void {
+  const body = flowPanelEl.querySelector(".flowview-body") as HTMLElement | null;
   const svgEl = body?.querySelector("svg") as SVGSVGElement | null;
-  const label = umlPanelEl.querySelector(".uml-zoom-label");
-  if (label) label.textContent = `${Math.round(umlZoom * 100)}%`;
+  const label = flowPanelEl.querySelector(".flowview-zoom-label");
+  if (label) label.textContent = `${Math.round(flowZoom * 100)}%`;
   if (!body || !svgEl) return;
   const vb = svgEl.viewBox.baseVal;
   const iw = vb?.width || svgEl.getBoundingClientRect().width;
   const ih = vb?.height || svgEl.getBoundingClientRect().height;
   if (!iw || !ih) return;
-  const pad = 32; // .uml-body padding, both sides
+  const pad = 32; // .flowview-body padding, both sides
   const fit = Math.min((body.clientWidth - pad) / iw, (body.clientHeight - pad) / ih);
-  const scale = Math.max(0.02, fit * umlZoom);
+  const scale = Math.max(0.02, fit * flowZoom);
   svgEl.style.maxWidth = "none";
   svgEl.style.maxHeight = "none";
   svgEl.style.width = `${iw * scale}px`;
   svgEl.style.height = `${ih * scale}px`;
 }
 
-/** Step the UML diagram zoom (minimize/maximize) and re-fit. */
-function zoomUml(factor: number): void {
-  umlZoom = Math.min(6, Math.max(0.2, umlZoom * factor));
-  fitUmlSvg();
+/** Step the Flows diagram zoom (minimize/maximize) and re-fit. */
+function zoomFlow(factor: number): void {
+  flowZoom = Math.min(6, Math.max(0.2, flowZoom * factor));
+  fitFlowSvg();
 }
 
 // Keep the diagram fitted when the window (and thus the pane) resizes.
 /** Wire the window resize handler (called by mountCanvas; detached by destroy). */
 function bindResize(): void {
   on(window, "resize", () => {
-    if (umlOpen) fitUmlSvg();
+    if (flowOpen) fitFlowSvg();
   });
 }
 
@@ -4492,209 +4465,131 @@ function bindResize(): void {
 function copyMermaid(text: string): void {
   void navigator.clipboard
     ?.writeText(text)
-    .then(() => notify("UML diagram copied to clipboard (Mermaid)."))
+    .then(() => notify("Flow diagram copied to clipboard (Mermaid)."))
     .catch(() => notify("Couldn't copy — clipboard unavailable."));
 }
 
 /**
- * Render the real UML on its own surface. A dropdown chooses which flow to show
- * as its UML sequence diagram (the architecture/component view already lives in
+ * Render the real Flows view on its own surface. A dropdown chooses which flow to show
+ * as its sequence diagram (the architecture/component view already lives in
  * the Infra overlay). Same `flowToMermaid` the Copy action emits, rendered to
  * SVG via (lazily loaded) Mermaid. The backdrop hides the canvas so the diagram
  * reads on its own — no overlay beneath.
  */
-async function renderUmlPanel(): Promise<void> {
-  umlPanelEl.hidden = !umlOpen;
-  if (!umlOpen) {
-    umlPanelEl.replaceChildren();
+async function renderFlowPanel(): Promise<void> {
+  flowPanelEl.hidden = !flowOpen;
+  if (!flowOpen) {
+    flowPanelEl.replaceChildren();
     return;
   }
 
   // Drop a stale flow selection so the dropdown + render stay consistent.
   if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
-  // The picker shows three families: the structural component diagram in three
-  // kind-filtered views (architecture / infrastructure / modules), the ER /
-  // data-model diagram, and the behavioural sequence diagram per flow. Exactly
-  // one of selectedUmlView / selectedUmlEr / selectedFlowId drives the render;
-  // default to the architecture view.
-  if (
-    !selectedFlowId &&
-    !selectedUmlView &&
-    !selectedUmlEr &&
-    !selectedUmlAgents
-  ) {
-    selectedUmlView = "architecture";
+  // The Flows panel renders one behavioural sequence diagram per narrated flow.
+  // (The Agents rail button shares this surface for the agent/MCP wiring lens.)
+  // Default to the first flow so opening Flows lands on a diagram, not a blank pane.
+  if (!selectedFlowAgents && !selectedFlowId) {
+    const [first] = infraFlows.values();
+    selectedFlowId = first ? first.id : null;
   }
   const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
-  const allNodes = [...infraNodes.values()];
-  const mermaidSrc = selectedUmlAgents
+  const mermaidSrc = selectedFlowAgents
     ? agentNodes.size || mcpServers.size
       ? agentsToComponentMermaid(
           [...agentNodes.values()],
           [...mcpServers.values()],
         )
       : null
-    : selectedUmlEr
-      ? entities.size
-        ? entityToMermaid([...entities.values()], entityRelations)
-        : null
-      : selectedUmlView
-        ? infraNodes.size
-          ? infraViewToMermaid(allNodes, infraEdges, selectedUmlView)
-          : null
-        : flow
-          ? flowToMermaid(flow, infraNodes)
-          : null;
+    : flow
+      ? flowToMermaid(flow, infraNodes)
+      : null;
   const canEditFlows = Boolean(source.saveInfraFlow);
-  // The flow editor only applies to a selected sequence flow, never a view/ER/agents.
-  if (!canEditFlows || selectedUmlView || selectedUmlEr || selectedUmlAgents)
-    umlEdit = false;
+  // The flow editor only applies to a selected sequence flow, never the agents lens.
+  if (!canEditFlows || selectedFlowAgents) flowEdit = false;
 
   // Backdrop: clicking outside the card closes the view.
-  umlPanelEl.replaceChildren();
-  umlPanelEl.onclick = (e) => {
-    if (e.target === umlPanelEl) closeUml();
+  flowPanelEl.replaceChildren();
+  flowPanelEl.onclick = (e) => {
+    if (e.target === flowPanelEl) closeFlow();
   };
 
   const card = document.createElement("div");
-  card.className = "uml-card";
+  card.className = "flowview-card";
 
   // Header: the what-to-render dropdown in the left corner, then (pushed right)
   // the flow actions, zoom −/+ controls, copy, and close.
   const head = document.createElement("div");
-  head.className = "uml-head";
+  head.className = "flowview-head";
 
-  const select = document.createElement("select");
-  select.className = "uml-select";
-
-  // Component-diagram views — the structural graph through three kind-filtered
-  // lenses. Values are prefixed "view:" to tell them from "flow:" flow ids.
-  const VIEW_LABELS: Record<InfraView, string> = {
-    architecture: "Architecture — component diagram",
-    infrastructure: "Infrastructure — dependency diagram",
-    modules: "Modules — dependency graph",
-  };
-  const viewGroup = document.createElement("optgroup");
-  viewGroup.label = "Component diagram";
-  for (const v of Object.keys(VIEW_LABELS) as InfraView[]) {
-    const o = document.createElement("option");
-    o.value = `view:${v}`;
-    o.textContent = VIEW_LABELS[v];
-    if (selectedUmlView === v) o.selected = true;
-    viewGroup.append(o);
-  }
-  select.append(viewGroup);
-
-  // ER / data-model diagram — a single structural data view.
-  const erGroup = document.createElement("optgroup");
-  erGroup.label = "Data model";
-  const erOpt = document.createElement("option");
-  erOpt.value = "er:";
-  erOpt.textContent = "Entities — ER diagram";
-  if (selectedUmlEr) erOpt.selected = true;
-  erGroup.append(erOpt);
-  select.append(erGroup);
-
-  // Agent / MCP wiring diagram — the agents the project defines + the MCP
-  // servers they call. Only offered when the source serves the layer.
-  if (source.subscribeAgents) {
-    const agentGroup = document.createElement("optgroup");
-    agentGroup.label = "Agents & MCP";
-    const agentOpt = document.createElement("option");
-    agentOpt.value = "agents:";
-    agentOpt.textContent = "Agents & MCP — wiring diagram";
-    if (selectedUmlAgents) agentOpt.selected = true;
-    agentGroup.append(agentOpt);
-    select.append(agentGroup);
-  }
-
-  // Sequence diagrams — one per narrated flow.
-  const flowGroup = document.createElement("optgroup");
-  flowGroup.label = "Sequence diagram";
-  if (infraFlows.size === 0) {
-    const none = document.createElement("option");
-    none.textContent = "No sequence flows defined";
-    none.disabled = true;
-    flowGroup.append(none);
-  }
-  for (const f of infraFlows.values()) {
-    const o = document.createElement("option");
-    o.value = `flow:${f.id}`;
-    o.textContent = `${f.name} — sequence diagram`;
-    if (f.id === selectedFlowId) o.selected = true;
-    flowGroup.append(o);
-  }
-  select.append(flowGroup);
-
-  select.addEventListener("change", () => {
-    const val = select.value;
-    if (val.startsWith("view:")) {
-      selectedUmlView = val.slice(5) as InfraView;
-      selectedFlowId = null;
-      selectedUmlEr = false;
-      selectedUmlAgents = false;
-    } else if (val.startsWith("flow:")) {
-      selectedFlowId = val.slice(5);
-      selectedUmlView = null;
-      selectedUmlEr = false;
-      selectedUmlAgents = false;
-    } else if (val === "er:") {
-      selectedUmlEr = true;
-      selectedUmlView = null;
-      selectedFlowId = null;
-      selectedUmlAgents = false;
-    } else if (val === "agents:") {
-      selectedUmlAgents = true;
-      selectedUmlEr = false;
-      selectedUmlView = null;
-      selectedFlowId = null;
+  // The Agents lens (opened from its own rail button) shares this surface for a
+  // single wiring diagram, so it shows a static title instead of the picker.
+  if (selectedFlowAgents) {
+    head.append(hEl("h3", "Agents & MCP — wiring diagram"));
+  } else {
+    // The Flows picker lists one entry per narrated flow — each renders as a
+    // sequence diagram. The structural lenses (component / ER) live on their own
+    // Infra and Data rails, not here.
+    const select = document.createElement("select");
+    select.className = "flowview-select";
+    if (infraFlows.size === 0) {
+      const none = document.createElement("option");
+      none.textContent = "No sequence flows defined";
+      none.disabled = true;
+      none.selected = true;
+      select.append(none);
     }
-    // The diagram panel is shared by two rail buttons — UML (component / ER /
-    // sequence lenses) and Agents (the agent/MCP wiring lens). Keep the lit rail
-    // button in step with the lens on show, so switching lens never leaves a
-    // stale highlight on the button that opened the panel.
-    syncPanelView();
-    void renderUmlPanel();
-  });
-  head.append(select);
+    for (const f of infraFlows.values()) {
+      const o = document.createElement("option");
+      o.value = `flow:${f.id}`;
+      o.textContent = `${f.name} — sequence diagram`;
+      if (f.id === selectedFlowId) o.selected = true;
+      select.append(o);
+    }
+    select.addEventListener("change", () => {
+      const val = select.value;
+      if (val.startsWith("flow:")) selectedFlowId = val.slice(5);
+      void renderFlowPanel();
+    });
+    head.append(select);
+  }
 
   const headActions = document.createElement("div");
-  headActions.className = "uml-head-actions";
+  headActions.className = "flowview-head-actions";
 
-  // Authoring: create a flow, or toggle the editor for the selected one.
+  // Authoring: create a journey, or toggle the editor for the selected one.
   if (canEditFlows) {
     const newBtn = document.createElement("button");
-    newBtn.className = "uml-action";
-    newBtn.textContent = "+ New flow";
+    newBtn.className = "flowview-action";
+    newBtn.textContent = "+ New journey";
     newBtn.addEventListener("click", () => void createFlow());
     const editBtn = document.createElement("button");
-    editBtn.className = umlEdit ? "uml-action active" : "uml-action";
+    editBtn.className = flowEdit ? "flowview-action active" : "flowview-action";
     editBtn.textContent = "Edit";
     editBtn.disabled = !flow;
     editBtn.addEventListener("click", () => {
-      umlEdit = !umlEdit;
-      void renderUmlPanel();
+      flowEdit = !flowEdit;
+      void renderFlowPanel();
     });
     headActions.append(newBtn, editBtn);
   }
 
   const zoomOut = document.createElement("button");
-  zoomOut.className = "uml-zoom";
+  zoomOut.className = "flowview-zoom";
   zoomOut.title = "Zoom out (minimize)";
   zoomOut.textContent = "−";
   zoomOut.disabled = !mermaidSrc;
-  zoomOut.addEventListener("click", () => zoomUml(1 / 1.2));
+  zoomOut.addEventListener("click", () => zoomFlow(1 / 1.2));
   const zoomLabel = document.createElement("span");
-  zoomLabel.className = "uml-zoom-label";
+  zoomLabel.className = "flowview-zoom-label";
   const zoomIn = document.createElement("button");
-  zoomIn.className = "uml-zoom";
+  zoomIn.className = "flowview-zoom";
   zoomIn.title = "Zoom in (maximize)";
   zoomIn.textContent = "+";
   zoomIn.disabled = !mermaidSrc;
-  zoomIn.addEventListener("click", () => zoomUml(1.2));
+  zoomIn.addEventListener("click", () => zoomFlow(1.2));
 
   const copyBtn = document.createElement("button");
-  copyBtn.className = "uml-copy";
+  copyBtn.className = "flowview-copy";
   copyBtn.title = "Copy as Mermaid text";
   copyBtn.textContent = "⧉";
   copyBtn.disabled = !mermaidSrc;
@@ -4702,67 +4597,63 @@ async function renderUmlPanel(): Promise<void> {
     if (mermaidSrc) copyMermaid(mermaidSrc);
   });
   const close = document.createElement("button");
-  close.className = "uml-close";
+  close.className = "flowview-close";
   close.title = "Close";
   close.textContent = "✕";
-  close.addEventListener("click", closeUml);
+  close.addEventListener("click", closeFlow);
   headActions.append(zoomOut, zoomLabel, zoomIn, copyBtn, close);
   head.append(headActions);
   card.append(head);
 
   // Caption only when not editing (the editor owns the description field).
-  if (!umlEdit && flow?.description) {
-    card.append(hEl("p", flow.description, "uml-desc"));
+  if (!flowEdit && flow?.description) {
+    card.append(hEl("p", flow.description, "flowview-desc"));
   }
 
   // Content row: the diagram, plus the editor column when editing.
   const content = document.createElement("div");
-  content.className = "uml-content";
+  content.className = "flowview-content";
   const body = document.createElement("div");
-  body.className = "uml-body";
+  body.className = "flowview-body";
   content.append(body);
-  if (umlEdit && flow) content.append(buildUmlEditor(flow));
+  if (flowEdit && flow) content.append(buildFlowEditor(flow));
   card.append(content);
-  umlPanelEl.append(card);
+  flowPanelEl.append(card);
 
   if (!mermaidSrc) {
-    const message = selectedUmlAgents
+    const message = selectedFlowAgents
       ? "No agents or MCP servers yet — document them from VS Code or an AI agent (the Forward MCP server) to see this diagram."
-      : selectedUmlEr
-        ? "No entities yet — add entities to the data model (e.g. from VS Code or an AI agent) to see this diagram."
-        : selectedUmlView
-          ? "No infrastructure nodes yet — add boxes to the infrastructure graph to see this diagram."
-          : canEditFlows
-            ? 'No sequence flows yet — click "+ New flow" to author one.'
-            : "No sequence flows to render. Add a flow to the infrastructure graph.";
-    body.append(hEl("p", message, "uml-empty"));
+      : canEditFlows
+        ? 'No journeys yet — click "+ New journey" to author one.'
+        : "No journeys to render. Add a flow to the infrastructure graph.";
+    body.append(hEl("p", message, "flowview-empty"));
     return;
   }
 
-  body.append(hEl("p", "Rendering…", "uml-empty"));
-  const token = ++umlSeq; // also the Mermaid render id; guards against races
+  body.append(hEl("p", "Rendering…", "flowview-empty"));
+  const token = ++flowSeq; // also the Mermaid render id; guards against races
   try {
     const mermaid = await getMermaid();
-    const { svg } = await mermaid.render(`uml_${token}`, mermaidSrc);
-    if (!umlOpen || token !== umlSeq) return; // superseded by a newer render/close
+    const { svg } = await mermaid.render(`flow_${token}`, mermaidSrc);
+    if (!flowOpen || token !== flowSeq) return; // superseded by a newer render/close
     body.innerHTML = svg;
-    fitUmlSvg(); // size the diagram to the pane (no scrollbar at 100%)
+    fitFlowSvg(); // size the diagram to the pane (no scrollbar at 100%)
   } catch (err) {
     body.innerHTML = "";
-    body.append(hEl("pre", `Couldn't render UML:\n${(err as Error).message}`, "uml-error"));
+    body.append(hEl("pre", `Couldn't render flow diagram:\n${(err as Error).message}`, "flowview-error"));
   }
 }
 
-/** Close the rendered UML view. */
-function closeUml(): void {
-  // The UML panel's own close affordances (backdrop / ✕) route back to design;
+/** Close the rendered Flows view. */
+function closeFlow(): void {
+  // The Flows panel's own close affordances (backdrop / ✕) route back to design;
   // setView() handles tearing the panel down + syncing the rail.
   setView("design");
 }
 
 // ------------------------------------------------------------------------
-// UML flow authoring — the sequence diagram is a pure render of a flow's
-// steps, so editing the flow here *is* editing the UML. Each change persists
+// Flow authoring — the sequence diagram is a pure render of a flow's
+// steps, so editing the flow here *is* editing the flow. Each change persists
 // and re-renders the diagram live.
 // ------------------------------------------------------------------------
 
@@ -4771,10 +4662,10 @@ async function createFlow(): Promise<void> {
   if (!source.saveInfraFlow) return;
   const name = (
     await promptText({
-      title: "New flow",
-      label: "FLOW NAME",
-      placeholder: "e.g. User login, Checkout, Webhook delivery",
-      okText: "Create flow",
+      title: "New journey",
+      label: "JOURNEY NAME",
+      placeholder: "e.g. User sign up, Admin approves application, Refund",
+      okText: "Create journey",
     })
   )?.trim();
   if (!name) return;
@@ -4787,9 +4678,9 @@ async function createFlow(): Promise<void> {
   };
   infraFlows.set(flow.id, flow);
   selectedFlowId = flow.id;
-  umlEdit = true;
+  flowEdit = true;
   void source.saveInfraFlow(flow);
-  void renderUmlPanel();
+  void renderFlowPanel();
 }
 
 /** Merge a patch into the selected flow, persist, and re-render the diagram. */
@@ -4801,7 +4692,7 @@ function updateFlow(patch: Partial<InfraFlow>): void {
   const updated: InfraFlow = { ...f, ...patch, updatedAt: now() };
   infraFlows.set(id, updated);
   void source.saveInfraFlow(updated);
-  void renderUmlPanel();
+  void renderFlowPanel();
 }
 
 /** Delete the selected flow after confirmation (its nodes/edges stay). */
@@ -4810,17 +4701,17 @@ async function deleteFlow(): Promise<void> {
   if (!id || !source.deleteInfraFlow) return;
   const f = infraFlows.get(id);
   const ok = await confirmAction({
-    title: "Delete flow",
-    message: `Delete flow "${f?.name ?? id}"? Its nodes and edges are left intact.`,
+    title: "Delete journey",
+    message: `Delete journey "${f?.name ?? id}"? Its nodes and edges are left intact.`,
     okText: "Delete",
     danger: true,
   });
   if (!ok) return;
   infraFlows.delete(id);
   selectedFlowId = null;
-  umlEdit = false;
+  flowEdit = false;
   void source.deleteInfraFlow(id);
-  void renderUmlPanel();
+  void renderFlowPanel();
 }
 
 /** Append a step to the selected flow (defaults to the first node(s)). */
@@ -4872,15 +4763,15 @@ function mutateFlowSteps(i: number, action: "remove" | -1 | 1): void {
 }
 
 /** The right-hand editor column for one flow: name, description, and steps. */
-function buildUmlEditor(flow: InfraFlow): HTMLElement {
+function buildFlowEditor(flow: InfraFlow): HTMLElement {
   const aside = document.createElement("aside");
-  aside.className = "uml-editor";
-  aside.append(hEl("h3", "Edit flow"));
+  aside.className = "flowview-editor";
+  aside.append(hEl("h3", "Edit journey"));
 
   // Name + description.
-  aside.append(umlField("Name", flow.name, (v) => updateFlow({ name: v.trim() || flow.name })));
+  aside.append(flowField("Name", flow.name, (v) => updateFlow({ name: v.trim() || flow.name })));
   aside.append(
-    umlField("Notes", flow.description, (v) => updateFlow({ description: v }), true),
+    flowField("Notes", flow.description, (v) => updateFlow({ description: v }), true),
   );
 
   // Steps.
@@ -4888,11 +4779,11 @@ function buildUmlEditor(flow: InfraFlow): HTMLElement {
   const nodeOpts = [...infraNodes.values()];
   if (!nodeOpts.length) {
     aside.append(
-      hEl("p", "No infra nodes yet — add nodes in the Infra overlay first.", "uml-empty"),
+      hEl("p", "No infra nodes yet — add nodes in the Infra overlay first.", "flowview-empty"),
     );
   }
   flow.steps.forEach((step, i) => {
-    aside.append(buildUmlStep(step, i, flow.steps.length, nodeOpts));
+    aside.append(buildFlowStep(step, i, flow.steps.length, nodeOpts));
   });
 
   const addStep = document.createElement("button");
@@ -4904,7 +4795,7 @@ function buildUmlEditor(flow: InfraFlow): HTMLElement {
 
   const del = document.createElement("button");
   del.className = "doc-remove";
-  del.textContent = "Delete flow";
+  del.textContent = "Delete journey";
   del.disabled = !source.deleteInfraFlow;
   del.addEventListener("click", () => void deleteFlow());
   aside.append(del);
@@ -4912,20 +4803,20 @@ function buildUmlEditor(flow: InfraFlow): HTMLElement {
 }
 
 /** One step row: from → to, a label, the message kind, and move/remove. */
-function buildUmlStep(
+function buildFlowStep(
   step: InfraFlowStep,
   i: number,
   count: number,
   nodes: InfraNode[],
 ): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "uml-step";
+  wrap.className = "flowview-step";
 
   const fromTo = document.createElement("div");
-  fromTo.className = "uml-step-row";
-  fromTo.append(hEl("span", `${i + 1}.`, "uml-step-num"));
+  fromTo.className = "flowview-step-row";
+  fromTo.append(hEl("span", `${i + 1}.`, "flowview-step-num"));
   fromTo.append(nodeSelect(step.from, nodes, (v) => updateFlowStep(i, { from: v })));
-  fromTo.append(hEl("span", "→", "uml-step-arrow"));
+  fromTo.append(hEl("span", "→", "flowview-step-arrow"));
   fromTo.append(nodeSelect(step.to, nodes, (v) => updateFlowStep(i, { to: v })));
   wrap.append(fromTo);
 
@@ -4937,7 +4828,7 @@ function buildUmlStep(
   wrap.append(labelInput);
 
   const row2 = document.createElement("div");
-  row2.className = "uml-step-row";
+  row2.className = "flowview-step-row";
   const kind = document.createElement("select");
   for (const k of ["sync", "async", "reply"] as const) {
     const o = document.createElement("option");
@@ -4960,7 +4851,7 @@ function buildUmlStep(
 }
 
 /** A labelled text/textarea field for the flow editor. */
-function umlField(
+function flowField(
   label: string,
   value: string,
   onChange: (v: string) => void,
@@ -5013,7 +4904,7 @@ function miniBtn(
   onClick: () => void,
 ): HTMLButtonElement {
   const b = document.createElement("button");
-  b.className = "uml-mini";
+  b.className = "flowview-mini";
   b.textContent = glyph;
   b.title = title;
   b.disabled = disabled;
@@ -5429,8 +5320,8 @@ function entityIcon(): SVGElement {
     line(12, 9, 12, 21),
   ]);
 }
-// UML: two component boxes joined by a dependency arrow.
-function umlIcon(): SVGElement {
+// Flow: two component boxes joined by a dependency arrow.
+function flowIcon(): SVGElement {
   return lineIcon([
     svgEl("rect", { x: "3", y: "4", width: "8", height: "6", rx: "1.2" }),
     svgEl("rect", { x: "13", y: "14", width: "8", height: "6", rx: "1.2" }),

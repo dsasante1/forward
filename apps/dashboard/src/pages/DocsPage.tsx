@@ -281,7 +281,7 @@ export function DocsPage() {
                     </td>
                   </tr>
                   <tr>
-                    <td>Entities (ER/UML)</td>
+                    <td>Entities (ER)</td>
                     <td>
                       A project-wide data model of tables, fields and crow's-foot
                       relations. Exports to a Mermaid <code className="d-code">erDiagram</code>.
@@ -445,7 +445,7 @@ export function DocsPage() {
                   <tr><td>Docs</td><td>Endpoint badges on documented elements + the API drawer.</td></tr>
                   <tr><td>Infra</td><td>The infrastructure graph overlay and its editing drawer.</td></tr>
                   <tr><td>Data</td><td>The entity/ER overlay and its editing drawer.</td></tr>
-                  <tr><td>UML</td><td>The Mermaid diagram pane (sequence, component, ER exports).</td></tr>
+                  <tr><td>Flows</td><td>The user-journey sequence diagrams (Mermaid), one per flow.</td></tr>
                   <tr><td>Agents</td><td>The agent / MCP-server wiring diagram.</td></tr>
                   <tr><td>History</td><td>The project timeline panel (see <a href="#history">History</a>).</td></tr>
                   <tr><td>Tasks</td><td>The task-tracker panel.</td></tr>
@@ -803,7 +803,7 @@ export function DocsPage() {
                   <tr><td>design</td><td>Design-element changes.</td></tr>
                   <tr><td>api</td><td>API binding (documentation) changes.</td></tr>
                   <tr><td>infra</td><td>Infrastructure node/edge changes.</td></tr>
-                  <tr><td>uml</td><td>Narrated flow changes.</td></tr>
+                  <tr><td>flow</td><td>Narrated flow changes.</td></tr>
                   <tr><td>agent</td><td>Agent / MCP-server node changes.</td></tr>
                 </tbody>
               </table>
@@ -1843,7 +1843,7 @@ function HistoryFigure() {
       <text x="126" y="138" fontSize="10" fill={INK}>design · Pay now created</text>
       <text x="126" y="151" fontSize="8.5" fill={FAINT}>ama · 1d ago</text>
       <circle cx="100" cy="180" r="6" fill={TASKS} />
-      <text x="126" y="178" fontSize="10" fill={INK}>uml · flow "place order" edited</text>
+      <text x="126" y="178" fontSize="10" fill={INK}>flow · flow "place order" edited</text>
       <text x="126" y="191" fontSize="8.5" fill={FAINT}>kwame · 2d ago</text>
       {/* diff card */}
       <rect x="400" y="40" width="320" height="150" rx="8" fill={BOX} stroke={BORDER} />

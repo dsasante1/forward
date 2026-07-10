@@ -1,14 +1,14 @@
 import type { AgentNode, McpServerNode } from "./schema.js";
 
 /**
- * The export/print renderer for the Agent / MCP layer, in UML via Mermaid — the
+ * The export/print renderer for the Agent / MCP layer, via Mermaid — the
  * structural twin of `infraToComponentMermaid`. The single model (agent nodes +
  * MCP server nodes, wired by `agentNode.mcpServerIds` and, per tool, an optional
  * `endpointId`) renders as one **component/wiring diagram**: agents depend on the
  * MCP servers they call, and each server fans out to its tools; a tool that wraps
  * a documented endpoint carries that endpoint id on its arrow. Pure function of
  * the same source of truth the on-canvas overlay draws from, so no state is
- * duplicated — overlay and this UML export are two views of one model.
+ * duplicated — overlay and this export are two views of one model.
  */
 
 /**
@@ -34,7 +34,7 @@ function escapeLabel(s: string): string {
 }
 
 /**
- * Serialise the agent/MCP graph to a UML **component diagram** (rendered as a
+ * Serialise the agent/MCP graph to a **component diagram** (rendered as a
  * Mermaid `flowchart`). Every agent is an «agent» component and every MCP server
  * an «mcp» component tagged with its transport; an agent → server dependency
  * arrow is drawn for each id in `agentNode.mcpServerIds` that resolves. Each

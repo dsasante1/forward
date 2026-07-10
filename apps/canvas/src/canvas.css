@@ -34,7 +34,7 @@
   --faint: #6c6b65;
   --accent: #d06a40;
   --infra: #5b8fcf;
-  --uml: #9a7fd0;
+  --flow: #9a7fd0;
   --task: #bc9a64;
   --ok: #5db98a;
   --ret: #6fae8b;
@@ -250,18 +250,18 @@
 .fwd-savebtn:hover { filter: brightness(1.06); }
 .fwd-savebtn svg { display: block; }
 /* "Save design checkpoint" only applies while editing the design canvas. The
-   other workspaces (infra, data model, UML, agents, history, tasks, members)
+   other workspaces (infra, data model, flows, agents, history, tasks, members)
    hide it — along with its "saved …" stamp. */
 .fwd-canvas-root[data-view="infra"] .fwd-savebtn,
 .fwd-canvas-root[data-view="data"] .fwd-savebtn,
-.fwd-canvas-root[data-view="uml"] .fwd-savebtn,
+.fwd-canvas-root[data-view="flow"] .fwd-savebtn,
 .fwd-canvas-root[data-view="agents"] .fwd-savebtn,
 .fwd-canvas-root[data-view="history"] .fwd-savebtn,
 .fwd-canvas-root[data-view="tasks"] .fwd-savebtn,
 .fwd-canvas-root[data-view="member"] .fwd-savebtn,
 .fwd-canvas-root[data-view="infra"] .fwd-saved,
 .fwd-canvas-root[data-view="data"] .fwd-saved,
-.fwd-canvas-root[data-view="uml"] .fwd-saved,
+.fwd-canvas-root[data-view="flow"] .fwd-saved,
 .fwd-canvas-root[data-view="agents"] .fwd-saved,
 .fwd-canvas-root[data-view="history"] .fwd-saved,
 .fwd-canvas-root[data-view="tasks"] .fwd-saved,
@@ -362,15 +362,15 @@
 #canvas.panning { cursor: grabbing; }
 #canvas.no-grid { background-image: none; }
 
-/* The non-SVG views (UML / History / Tasks / Member) replace the canvas entirely,
+/* The non-SVG views (Flows / History / Tasks / Member) replace the canvas entirely,
    so hide the design surface + its zoom controls behind their full-area panels.
    The infra/data views still draw into #canvas, so they keep it. */
-.fwd-canvas-root[data-view="uml"] #canvas,
+.fwd-canvas-root[data-view="flow"] #canvas,
 .fwd-canvas-root[data-view="agents"] #canvas,
 .fwd-canvas-root[data-view="history"] #canvas,
 .fwd-canvas-root[data-view="tasks"] #canvas,
 .fwd-canvas-root[data-view="member"] #canvas,
-.fwd-canvas-root[data-view="uml"] #zoombar,
+.fwd-canvas-root[data-view="flow"] #zoombar,
 .fwd-canvas-root[data-view="agents"] #zoombar,
 .fwd-canvas-root[data-view="history"] #zoombar,
 .fwd-canvas-root[data-view="tasks"] #zoombar,
@@ -521,104 +521,104 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 .entity-field-keys label { display: inline-flex; gap: 3px; align-items: center; cursor: pointer; }
 .entity-field-note { width: 100%; }
 
-/* --- rendered UML view (full-stage backdrop + centered card) --- */
-#umlpanel {
+/* --- rendered Flows view (full-stage backdrop + centered card) --- */
+#flowpanel {
   position: absolute; inset: 0; z-index: 30;
   /* Scrim follows the active theme background (dark in dark themes, paper in
      light ones) so it never shows as a black frame around the card. */
   display: flex; padding: 14px; background: color-mix(in srgb, var(--bg) 92%, transparent);
 }
-#umlpanel[hidden] { display: none; }
-.uml-card {
+#flowpanel[hidden] { display: none; }
+.flowview-card {
   display: flex; flex-direction: column;
   width: 100%; height: 100%; overflow: hidden;
   background: var(--bg-panel); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 22px 60px rgba(0, 0, 0, .6);
 }
-.uml-head {
+.flowview-head {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 14px; border-bottom: 1px solid var(--line);
 }
-.uml-head h3 {
+.flowview-head h3 {
   margin: 0; font-size: 13px; font-weight: 600;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.uml-kind {
+.flowview-kind {
   flex: none;
   font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase;
   padding: 2px 8px; border-radius: 99px; background: var(--surface-4); color: #9fb2d8;
 }
-.uml-select {
+.flowview-select {
   flex: none; min-width: 0; max-width: 360px;
   background: var(--surface-4); color: var(--text);
   border: 1px solid var(--line-3); border-radius: 7px; padding: 7px 10px;
   font: inherit; font-family: var(--mono); font-size: 12.5px;
 }
-.uml-desc {
+.flowview-desc {
   margin: 0; padding: 10px 14px; font-size: 12px; opacity: .8; line-height: 1.45;
   border-bottom: 1px solid var(--line);
 }
-.uml-head-actions { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; }
-.uml-tab {
+.flowview-head-actions { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; }
+.flowview-tab {
   border: none; background: transparent; color: var(--muted); font: inherit;
   font-size: 11px; cursor: pointer; padding: 4px 10px; border-radius: 99px;
 }
-.uml-tab:hover { color: var(--text-2); }
-.uml-tab.active { background: var(--surface-4); color: #fff; }
-.uml-tab:disabled { opacity: .35; cursor: default; }
-.uml-copy, .uml-close, .uml-zoom {
+.flowview-tab:hover { color: var(--text-2); }
+.flowview-tab.active { background: var(--surface-4); color: #fff; }
+.flowview-tab:disabled { opacity: .35; cursor: default; }
+.flowview-copy, .flowview-close, .flowview-zoom {
   border: none; background: transparent; color: var(--muted);
   font-size: 14px; line-height: 1; cursor: pointer; padding: 4px 8px; border-radius: 7px;
 }
-.uml-zoom { font-size: 16px; min-width: 28px; }
-.uml-zoom-label {
+.flowview-zoom { font-size: 16px; min-width: 28px; }
+.flowview-zoom-label {
   flex: none; min-width: 44px; text-align: center;
   font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums;
 }
-.uml-copy:hover, .uml-close:hover, .uml-zoom:hover { color: #fff; background: var(--surface-4); }
-.uml-copy:disabled, .uml-zoom:disabled { opacity: .35; cursor: default; }
-.uml-action {
+.flowview-copy:hover, .flowview-close:hover, .flowview-zoom:hover { color: #fff; background: var(--surface-4); }
+.flowview-copy:disabled, .flowview-zoom:disabled { opacity: .35; cursor: default; }
+.flowview-action {
   border: 1px solid var(--line-3); background: var(--surface-3); color: var(--text-2);
   font: inherit; font-size: 11px; cursor: pointer; padding: 5px 9px; border-radius: 7px;
 }
-.uml-action:hover { border-color: var(--accent); color: #fff; }
-.uml-action.active { border-color: var(--accent); color: #fff; background: rgba(208, 106, 64, 0.13); }
-.uml-action:disabled { opacity: .4; cursor: default; }
-.uml-content { flex: 1; min-height: 0; display: flex; }
-.uml-body {
+.flowview-action:hover { border-color: var(--accent); color: #fff; }
+.flowview-action.active { border-color: var(--accent); color: #fff; background: rgba(208, 106, 64, 0.13); }
+.flowview-action:disabled { opacity: .4; cursor: default; }
+.flowview-content { flex: 1; min-height: 0; display: flex; }
+.flowview-body {
   flex: 1; min-height: 0; padding: 16px; overflow: auto;
   background: var(--bg); display: flex;
 }
-.uml-editor {
+.flowview-editor {
   flex: none; width: 320px; overflow: auto; padding: 14px;
   border-left: 1px solid var(--line); background: var(--bg-strip);
 }
-.uml-editor h3 { margin: 0 0 8px; font-size: 14px; }
-.uml-editor h4 {
+.flowview-editor h3 { margin: 0 0 8px; font-size: 14px; }
+.flowview-editor h4 {
   margin: 14px 0 6px; font-family: var(--mono); font-size: 10.5px;
   letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
 }
-.uml-editor .row label { width: 52px; }
-.uml-step {
+.flowview-editor .row label { width: 52px; }
+.flowview-step {
   display: flex; flex-direction: column; gap: 6px; padding: 8px; margin-bottom: 8px;
   border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2);
 }
-.uml-step-row { display: flex; align-items: center; gap: 6px; }
-.uml-step-num { flex: none; opacity: .6; font-size: 11px; min-width: 16px; font-family: var(--mono); }
-.uml-step-arrow { flex: none; opacity: .6; }
-.uml-step select, .uml-step input {
+.flowview-step-row { display: flex; align-items: center; gap: 6px; }
+.flowview-step-num { flex: none; opacity: .6; font-size: 11px; min-width: 16px; font-family: var(--mono); }
+.flowview-step-arrow { flex: none; opacity: .6; }
+.flowview-step select, .flowview-step input {
   flex: 1; min-width: 0; background: var(--surface-3); color: var(--text);
   border: 1px solid var(--line-3); border-radius: 6px; padding: 4px 6px; font: inherit;
 }
-.uml-mini {
+.flowview-mini {
   flex: none; width: 26px; height: 26px; border: 1px solid var(--line-3);
   background: var(--surface-4); color: var(--text-2); border-radius: 6px; cursor: pointer;
 }
-.uml-mini:hover { border-color: var(--accent); color: #fff; }
-.uml-mini:disabled { opacity: .3; cursor: default; }
-.uml-body svg { display: block; margin: auto; }
-.uml-empty { padding: 24px; text-align: center; opacity: .55; }
-.uml-error {
+.flowview-mini:hover { border-color: var(--accent); color: #fff; }
+.flowview-mini:disabled { opacity: .3; cursor: default; }
+.flowview-body svg { display: block; margin: auto; }
+.flowview-empty { padding: 24px; text-align: center; opacity: .55; }
+.flowview-error {
   margin: 0; padding: 18px; color: var(--err); white-space: pre-wrap;
   font-family: var(--mono); font-size: 12px;
 }
@@ -1022,7 +1022,7 @@ code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-
 .tl2-steps { display: flex; flex-direction: column; gap: 4px; }
 .tl2-step-row { display: flex; align-items: baseline; gap: 10px; font-size: 12.5px; }
 .tl2-step-n {
-  font-family: var(--mono); font-size: 10px; color: #fff; background: var(--uml, #9a7fd0);
+  font-family: var(--mono); font-size: 10px; color: #fff; background: var(--flow, #9a7fd0);
   width: 17px; height: 17px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none;
 }
 .tl2-step-nodes { font-family: var(--mono); color: var(--text); }
@@ -1104,7 +1104,7 @@ code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-
 }
 .tl-cp-chip[data-layer="API"] { background: rgba(208, 106, 64, 0.16); color: var(--accent); }
 .tl-cp-chip[data-layer="INFRA"] { background: rgba(91, 143, 207, 0.16); color: var(--infra); }
-.tl-cp-chip[data-layer="UML"] { background: rgba(154, 127, 208, 0.16); color: var(--uml); }
+.tl-cp-chip[data-layer="FLOW"] { background: rgba(154, 127, 208, 0.16); color: var(--flow); }
 .tl-cp-foot {
   display: flex; align-items: center; gap: 9px; margin-top: 12px;
   padding-top: 11px; border-top: 1px solid var(--line);

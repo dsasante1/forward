@@ -27,7 +27,7 @@ import type { RosterMember } from "forward-core/api";
 
 /**
  * The VS Code canvas webview. Rather than re-implement the editor, this mounts
- * the *real* `forward-canvas` library — so the toolbar (Layers / Data / UML /
+ * the *real* `forward-canvas` library — so the toolbar (Layers / Data / Flows /
  * Tasks / Infra / checkpoints) and every authoring affordance are identical to
  * the dashboard's canvas, and stay in sync automatically.
  *

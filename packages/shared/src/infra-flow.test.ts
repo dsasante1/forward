@@ -34,7 +34,7 @@ function edge(id: string, from: string, to: string, label?: string): InfraEdge {
   });
 }
 
-describe("flowToMermaid (UML sequence diagram)", () => {
+describe("flowToMermaid (sequence diagram)", () => {
   const nodes = new Map([
     ["web", node("web", "Web App", "frontend")],
     ["api", node("api", "API Server", "backend")],
@@ -54,13 +54,30 @@ describe("flowToMermaid (UML sequence diagram)", () => {
     });
     const out = flowToMermaid(flow, nodes);
     expect(out).toContain("sequenceDiagram");
-    // A frontend node is a UML actor; internal nodes are participants.
+    // A frontend node is an actor; internal nodes are participants.
     expect(out).toContain("actor N0 as Web App");
     expect(out).toContain("participant N1 as API Server");
     expect(out).toContain("participant N2 as Redis");
     expect(out).toContain("N0->>N1: 1. POST /auth/register");
     expect(out).toContain("N1-)N2: 2. store token");
     expect(out).toContain("N1-->>N0: 3. 201 Created");
+  });
+
+  it("renders an actor (human) node as a sequence-diagram actor, not a participant", () => {
+    const journeyNodes = new Map([
+      ["user", node("user", "User", "actor")],
+      ["api", node("api", "API Server", "backend")],
+    ]);
+    const flow = InfraFlow.parse({
+      id: "f3",
+      name: "User sign up",
+      steps: [{ from: "user", to: "api", label: "submits form" }],
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    const out = flowToMermaid(flow, journeyNodes);
+    expect(out).toContain("actor N0 as User");
+    expect(out).not.toContain("participant N0 as User");
+    expect(out).toContain("participant N1 as API Server");
   });
 
   it("appends the endpointId when a step carries one", () => {
@@ -118,7 +135,7 @@ describe("flowToMermaid (UML sequence diagram)", () => {
   });
 });
 
-describe("infraToComponentMermaid (UML component diagram)", () => {
+describe("infraToComponentMermaid (component diagram)", () => {
   it("renders nodes as «component» boxes and edges as dependencies", () => {
     const nodes = [
       node("web", "Web App", "frontend"),

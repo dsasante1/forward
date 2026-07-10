@@ -115,7 +115,7 @@ export class ElementsController {
   // NB: distinct path from the unified project feed at `GET /timeline`
   // (TimelineController). This returns a Record<elementId, VersionEntry[]>;
   // colliding the two on `/timeline` shadowed the project feed and emptied the
-  // History view's Design/API/Infra/UML tabs.
+  // History view's Design/API/Infra/Flows tabs.
   @Get("timelines")
   timelines(@Param("projectId") projectId: string, @CurrentUser() user: AuthUser) {
     return this.elements.timelines(projectId, user.id);

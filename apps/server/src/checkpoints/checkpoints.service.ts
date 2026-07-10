@@ -248,7 +248,7 @@ function changesOf(snapshot: CheckpointSnapshot): CheckpointChange[] {
   const infra = snapshot.infraNodes.length + snapshot.infraEdges.length;
   if (infra) out.push({ layer: "INFRA", n: infra });
   if (snapshot.infraFlows.length) {
-    out.push({ layer: "UML", n: snapshot.infraFlows.length });
+    out.push({ layer: "FLOW", n: snapshot.infraFlows.length });
   }
   return out;
 }

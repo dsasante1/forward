@@ -34,7 +34,7 @@ function relation(
   });
 }
 
-describe("entityToMermaid (UML ER diagram)", () => {
+describe("entityToMermaid (ER diagram)", () => {
   it("renders entities as attribute blocks with types and key roles", () => {
     const entities = [
       entity("cust", "Customer", [
