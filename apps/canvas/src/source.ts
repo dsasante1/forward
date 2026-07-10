@@ -121,7 +121,7 @@ export interface CanvasSource {
   saveInfraEdge?(edge: InfraEdge): Promise<void>;
   /** Remove one infra edge, leaving both endpoint nodes in place. */
   deleteInfraEdge?(edgeId: string): Promise<void>;
-  /** Create or update one narrated flow (the UML sequence-diagram source). */
+  /** Create or update one narrated flow (the flow sequence-diagram source). */
   saveInfraFlow?(flow: InfraFlow): Promise<void>;
   /** Remove one narrated flow (nodes/edges it walked are left intact). */
   deleteInfraFlow?(flowId: string): Promise<void>;
@@ -162,7 +162,7 @@ export interface CanvasSource {
   /** Subscribe to the project's manual checkpoints (pillar 5); newest first. */
   subscribeCheckpoints?(onChange: (checkpoints: Checkpoint[]) => void): () => void;
   /**
-   * Subscribe to the project's unified activity feed (design / api / infra / uml
+   * Subscribe to the project's unified activity feed (design / api / infra / flow
    * events) behind the History timeline; fires on every change, newest first.
    */
   subscribeProjectTimeline?(

@@ -176,6 +176,7 @@ const INFRA_KIND_LABELS: Record<InfraNode["kind"], string> = {
   service: "Service",
   devops: "DevOps",
   external: "External",
+  actor: "User / Actor",
   group: "Group",
 };
 
@@ -193,6 +194,7 @@ export const INFRA_COLORS: Record<InfraNode["kind"], string> = {
   service: "#3db6c9",
   devops: "#e0507a",
   external: "#8a93a3",
+  actor: "#8b7cf0",
   group: "#6b7280",
 };
 

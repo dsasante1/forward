@@ -16,13 +16,13 @@ import {
   type InfraDetail,
   type ProjectTimelineEvent,
   type TimelineDomain,
-  type UmlDetail,
+  type FlowDetail,
 } from "forward-core";
 
 /**
  * The project History timeline: a full-cover, domain-grouped activity feed (the
  * imported "History timeline" design). Every create/modify/delete across the four
- * layers — Design / API / Infra / UML — lands on one date-rail, filterable by a
+ * layers — Design / API / Infra / Flows — lands on one date-rail, filterable by a
  * view-switcher and sortable newest/oldest. Clicking an event opens a viewer that
  * shows its detail and, for checkpoints, offers a one-click restore.
  *
@@ -37,7 +37,7 @@ export interface TimelineCallbacks {
   onRestore: (checkpointId: string) => void;
   /** Delete a checkpoint (from the event viewer). Omitted on read-only sources. */
   onDelete?: (checkpointId: string) => void;
-  /** Render a Mermaid source to an SVG string (the infra/UML detail diagrams). */
+  /** Render a Mermaid source to an SVG string (the infra/flow detail diagrams). */
   renderMermaid?: (src: string) => Promise<string>;
   onClose: () => void;
 }
@@ -50,14 +50,14 @@ const DOMAIN: Record<TimelineDomain, { label: string; color: string }> = {
   design: { label: "Design", color: "#7a8190" },
   api: { label: "API", color: "#d06a40" },
   infra: { label: "Infra", color: "#5b8fcf" },
-  uml: { label: "UML", color: "#9a7fd0" },
+  flow: { label: "Flows", color: "#9a7fd0" },
   agent: { label: "Agents", color: "#3fa88a" },
 };
-// The view-switcher order from the design: Design · Infra · UML · Agents · API · Unified.
+// The view-switcher order from the design: Design · Infra · Flows · Agents · API · Unified.
 const VIEW_ORDER: HistoryView[] = [
   "design",
   "infra",
-  "uml",
+  "flow",
   "agent",
   "api",
   "unified",
@@ -304,7 +304,7 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   viewer.append(head);
 
   // The recorded change, rendered for what it actually is: a design-element
-  // edit, an API doc diff, an infra node/edge, or a narrated UML flow. The body
+  // edit, an API doc diff, an infra node/edge, or a narrated flow. The body
   // is resolved purely (forward-core) against the live project state; this only
   // draws each variant. Checkpoints / unresolved targets keep the plain card.
   const stage = div("tl2-stage");
@@ -349,8 +349,8 @@ function detailBody(
       return apiBody(detail, color);
     case "infra":
       return infraBody(detail, cb);
-    case "uml":
-      return umlBody(detail, cb);
+    case "flow":
+      return flowBody(detail, cb);
     default:
       return null;
   }
@@ -526,7 +526,7 @@ function infraBody(d: InfraDetail, cb: TimelineCallbacks): HTMLElement {
   return wrap;
 }
 
-function umlBody(d: UmlDetail, cb: TimelineCallbacks): HTMLElement {
+function flowBody(d: FlowDetail, cb: TimelineCallbacks): HTMLElement {
   const wrap = div("tl2-detail");
   if (!d.found) {
     wrap.append(h("div", "This flow no longer exists.", "tl2-detail-empty"));

@@ -262,7 +262,7 @@ function checkpointDomain(cp: Checkpoint): TimelineDomain {
   const top = [...cp.changes].sort((a, b) => b.n - a.n)[0]?.layer;
   if (top === "API") return "api";
   if (top === "INFRA") return "infra";
-  if (top === "UML") return "uml";
+  if (top === "FLOW") return "flow";
   return "design";
 }
 
@@ -277,7 +277,7 @@ function checkpointDomain(cp: Checkpoint): TimelineDomain {
  * "Save design checkpoint" button), NOT by the per-edit `design` events: those
  * are auto-logged on every drag/resize/retype and stay in the feed to back
  * undo/redo, but they're too noisy to surface here, so they're filtered out.
- * `api`/`infra`/`uml` events remain — the API doc layer already only records on
+ * `api`/`infra`/`flow` events remain — the API doc layer already only records on
  * an explicit save.
  */
 export function buildHistoryTimeline(
@@ -321,7 +321,7 @@ export function buildHistoryTimeline(
     design: 0,
     api: 0,
     infra: 0,
-    uml: 0,
+    flow: 0,
     agent: 0,
   };
   for (const r of rows) counts[r.domain]++;
@@ -379,8 +379,8 @@ export interface DetailProp {
   value: string;
 }
 
-/** One resolved hop in the UML (sequence-flow) detail. */
-export interface UmlDetailStep {
+/** One resolved hop in the flow (sequence-flow) detail. */
+export interface FlowDetailStep {
   n: number;
   fromLabel: string;
   toLabel: string;
@@ -467,13 +467,13 @@ export interface InfraDetail {
   mermaid?: string;
 }
 
-export interface UmlDetail {
-  kind: "uml";
+export interface FlowDetail {
+  kind: "flow";
   /** False when the flow no longer exists (a deletion event). */
   found: boolean;
   flowName?: string;
   description?: string;
-  steps: UmlDetailStep[];
+  steps: FlowDetailStep[];
   /** The sequence diagram (Mermaid), absent for an empty flow. */
   mermaid?: string;
 }
@@ -488,7 +488,7 @@ export type HistoryDetail =
   | CheckpointDetail
   | ApiDetail
   | InfraDetail
-  | UmlDetail
+  | FlowDetail
   | GenericDetail;
 
 const round = (n: number): string => String(Math.round(n));
@@ -511,8 +511,8 @@ export function buildHistoryDetail(
       return apiDetail(row, src);
     case "infra":
       return infraDetail(row, src);
-    case "uml":
-      return umlDetail(row, src);
+    case "flow":
+      return flowDetail(row, src);
     default:
       return { kind: "generic" };
   }
@@ -716,11 +716,11 @@ function infraDetail(row: HistoryRow, src: HistorySources): InfraDetail {
   return { kind: "infra", subject: "unknown" };
 }
 
-function umlDetail(row: HistoryRow, src: HistorySources): UmlDetail {
+function flowDetail(row: HistoryRow, src: HistorySources): FlowDetail {
   const flow = row.targetId ? src.infraFlows?.get(row.targetId) : undefined;
-  if (!flow) return { kind: "uml", found: false, steps: [] };
+  if (!flow) return { kind: "flow", found: false, steps: [] };
   const nodes = src.infraNodes ?? new Map<string, InfraNode>();
-  const steps: UmlDetailStep[] = flow.steps.map((s, i) => ({
+  const steps: FlowDetailStep[] = flow.steps.map((s, i) => ({
     n: i + 1,
     fromLabel: nodes.get(s.from)?.label ?? s.from,
     toLabel: nodes.get(s.to)?.label ?? s.to,
@@ -729,7 +729,7 @@ function umlDetail(row: HistoryRow, src: HistorySources): UmlDetail {
   }));
   const mermaid = flow.steps.length ? flowToMermaid(flow, nodes) : undefined;
   return {
-    kind: "uml",
+    kind: "flow",
     found: true,
     flowName: flow.name,
     ...(flow.description ? { description: flow.description } : {}),

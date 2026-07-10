@@ -2192,7 +2192,7 @@ textarea.tk-desc-edit:focus {
 .badge-design { background: #3b5bdb; }
 .badge-api { background: #2b8a3e; }
 .badge-infra { background: #9c36b5; }
-.badge-uml { background: #e67700; }
+.badge-flow { background: #e67700; }
 
 /* ===================================================================== */
 /* Responsive: the signed-in app at tablet/phone widths                   */

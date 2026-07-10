@@ -1,6 +1,6 @@
 # forward-docs
 
-Keep a project's **Forward** documentation (API docs, ER/UML, infrastructure,
+Keep a project's **Forward** documentation (API docs, ER, infrastructure,
 flows, and agents/MCP) in sync with its code — automatically, on every change
 that lands on the default branch — **without locking you into any particular
 AI**.

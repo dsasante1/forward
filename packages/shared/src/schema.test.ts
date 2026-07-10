@@ -348,6 +348,18 @@ describe("Infrastructure layer", () => {
     ).toThrow();
   });
 
+  it("accepts the actor (human participant) kind", () => {
+    const node = InfraNode.parse({
+      id: "infra_user",
+      kind: "actor",
+      label: "User",
+      x: 0,
+      y: 0,
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(node.kind).toBe("actor");
+  });
+
   it("rejects an unknown infra kind", () => {
     expect(() =>
       InfraNode.parse({

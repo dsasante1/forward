@@ -58,7 +58,7 @@ describe("AgentNode / McpServerNode contract", () => {
   });
 });
 
-describe("agentsToComponentMermaid (UML wiring diagram)", () => {
+describe("agentsToComponentMermaid (wiring diagram)", () => {
   it("renders agents and servers as stereotyped components and wires them", () => {
     const agents = [
       agent("a1", "Digest agent", {

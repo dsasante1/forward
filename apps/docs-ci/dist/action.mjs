@@ -4147,9 +4147,12 @@ var InfraKind = external_exports.enum([
   // CI/CD, container, IaC, monitoring
   "external",
   // third-party / SaaS dependency
+  "actor",
+  // a person — user/admin/human initiating a journey (not a system component)
   "group"
   // a container box that visually groups other nodes
 ]);
+var InfraEnv = external_exports.enum(["dev", "staging", "prod"]);
 var InfraNode = external_exports.object({
   id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   kind: InfraKind,
@@ -4157,6 +4160,8 @@ var InfraNode = external_exports.object({
   label: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   /** Optional version/runtime tag, e.g. "v15", "Node 20". */
   tech: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** Optional deployment environment (dev/staging/prod). */
+  env: InfraEnv.optional(),
   /** Free-form Markdown notes (rendered with the same subset as apiBinding). */
   description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   x: external_exports.number(),
@@ -4346,7 +4351,7 @@ var Task = external_exports.object({
 });
 var CheckpointTag = external_exports.enum(["milestone", "checkpoint", "wip"]);
 var CheckpointChange = external_exports.object({
-  layer: external_exports.enum(["API", "INFRA", "DESIGN", "UML"]),
+  layer: external_exports.enum(["API", "INFRA", "DESIGN", "FLOW"]),
   n: external_exports.number().int().nonnegative()
 });
 var CheckpointSnapshot = external_exports.object({
@@ -4412,7 +4417,7 @@ var VersionEntry = external_exports.object({
   /** Optional structured diff the timeline expands to show (see VersionDiff). */
   diff: VersionDiff.optional()
 });
-var TimelineDomain = external_exports.enum(["design", "api", "infra", "uml", "agent"]);
+var TimelineDomain = external_exports.enum(["design", "api", "infra", "flow", "agent"]);
 var ProjectTimelineEvent = external_exports.object({
   seq: external_exports.number().int(),
   domain: TimelineDomain,
