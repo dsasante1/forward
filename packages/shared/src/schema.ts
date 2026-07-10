@@ -267,6 +267,11 @@ export const InfraKind = z.enum([
 ]);
 export type InfraKind = z.infer<typeof InfraKind>;
 
+/** Which deployment environment a node lives in. Optional — many diagrams don't
+ * distinguish, so old records (and nodes the author never tagged) simply omit it. */
+export const InfraEnv = z.enum(["dev", "staging", "prod"]);
+export type InfraEnv = z.infer<typeof InfraEnv>;
+
 /**
  * One box in the infrastructure diagram. Project-scoped and standalone — it does
  * NOT reference a design element. Geometry mirrors DesignElement (absolute canvas
@@ -280,6 +285,8 @@ export const InfraNode = z.object({
   label: z.string().min(1).max(SHORT_TEXT_MAX),
   /** Optional version/runtime tag, e.g. "v15", "Node 20". */
   tech: z.string().max(SHORT_TEXT_MAX).optional(),
+  /** Optional deployment environment (dev/staging/prod). */
+  env: InfraEnv.optional(),
   /** Free-form Markdown notes (rendered with the same subset as apiBinding). */
   description: z.string().max(LONG_TEXT_MAX).default(""),
   x: z.number(),

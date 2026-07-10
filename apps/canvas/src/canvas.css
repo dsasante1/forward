@@ -1437,6 +1437,173 @@ button.tk-chip:hover { border-color: var(--accent); color: #fff; }
 #viewtools h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; color: var(--text); }
 
 /* ======================================================================
+   .ifp — the redesigned infrastructure inspector (Add-node / Link toolbar,
+   List / Detail / Link modes). The panel becomes a flex column: header,
+   toolbar and divider stay fixed; .ifp-body scrolls. Mirrors the
+   "Forward Infra Sidebar Redesign" mock, themed via the canvas variables.
+   ====================================================================== */
+/* A floating, draggable, content-sized card (position set inline from JS) —
+   overrides the default #viewtools full-height anchor. */
+#viewtools.ifp {
+  width: 300px; bottom: auto; height: auto; max-height: calc(100% - 24px);
+  padding: 0; overflow: hidden; display: flex; flex-direction: column;
+}
+
+.ifp-handle {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  height: 16px; cursor: grab; user-select: none;
+}
+.ifp-handle:active { cursor: grabbing; }
+.ifp-handle-dots { font-size: 10px; letter-spacing: 3px; line-height: 1; color: var(--muted-2); }
+
+.ifp-head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 2px 16px 13px; cursor: grab;
+}
+.ifp-head:active { cursor: grabbing; }
+.ifp-glyph { width: 17px; height: 17px; flex: none; color: var(--accent); }
+.ifp-meta { flex: 1; min-width: 0; }
+.ifp-title-text { font-size: 14.5px; font-weight: 600; color: var(--text); line-height: 1.2; }
+.ifp-counts { font-family: var(--mono); font-size: 10px; color: var(--muted-2); margin-top: 3px; }
+.ifp-chevron {
+  flex: none; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  border: none; background: none; border-radius: 6px; cursor: pointer; color: var(--muted);
+}
+.ifp-chevron:hover { background: rgba(255, 255, 255, 0.05); color: var(--text-2); }
+.ifp-chevron svg { width: 13px; height: 13px; transition: transform .18s; }
+.ifp-chevron.collapsed svg { transform: rotate(-90deg); }
+
+/* toolbar: primary Add-node button + Link toggle */
+.ifp-toolbar { flex: none; display: flex; gap: 7px; padding: 0 16px 12px; }
+.ifp-add, .ifp-link {
+  flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; gap: 6px;
+  font: 500 12.5px var(--sans); padding: 8px 6px; border-radius: 7px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; border: 1px solid transparent;
+}
+.ifp-add { flex: 1.3; background: var(--accent); color: #fff; border-color: var(--accent); }
+.ifp-add:hover { filter: brightness(1.06); }
+.ifp-add-label { overflow: hidden; text-overflow: ellipsis; }
+.ifp-link { background: transparent; color: var(--text-2); border-color: var(--line-2); }
+.ifp-link:hover { color: var(--text); border-color: var(--line-3); }
+.ifp-link.on { color: var(--accent); border-color: var(--accent); background: rgba(208, 106, 64, 0.12); }
+.ifp-icon { width: 13px; height: 13px; flex: none; }
+
+.ifp-divider { flex: none; height: 1px; background: var(--line); }
+.ifp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+.ifp-seclabel {
+  font: 600 10px var(--mono); letter-spacing: .14em; color: var(--muted-2); margin: 4px 0 9px;
+}
+.ifp-muted { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+.ifp-empty { line-height: 1.5; }
+
+/* coloured kind dot, shared by rows / connections / link status */
+.ifp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.ifp-dot-accent { width: 8px; height: 8px; background: var(--accent); }
+
+/* --- List mode --- */
+.ifp-search { position: relative; flex: none; padding: 12px 16px 10px; }
+.ifp-search input {
+  width: 100%; box-sizing: border-box; background: var(--surface-3); color: var(--text);
+  border: 1px solid var(--line-2); border-radius: 7px; padding: 8px 10px 8px 30px; font: 12.5px var(--sans);
+}
+.ifp-search input:focus { outline: none; border-color: rgba(208, 106, 64, 0.5); }
+.ifp-search-icon {
+  width: 13px; height: 13px; position: absolute; left: 25px; top: 20px;
+  color: var(--muted-2); pointer-events: none;
+}
+.ifp-chips { flex: none; display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; }
+.ifp-chip {
+  font: 10.5px var(--mono); padding: 5px 10px; border-radius: 20px; cursor: pointer;
+  white-space: nowrap; border: 1px solid var(--line-2); color: var(--text-3); background: transparent;
+}
+.ifp-chip:hover { color: var(--text-2); border-color: var(--line-3); }
+.ifp-chip.on { color: var(--accent); border-color: var(--accent); background: rgba(208, 106, 64, 0.09); }
+
+.ifp-rows { display: flex; flex-direction: column; gap: 2px; }
+.ifp-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; cursor: pointer;
+}
+.ifp-row:hover { background: rgba(255, 255, 255, 0.04); }
+.ifp-row-link { cursor: crosshair; }
+.ifp-row-meta { flex: 1; min-width: 0; }
+.ifp-row-name {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ifp-row-tech {
+  font: 10.5px var(--mono); color: var(--muted-2); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ifp-row-count { font: 10px var(--mono); color: var(--muted); flex: none; }
+
+.ifp-noresults { text-align: center; padding: 24px 12px; }
+.ifp-noresults-text { font-size: 13px; color: var(--text-2); margin-bottom: 5px; }
+.ifp-clear { background: none; border: none; font-size: 12px; color: var(--accent); cursor: pointer; }
+.ifp-foot {
+  flex: none; padding: 11px 16px; border-top: 1px solid var(--line);
+  font: 10.5px var(--mono); color: var(--muted-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* --- Detail mode --- */
+.ifp-back {
+  display: inline-flex; align-items: center; gap: 6px; background: none; border: none;
+  font-size: 12px; color: var(--accent); cursor: pointer; padding: 0; margin-bottom: 12px;
+}
+.ifp-back-arrow { font-size: 13px; }
+.ifp-body .fld:first-of-type { margin-top: 0; }
+/* subtle add-row (e.g. "+ Add field" in the entity editor) */
+.ifp-addsub {
+  width: 100%; text-align: center; background: transparent; color: var(--text-2);
+  border: 1px dashed var(--line-3); border-radius: 8px; padding: 8px; font-size: 12px;
+  cursor: pointer; margin-top: 8px;
+}
+.ifp-addsub:hover { color: var(--text); border-color: var(--accent); }
+/* inline labelled checkbox (e.g. relation "Identifying") */
+.ifp-check {
+  display: flex; align-items: center; gap: 8px; margin: 6px 0 2px;
+  font-size: 12.5px; color: var(--text-2); cursor: pointer;
+}
+.ifp-check input { accent-color: var(--accent); }
+.ifp-connrow {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 7px; cursor: pointer;
+  background: var(--surface-3); border: 1px solid var(--line);
+}
+.ifp-connrow:hover { border-color: var(--line-3); }
+.ifp-connrow-name {
+  flex: 1; min-width: 0; font-size: 12.5px; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ifp-connrow-dir { font: 10px var(--mono); color: var(--muted-2); flex: none; }
+.ifp-danger {
+  width: 100%; text-align: center; background: transparent; color: var(--err);
+  border: 1px solid rgba(210, 96, 62, 0.35); border-radius: 8px; padding: 9px; font-size: 12.5px; cursor: pointer;
+}
+.ifp-danger:hover { border-color: var(--err); }
+
+/* --- Link mode --- */
+.ifp-linkstatus { display: flex; align-items: center; gap: 9px; margin-bottom: 10px; }
+.ifp-linkstatus-text { font-size: 13.5px; font-weight: 600; color: var(--text); }
+.ifp-guidance { margin: 0 0 16px; font-size: 12.5px; line-height: 1.6; color: var(--text-3); }
+.ifp-exit {
+  width: 100%; text-align: center; background: transparent; color: var(--text);
+  border: 1px solid var(--line-2); border-radius: 8px; padding: 9px; font-size: 13px; cursor: pointer; margin-bottom: 18px;
+}
+.ifp-exit:hover { border-color: var(--line-3); }
+.ifp-kbd { font: 11px var(--mono); color: var(--muted-2); }
+.ifp-edgelist { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.ifp-edgerow {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 7px;
+  background: var(--surface-3); border: 1px solid var(--line);
+}
+.ifp-edgerow-text {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--text-2);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ifp-edgedel { background: none; border: none; font-size: 14px; color: var(--muted); cursor: pointer; padding: 0 2px; }
+.ifp-edgedel:hover { color: var(--err); }
+
+/* ======================================================================
    #member — the full-area project member roster (the Member view).
    ====================================================================== */
 #member {

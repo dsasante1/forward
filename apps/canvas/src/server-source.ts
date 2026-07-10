@@ -397,6 +397,10 @@ export class ServerSource implements CanvasSource {
     await api.saveInfraEdge(await this.cfg(), edge);
   }
 
+  async deleteInfraEdge(edgeId: string): Promise<void> {
+    await api.deleteInfraEdge(await this.cfg(), edgeId);
+  }
+
   async saveInfraFlow(flow: InfraFlow): Promise<void> {
     await api.saveInfraFlow(await this.cfg(), flow);
   }

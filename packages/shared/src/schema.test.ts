@@ -318,6 +318,34 @@ describe("Infrastructure layer", () => {
     expect(node.height).toBe(72);
     expect(node.parentId).toBeNull();
     expect(node.description).toBe("");
+    expect(node.env).toBeUndefined(); // env is optional — untagged nodes omit it
+  });
+
+  it("accepts an optional deployment environment", () => {
+    const node = InfraNode.parse({
+      id: "infra_api",
+      kind: "backend",
+      label: "API",
+      env: "prod",
+      x: 0,
+      y: 0,
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    expect(node.env).toBe("prod");
+  });
+
+  it("rejects an unknown environment", () => {
+    expect(() =>
+      InfraNode.parse({
+        id: "x",
+        kind: "backend",
+        label: "API",
+        env: "production",
+        x: 0,
+        y: 0,
+        updatedAt: "2026-05-28T11:45:00Z",
+      }),
+    ).toThrow();
   });
 
   it("rejects an unknown infra kind", () => {

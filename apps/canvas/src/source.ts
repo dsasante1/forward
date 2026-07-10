@@ -119,6 +119,8 @@ export interface CanvasSource {
   deleteInfraNode?(nodeId: string): Promise<void>;
   /** Create or update one infra edge. */
   saveInfraEdge?(edge: InfraEdge): Promise<void>;
+  /** Remove one infra edge, leaving both endpoint nodes in place. */
+  deleteInfraEdge?(edgeId: string): Promise<void>;
   /** Create or update one narrated flow (the UML sequence-diagram source). */
   saveInfraFlow?(flow: InfraFlow): Promise<void>;
   /** Remove one narrated flow (nodes/edges it walked are left intact). */

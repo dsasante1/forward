@@ -5,6 +5,8 @@ import {
   type EntityField,
   EntityKey,
   type EntityRelation,
+  type InfraEdge,
+  InfraEnv,
   InfraKind,
   type InfraNode,
   RelationCardinality,
@@ -157,125 +159,596 @@ export function renderPanel(
   root.append(history);
 }
 
-/** Callbacks + state the infra drawer needs from the editor. */
+/** Human labels for the deployment environments. */
+const INFRA_ENV_LABELS: Record<InfraEnv, string> = {
+  dev: "Dev",
+  staging: "Staging",
+  prod: "Prod",
+};
+
+/** Human labels for the infra kinds (the enum values are terse/lowercase). */
+const INFRA_KIND_LABELS: Record<InfraNode["kind"], string> = {
+  frontend: "Frontend",
+  backend: "Backend",
+  database: "Database",
+  cache: "Cache",
+  queue: "Queue",
+  service: "Service",
+  devops: "DevOps",
+  external: "External",
+  group: "Group",
+};
+
+/**
+ * Kind → swatch colour, the single source of truth shared by the on-canvas SVG
+ * overlay (canvas.ts imports this) and the inspector's dots/accents, so a node's
+ * colour is identical wherever it appears.
+ */
+export const INFRA_COLORS: Record<InfraNode["kind"], string> = {
+  frontend: "#5b8cff",
+  backend: "#36c275",
+  database: "#c9a227",
+  cache: "#d1603d",
+  queue: "#b06ad6",
+  service: "#3db6c9",
+  devops: "#e0507a",
+  external: "#8a93a3",
+  group: "#6b7280",
+};
+
+/** Callbacks + state the infra inspector needs from the editor. */
 export interface InfraPanelHandlers {
-  /** Source can persist nodes (otherwise the drawer is read-only). */
+  /** Source can persist nodes (add / edit / remove; otherwise read-only). */
   canEdit: boolean;
-  /** Source can persist edges. */
+  /** Source can persist edges (the Link tool is available). */
   canLink: boolean;
+  /** Source can delete individual edges (the connection ✕). */
+  canUnlink: boolean;
   /** Link tool armed (waiting for two node clicks). */
   linking: boolean;
-  /** The currently selected infra node, if any. */
+  /** Name of the first node picked while linking, if any (drives the guidance). */
+  linkSourceName?: string;
+  /** Every infra node — feeds the list, filter counts and connection lookups. */
+  nodes: InfraNode[];
+  /** Every infra edge. */
+  edges: InfraEdge[];
+  /** The currently selected node, if any (Detail mode). */
   node: InfraNode | undefined;
+  /** Search query (List mode). */
+  search: string;
+  /** Active type filter: "all" or one of the InfraKind values. */
+  typeFilter: string;
+  /** Panel collapsed to just its header (the header chevron). */
+  collapsed: boolean;
+  onSearch(query: string): void;
+  onFilter(kind: string): void;
   onAddNode(): void;
   onToggleLink(): void;
+  onToggleCollapse(): void;
+  /** Begin dragging the floating panel (mousedown on the handle / header). */
+  onDragStart(e: MouseEvent): void;
+  onSelectNode(id: string | null): void;
   onChangeNode(patch: Partial<InfraNode>): void;
   onRemoveNode(): void;
+  onRemoveEdge(edgeId: string): void;
 }
 
 /**
- * The right-hand drawer for infrastructure mode — the infra analogue of
- * `renderPanel`. Top: add-node / link actions. Below: an editor for the selected
- * node (name, kind, tech, notes) and a remove button. Mirrors the design panel's
- * builders so the two drawers look and behave the same.
+ * The floating infrastructure inspector. A fixed header (title + node/edge
+ * counts) and an Add-node / Link toolbar sit above one of three mode bodies:
+ *   • LINK   — the Link tool is armed: guidance + the live connection list.
+ *   • DETAIL — a node is selected: its editable fields + connected nodes.
+ *   • LIST   — the default: search, type-filter chips and the node roster.
+ * Mirrors the "Forward Infra Sidebar Redesign" mock, mapped onto the real
+ * InfraNode/InfraEdge contract.
  */
 export function renderInfraPanel(
   root: HTMLElement,
   opts: InfraPanelHandlers,
 ): void {
   root.replaceChildren();
-  root.append(h("h2", "Infrastructure"));
+  root.classList.add("ifp");
+
+  const edgeCountFor = (id: string): number =>
+    opts.edges.filter((e) => e.from === id || e.to === id).length;
+
+  // --- shared floating chrome: drag grip + header (glyph + counts + chevron) ---
+  root.append(panelHandle(opts.onDragStart));
   root.append(
-    h("p", "Add nodes, link them, and drag to arrange the architecture.", "empty"),
+    panelHeader({
+      glyph: infraGlyph(),
+      title: "Infrastructure",
+      counts:
+        `${opts.nodes.length} node${opts.nodes.length === 1 ? "" : "s"} · ` +
+        `${opts.edges.length} edge${opts.edges.length === 1 ? "" : "s"}`,
+      collapsed: opts.collapsed,
+      onToggleCollapse: opts.onToggleCollapse,
+      onDragStart: opts.onDragStart,
+    }),
   );
+  // Collapsed: show only the header, nothing below.
+  if (opts.collapsed) return;
 
-  const actions = document.createElement("div");
-  actions.className = "infra-actions";
-  if (opts.canEdit) {
-    const add = document.createElement("button");
-    add.className = "doc-add";
-    add.textContent = "+ Add node";
-    add.addEventListener("click", opts.onAddNode);
-    actions.append(add);
+  // --- toolbar: Add node (primary) + Link (toggle) ---
+  if (opts.canEdit || opts.canLink) {
+    const btns: HTMLElement[] = [];
+    if (opts.canEdit) btns.push(primaryBtn("Add node", opts.onAddNode));
+    if (opts.canLink) {
+      btns.push(
+        toggleBtn(
+          linkIcon(),
+          opts.linking ? "Linking…" : "Link",
+          opts.linking,
+          opts.onToggleLink,
+        ),
+      );
+    }
+    root.append(toolbarRow(btns));
   }
-  if (opts.canLink) {
-    const link = document.createElement("button");
-    link.className = opts.linking ? "doc-add active" : "doc-add";
-    link.textContent = opts.linking
-      ? "Linking… click two nodes (Esc to cancel)"
-      : "Link nodes";
-    link.addEventListener("click", opts.onToggleLink);
-    actions.append(link);
-  }
-  root.append(actions);
+  root.append(divider());
 
-  const node = opts.node;
-  if (!node) {
-    root.append(
-      h("p", "Select a node to edit its details, or add one above.", "empty"),
-    );
-    return;
-  }
-
-  root.append(h("h2", node.label || node.id));
-  root.append(h("p", node.kind, "empty"));
-
-  const sec = section("Node");
-  const ro = !opts.canEdit;
-  sec.append(textRow("Name", node.label, (v) => opts.onChangeNode({ label: v }), ro));
-  sec.append(
-    selectRow(
-      "Kind",
-      node.kind,
-      InfraKind.options,
-      (v) => opts.onChangeNode({ kind: v as InfraNode["kind"] }),
-      ro,
-    ),
-  );
-  sec.append(
-    textRow("Tech", node.tech ?? "", (v) => opts.onChangeNode({ tech: v || undefined }), ro),
-  );
-  sec.append(
-    textareaRow(
-      "Notes",
-      node.description,
-      (v) => opts.onChangeNode({ description: v }),
-      5,
-      "Role in the system, config, gotchas…",
-      ro,
-    ),
-  );
-  root.append(sec);
-
-  if (opts.canEdit) {
-    const remove = document.createElement("button");
-    remove.className = "doc-remove";
-    remove.textContent = "Remove node";
-    remove.addEventListener("click", opts.onRemoveNode);
-    root.append(remove);
+  if (opts.linking) {
+    renderLinkMode(root, opts, edgeCountFor);
+  } else if (opts.node) {
+    renderNodeDetail(root, opts);
+  } else {
+    renderNodeList(root, opts, edgeCountFor);
   }
 }
 
-/** Callbacks + state the ER (data-model) drawer needs from the editor. */
+// ---- shared floating-inspector chrome (infra + data) --------------------
+/** The "•••••" drag grip row that moves the floating panel. */
+function panelHandle(onDragStart: (e: MouseEvent) => void): HTMLElement {
+  const handle = document.createElement("div");
+  handle.className = "ifp-handle";
+  handle.addEventListener("mousedown", onDragStart);
+  handle.append(h("span", "•••••", "ifp-handle-dots"));
+  return handle;
+}
+
+/** The inspector header: glyph + title/counts + collapse chevron (a drag zone). */
+function panelHeader(opts: {
+  glyph: SVGElement;
+  title: string;
+  counts: string;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onDragStart: (e: MouseEvent) => void;
+}): HTMLElement {
+  const head = document.createElement("div");
+  head.className = "ifp-head";
+  head.addEventListener("mousedown", opts.onDragStart);
+  const meta = document.createElement("div");
+  meta.className = "ifp-meta";
+  meta.append(
+    h("div", opts.title, "ifp-title-text"),
+    h("div", opts.counts, "ifp-counts"),
+  );
+  const chevron = document.createElement("button");
+  chevron.className = opts.collapsed ? "ifp-chevron collapsed" : "ifp-chevron";
+  chevron.title = opts.collapsed ? "Expand panel" : "Collapse panel";
+  chevron.append(svgNS(["M6 9l6 6 6-6"]));
+  // Clicking the chevron must not also start a header drag.
+  chevron.addEventListener("mousedown", (e) => e.stopPropagation());
+  chevron.addEventListener("click", opts.onToggleCollapse);
+  head.append(opts.glyph, meta, chevron);
+  return head;
+}
+
+/** A primary (filled) toolbar button — "Add node" / "Add entity". */
+function primaryBtn(label: string, onClick: () => void): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = "ifp-add";
+  b.append(plusIcon(), h("span", label, "ifp-add-label"));
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** A toggle (outline) toolbar button — "Link" / "Relate"; accents when active. */
+function toggleBtn(
+  icon: SVGElement,
+  label: string,
+  active: boolean,
+  onClick: () => void,
+): HTMLButtonElement {
+  const b = document.createElement("button");
+  b.className = active ? "ifp-link on" : "ifp-link";
+  b.append(icon, h("span", label, ""));
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+/** The toolbar row wrapper holding the primary + toggle buttons. */
+function toolbarRow(btns: HTMLElement[]): HTMLElement {
+  const bar = document.createElement("div");
+  bar.className = "ifp-toolbar";
+  bar.append(...btns);
+  return bar;
+}
+
+/** LINK mode: what-to-click guidance, an exit affordance, and the live edge list
+ * (each removable when the source supports edge deletion). */
+function renderLinkMode(
+  root: HTMLElement,
+  opts: InfraPanelHandlers,
+  edgeCountFor: (id: string) => number,
+): void {
+  const body = scrollBody();
+
+  const status = document.createElement("div");
+  status.className = "ifp-linkstatus";
+  status.append(h("span", "", "ifp-dot ifp-dot-accent"), h("span", "Link mode active", "ifp-linkstatus-text"));
+  body.append(status);
+
+  const guidance = opts.linkSourceName
+    ? `Now click a target node to connect it to “${opts.linkSourceName}”.`
+    : "Click a node on the canvas or in the list below to start a connection.";
+  body.append(h("p", guidance, "ifp-guidance"));
+
+  const exit = document.createElement("button");
+  exit.className = "ifp-exit";
+  exit.append(
+    document.createTextNode("Exit link mode "),
+    h("span", "· Esc", "ifp-kbd"),
+  );
+  exit.addEventListener("click", opts.onToggleLink);
+  body.append(exit);
+
+  body.append(sectionLabel(`Connections · ${opts.edges.length}`));
+  const nameOf = (id: string): string =>
+    opts.nodes.find((n) => n.id === id)?.label ?? "?";
+  const list = document.createElement("div");
+  list.className = "ifp-edgelist";
+  if (!opts.edges.length) {
+    list.append(h("p", "No connections yet.", "ifp-muted"));
+  }
+  for (const e of opts.edges) {
+    const rowEl = document.createElement("div");
+    rowEl.className = "ifp-edgerow";
+    rowEl.append(
+      h("span", `${nameOf(e.from)} → ${nameOf(e.to)}`, "ifp-edgerow-text"),
+    );
+    if (opts.canUnlink) {
+      const del = document.createElement("button");
+      del.className = "ifp-edgedel";
+      del.title = "Remove connection";
+      del.textContent = "✕";
+      del.addEventListener("click", () => opts.onRemoveEdge(e.id));
+      rowEl.append(del);
+    }
+    list.append(rowEl);
+  }
+  body.append(list);
+
+  // Nodes stay clickable in the list while linking, so drive picks from here too.
+  body.append(sectionLabel("Nodes"));
+  const nodes = document.createElement("div");
+  nodes.className = "ifp-rows";
+  for (const n of opts.nodes) {
+    nodes.append(
+      nodeRow(n, edgeCountFor(n.id), () => opts.onSelectNode(n.id), true),
+    );
+  }
+  body.append(nodes);
+  root.append(body);
+}
+
+/** DETAIL mode: the selected node's editable fields + its connected nodes. */
+function renderNodeDetail(root: HTMLElement, opts: InfraPanelHandlers): void {
+  const node = opts.node;
+  if (!node) return;
+  const ro = !opts.canEdit;
+  const body = scrollBody();
+
+  const back = document.createElement("button");
+  back.className = "ifp-back";
+  back.append(h("span", "←", "ifp-back-arrow"), h("span", "All nodes", ""));
+  back.addEventListener("click", () => opts.onSelectNode(null));
+  body.append(back);
+
+  body.append(fieldCell("Name", textInput(node.label, (v) => opts.onChangeNode({ label: v }), ro)));
+
+  body.append(
+    fieldGrid([
+      fieldCell(
+        "Type",
+        selectInput(
+          node.kind,
+          InfraKind.options,
+          (v) => opts.onChangeNode({ kind: v as InfraNode["kind"] }),
+          ro,
+          (v) => INFRA_KIND_LABELS[v as InfraNode["kind"]] ?? v,
+        ),
+      ),
+      fieldCell(
+        "Environment",
+        // Optional field: a leading blank option ("—") clears it back to untagged.
+        selectInput(
+          node.env ?? "",
+          ["", ...InfraEnv.options],
+          (v) => opts.onChangeNode({ env: (v || undefined) as InfraNode["env"] }),
+          ro,
+          (v) => (v ? INFRA_ENV_LABELS[v as InfraEnv] : "—"),
+        ),
+      ),
+    ]),
+  );
+
+  body.append(
+    fieldCell(
+      "Technology",
+      textInput(node.tech ?? "", (v) => opts.onChangeNode({ tech: v || undefined }), ro),
+    ),
+  );
+
+  const notes = document.createElement("textarea");
+  notes.className = "fld-textarea";
+  notes.rows = 3;
+  notes.value = node.description;
+  notes.disabled = ro;
+  notes.placeholder = "Role in the system, config, gotchas…";
+  notes.addEventListener("change", () => opts.onChangeNode({ description: notes.value }));
+  body.append(fieldCell("Description", notes));
+
+  body.append(divider());
+
+  // --- connected nodes ---
+  const connEdges = opts.edges.filter((e) => e.from === node.id || e.to === node.id);
+  body.append(sectionLabel(`Connected nodes · ${connEdges.length}`));
+  if (!connEdges.length) {
+    body.append(h("p", "Not connected to any node yet.", "ifp-muted"));
+  } else {
+    const conns = document.createElement("div");
+    conns.className = "ifp-rows";
+    for (const e of connEdges) {
+      const otherId = e.from === node.id ? e.to : e.from;
+      const other = opts.nodes.find((n) => n.id === otherId);
+      if (!other) continue;
+      const rowEl = document.createElement("div");
+      rowEl.className = "ifp-connrow";
+      rowEl.addEventListener("click", () => opts.onSelectNode(other.id));
+      rowEl.append(
+        kindDot(other.kind),
+        h("span", other.label, "ifp-connrow-name"),
+        h("span", e.from === node.id ? "→ out" : "← in", "ifp-connrow-dir"),
+      );
+      conns.append(rowEl);
+    }
+    body.append(conns);
+  }
+
+  if (opts.canEdit) {
+    body.append(divider());
+    const remove = document.createElement("button");
+    remove.className = "ifp-danger";
+    remove.textContent = "Delete node";
+    remove.addEventListener("click", opts.onRemoveNode);
+    body.append(remove);
+  }
+  root.append(body);
+}
+
+/** LIST mode: search box, type-filter chips, node roster and a summary footer. */
+function renderNodeList(
+  root: HTMLElement,
+  opts: InfraPanelHandlers,
+  edgeCountFor: (id: string) => number,
+): void {
+  // search
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "ifp-search";
+  searchWrap.append(searchIcon());
+  const search = document.createElement("input");
+  search.type = "text";
+  search.value = opts.search;
+  search.placeholder = "Search nodes";
+  search.addEventListener("input", () => opts.onSearch(search.value));
+  searchWrap.append(search);
+  root.append(searchWrap);
+
+  // type chips
+  const counts = new Map<string, number>();
+  for (const n of opts.nodes) counts.set(n.kind, (counts.get(n.kind) ?? 0) + 1);
+  const chips = document.createElement("div");
+  chips.className = "ifp-chips";
+  const chipDefs: Array<{ key: string; label: string }> = [
+    { key: "all", label: `All · ${opts.nodes.length}` },
+    ...[...counts.entries()].map(([k, c]) => ({
+      key: k,
+      label: `${INFRA_KIND_LABELS[k as InfraNode["kind"]] ?? k} · ${c}`,
+    })),
+  ];
+  for (const c of chipDefs) {
+    const chip = document.createElement("button");
+    chip.className = opts.typeFilter === c.key ? "ifp-chip on" : "ifp-chip";
+    chip.textContent = c.label;
+    chip.addEventListener("click", () => opts.onFilter(c.key));
+    chips.append(chip);
+  }
+  root.append(chips);
+  root.append(divider());
+
+  // rows
+  const q = opts.search.trim().toLowerCase();
+  const filtered = opts.nodes.filter(
+    (n) =>
+      (opts.typeFilter === "all" || n.kind === opts.typeFilter) &&
+      (!q ||
+        n.label.toLowerCase().includes(q) ||
+        (n.tech ?? "").toLowerCase().includes(q)),
+  );
+  const body = scrollBody();
+  if (!opts.nodes.length) {
+    body.append(h("p", "No infrastructure nodes yet. Add one to start mapping the architecture.", "ifp-muted ifp-empty"));
+  } else if (!filtered.length) {
+    const none = document.createElement("div");
+    none.className = "ifp-noresults";
+    none.append(h("div", `No nodes match “${opts.search}”`, "ifp-noresults-text"));
+    const clear = document.createElement("button");
+    clear.className = "ifp-clear";
+    clear.textContent = "Clear search";
+    clear.addEventListener("click", () => opts.onSearch(""));
+    none.append(clear);
+    body.append(none);
+  } else {
+    const rows = document.createElement("div");
+    rows.className = "ifp-rows";
+    for (const n of filtered) {
+      rows.append(nodeRow(n, edgeCountFor(n.id), () => opts.onSelectNode(n.id), false));
+    }
+    body.append(rows);
+  }
+  root.append(body);
+
+  // footer summary
+  const summary = [...counts.entries()]
+    .map(([k, c]) => `${INFRA_KIND_LABELS[k as InfraNode["kind"]] ?? k} ${c}`)
+    .join(" · ");
+  if (summary) {
+    const foot = h("div", summary, "ifp-foot");
+    root.append(foot);
+  }
+}
+
+// ---- infra-panel builders ----------------------------------------------
+/** A node row: kind dot, name + tech, and its edge count. */
+function nodeRow(
+  n: InfraNode,
+  edges: number,
+  onClick: () => void,
+  linking: boolean,
+): HTMLElement {
+  const rowEl = document.createElement("div");
+  rowEl.className = linking ? "ifp-row ifp-row-link" : "ifp-row";
+  rowEl.addEventListener("click", onClick);
+  rowEl.append(kindDot(n.kind));
+  const meta = document.createElement("div");
+  meta.className = "ifp-row-meta";
+  meta.append(h("div", n.label || n.id, "ifp-row-name"));
+  meta.append(h("div", n.tech || "—", "ifp-row-tech"));
+  rowEl.append(meta, h("span", String(edges), "ifp-row-count"));
+  return rowEl;
+}
+
+/** A small coloured dot keyed to a node's kind. */
+function kindDot(kind: InfraNode["kind"]): HTMLElement {
+  const dot = document.createElement("span");
+  dot.className = "ifp-dot";
+  dot.style.background = INFRA_COLORS[kind] ?? "var(--muted)";
+  return dot;
+}
+
+/** An uppercase mono section label (e.g. "CONNECTIONS · 3"). */
+function sectionLabel(text: string): HTMLElement {
+  return h("div", text.toUpperCase(), "ifp-seclabel");
+}
+
+/** The scrolling body region shared by all three modes. */
+function scrollBody(): HTMLElement {
+  const b = document.createElement("div");
+  b.className = "ifp-body fwdr-scroll";
+  return b;
+}
+
+function divider(): HTMLElement {
+  return h("div", "", "ifp-divider");
+}
+
+function svgNS(paths: string[], circles: Array<[number, number, number]> = []): SVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.8");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("stroke-linejoin", "round");
+  for (const d of paths) {
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", d);
+    svg.append(p);
+  }
+  for (const [cx, cy, r] of circles) {
+    const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    c.setAttribute("cx", String(cx));
+    c.setAttribute("cy", String(cy));
+    c.setAttribute("r", String(r));
+    svg.append(c);
+  }
+  return svg;
+}
+
+function infraGlyph(): SVGElement {
+  const g = svgNS(["M7.8 8.4l2.6 8M16.4 9.6l-3 7M8.2 7.3h7.6"], [[6, 7, 2.2], [18, 8, 2.2], [12, 18, 2.2]]);
+  g.classList.add("ifp-glyph");
+  return g;
+}
+function plusIcon(): SVGElement {
+  const g = svgNS(["M12 5v14M5 12h14"]);
+  g.classList.add("ifp-icon");
+  return g;
+}
+function linkIcon(): SVGElement {
+  const g = svgNS(["M9 15l6-6M8 8l1-1a4 4 0 015.5 5.5l-1 1M16 16l-1 1a4 4 0 01-5.5-5.5l1-1"]);
+  g.classList.add("ifp-icon");
+  return g;
+}
+function searchIcon(): SVGElement {
+  const g = svgNS(["M21 21l-4-4"], [[11, 11, 7]]);
+  g.classList.add("ifp-search-icon");
+  return g;
+}
+function dataGlyph(): SVGElement {
+  const g = svgNS(["M3 4h8v16H3zM3 9h8", "M16 7h5v10h-5z", "M11 12h5"]);
+  g.classList.add("ifp-glyph");
+  return g;
+}
+
+/** A plain accent-coloured dot (entities have no kind colour). */
+function accentDot(): HTMLElement {
+  const dot = document.createElement("span");
+  dot.className = "ifp-dot";
+  dot.style.background = "var(--accent)";
+  return dot;
+}
+
+/** Callbacks + state the ER (data-model) inspector needs from the editor. */
 export interface EntityPanelHandlers {
   /** Source can persist entities (otherwise the drawer is read-only). */
   canEdit: boolean;
   /** Source can persist relations. */
   canRelate: boolean;
+  /** Source can delete individual relations (the relation ✕). */
+  canUnrelate: boolean;
   /** Relate tool armed (waiting for two entity clicks). */
   relating: boolean;
+  /** Name of the first entity picked while relating, if any (drives guidance). */
+  relateSourceName?: string;
+  /** Panel collapsed to just its header (the header chevron). */
+  collapsed: boolean;
+  /** Every entity — feeds the list roster and relation lookups. */
+  entities: Entity[];
+  /** Every relation. */
+  relations: EntityRelation[];
   /** The currently selected entity, if any. */
   entity: Entity | undefined;
   /** The currently selected relation, if any. */
   relation: EntityRelation | undefined;
+  /** Search query (List mode). */
+  search: string;
   /** Resolve an entity id to its display name (for the relation editor). */
   entityName(id: string): string;
+  onSearch(query: string): void;
+  onToggleCollapse(): void;
+  onDragStart(e: MouseEvent): void;
   onAddEntity(): void;
   onToggleRelate(): void;
+  onSelectEntity(id: string | null): void;
+  onSelectRelation(id: string | null): void;
   onChangeEntity(patch: Partial<Entity>): void;
   onRemoveEntity(): void;
   onChangeRelation(patch: Partial<EntityRelation>): void;
   onRemoveRelation(): void;
+  onRemoveRelationById(id: string): void;
 }
 
 /** Human labels for the crow's-foot multiplicities (the enum values are terse). */
@@ -287,94 +760,257 @@ const CARDINALITY_LABELS: Record<EntityRelation["fromCardinality"], string> = {
 };
 
 /**
- * The right-hand drawer for ER (data-model) mode — the data-model analogue of
- * `renderInfraPanel`. Top: add-entity / relate actions. Below: an editor for the
- * selected entity (name, its fields, notes) or the selected relation (endpoints,
- * per-end cardinality, verb, identifying). Mirrors the other drawers' builders.
+ * The floating ER (data-model) inspector — the data-model twin of
+ * `renderInfraPanel`, sharing its chrome, modes and CSS. A header (title + entity/
+ * relation counts) and an Add-entity / Relate toolbar sit above one of these:
+ *   • RELATE — the Relate tool is armed: guidance + the live relation list.
+ *   • RELATION — a relation is selected: its cardinality/verb editor.
+ *   • ENTITY — an entity is selected: its name/fields/notes editor.
+ *   • LIST   — the default: search + the entity roster.
  */
 export function renderEntityPanel(
   root: HTMLElement,
   opts: EntityPanelHandlers,
 ): void {
   root.replaceChildren();
-  root.append(h("h2", "Data model"));
+  root.classList.add("ifp");
+
+  const entCount = opts.entities.length;
+  const relCount = opts.relations.length;
+  root.append(panelHandle(opts.onDragStart));
   root.append(
-    h("p", "Add entities, relate them, and drag to arrange the ER diagram.", "empty"),
+    panelHeader({
+      glyph: dataGlyph(),
+      title: "Data model",
+      counts:
+        `${entCount} entit${entCount === 1 ? "y" : "ies"} · ` +
+        `${relCount} relation${relCount === 1 ? "" : "s"}`,
+      collapsed: opts.collapsed,
+      onToggleCollapse: opts.onToggleCollapse,
+      onDragStart: opts.onDragStart,
+    }),
   );
+  if (opts.collapsed) return;
 
-  const actions = document.createElement("div");
-  actions.className = "infra-actions";
-  if (opts.canEdit) {
-    const add = document.createElement("button");
-    add.className = "doc-add";
-    add.textContent = "+ Add entity";
-    add.addEventListener("click", opts.onAddEntity);
-    actions.append(add);
+  // --- toolbar: Add entity (primary) + Relate (toggle) ---
+  if (opts.canEdit || opts.canRelate) {
+    const btns: HTMLElement[] = [];
+    if (opts.canEdit) btns.push(primaryBtn("Add entity", opts.onAddEntity));
+    if (opts.canRelate) {
+      btns.push(
+        toggleBtn(
+          linkIcon(),
+          opts.relating ? "Relating…" : "Relate",
+          opts.relating,
+          opts.onToggleRelate,
+        ),
+      );
+    }
+    root.append(toolbarRow(btns));
   }
-  if (opts.canRelate) {
-    const relate = document.createElement("button");
-    relate.className = opts.relating ? "doc-add active" : "doc-add";
-    relate.textContent = opts.relating
-      ? "Relating… click two entities (Esc to cancel)"
-      : "Relate entities";
-    relate.addEventListener("click", opts.onToggleRelate);
-    actions.append(relate);
-  }
-  root.append(actions);
+  root.append(divider());
 
-  if (opts.relation) {
+  if (opts.relating) {
+    renderRelateMode(root, opts);
+  } else if (opts.relation) {
     renderRelationEditor(root, opts);
-    return;
-  }
-  if (opts.entity) {
+  } else if (opts.entity) {
     renderEntityEditor(root, opts);
-    return;
+  } else {
+    renderEntityList(root, opts);
   }
-  root.append(
-    h("p", "Select an entity or relation to edit, or add one above.", "empty"),
-  );
 }
 
-/** Editor for the selected entity: name, its fields (add/remove/edit), notes. */
+/** LIST mode: search box and the entity roster (dot + name + field count). */
+function renderEntityList(root: HTMLElement, opts: EntityPanelHandlers): void {
+  const searchWrap = document.createElement("div");
+  searchWrap.className = "ifp-search";
+  searchWrap.append(searchIcon());
+  const search = document.createElement("input");
+  search.type = "text";
+  search.value = opts.search;
+  search.placeholder = "Search entities";
+  search.addEventListener("input", () => opts.onSearch(search.value));
+  searchWrap.append(search);
+  root.append(searchWrap);
+  root.append(divider());
+
+  const q = opts.search.trim().toLowerCase();
+  const filtered = opts.entities.filter(
+    (e) => !q || e.name.toLowerCase().includes(q),
+  );
+  const body = scrollBody();
+  if (!opts.entities.length) {
+    body.append(
+      h(
+        "p",
+        "No entities yet. Add one to start mapping the data model.",
+        "ifp-muted ifp-empty",
+      ),
+    );
+  } else if (!filtered.length) {
+    const none = document.createElement("div");
+    none.className = "ifp-noresults";
+    none.append(h("div", `No entities match “${opts.search}”`, "ifp-noresults-text"));
+    const clear = document.createElement("button");
+    clear.className = "ifp-clear";
+    clear.textContent = "Clear search";
+    clear.addEventListener("click", () => opts.onSearch(""));
+    none.append(clear);
+    body.append(none);
+  } else {
+    const rows = document.createElement("div");
+    rows.className = "ifp-rows";
+    for (const e of filtered) {
+      rows.append(entityRow(e, () => opts.onSelectEntity(e.id), false));
+    }
+    body.append(rows);
+  }
+  root.append(body);
+
+  if (relCount(opts)) {
+    root.append(
+      h("div", `${relCount(opts)} relation${relCount(opts) === 1 ? "" : "s"}`, "ifp-foot"),
+    );
+  }
+}
+
+const relCount = (opts: EntityPanelHandlers): number => opts.relations.length;
+
+/** An entity roster row: accent dot, name + field count, and its field total. */
+function entityRow(
+  entity: Entity,
+  onClick: () => void,
+  relating: boolean,
+): HTMLElement {
+  const rowEl = document.createElement("div");
+  rowEl.className = relating ? "ifp-row ifp-row-link" : "ifp-row";
+  rowEl.addEventListener("click", onClick);
+  rowEl.append(accentDot());
+  const meta = document.createElement("div");
+  meta.className = "ifp-row-meta";
+  meta.append(h("div", entity.name || entity.id, "ifp-row-name"));
+  meta.append(
+    h(
+      "div",
+      `${entity.fields.length} field${entity.fields.length === 1 ? "" : "s"}`,
+      "ifp-row-tech",
+    ),
+  );
+  rowEl.append(meta, h("span", String(entity.fields.length), "ifp-row-count"));
+  return rowEl;
+}
+
+/** RELATE mode: guidance, exit, the live relation list, and a pickable roster. */
+function renderRelateMode(root: HTMLElement, opts: EntityPanelHandlers): void {
+  const body = scrollBody();
+
+  const status = document.createElement("div");
+  status.className = "ifp-linkstatus";
+  status.append(
+    h("span", "", "ifp-dot ifp-dot-accent"),
+    h("span", "Relate mode active", "ifp-linkstatus-text"),
+  );
+  body.append(status);
+
+  const guidance = opts.relateSourceName
+    ? `Now click a target entity to relate it to “${opts.relateSourceName}”.`
+    : "Click an entity on the canvas or in the list below to start a relation.";
+  body.append(h("p", guidance, "ifp-guidance"));
+
+  const exit = document.createElement("button");
+  exit.className = "ifp-exit";
+  exit.append(document.createTextNode("Exit relate mode "), h("span", "· Esc", "ifp-kbd"));
+  exit.addEventListener("click", opts.onToggleRelate);
+  body.append(exit);
+
+  body.append(sectionLabel(`Relations · ${opts.relations.length}`));
+  const list = document.createElement("div");
+  list.className = "ifp-edgelist";
+  if (!opts.relations.length) {
+    list.append(h("p", "No relations yet.", "ifp-muted"));
+  }
+  for (const r of opts.relations) {
+    const rowEl = document.createElement("div");
+    rowEl.className = "ifp-edgerow";
+    rowEl.append(
+      h("span", `${opts.entityName(r.from)} → ${opts.entityName(r.to)}`, "ifp-edgerow-text"),
+    );
+    if (opts.canUnrelate) {
+      const del = document.createElement("button");
+      del.className = "ifp-edgedel";
+      del.title = "Remove relation";
+      del.textContent = "✕";
+      del.addEventListener("click", () => opts.onRemoveRelationById(r.id));
+      rowEl.append(del);
+    }
+    list.append(rowEl);
+  }
+  body.append(list);
+
+  // Entities stay clickable while relating, so drive endpoint picks from here too.
+  body.append(sectionLabel("Entities"));
+  const rows = document.createElement("div");
+  rows.className = "ifp-rows";
+  for (const e of opts.entities) {
+    rows.append(entityRow(e, () => opts.onSelectEntity(e.id), true));
+  }
+  body.append(rows);
+  root.append(body);
+}
+
+/** ENTITY detail: back link, name/notes, the fields editor, and remove. */
 function renderEntityEditor(root: HTMLElement, opts: EntityPanelHandlers): void {
   const entity = opts.entity;
   if (!entity) return;
   const ro = !opts.canEdit;
+  const body = scrollBody();
 
-  root.append(h("h2", entity.name || entity.id));
-  root.append(h("p", `${entity.fields.length} field${entity.fields.length === 1 ? "" : "s"}`, "empty"));
+  const back = document.createElement("button");
+  back.className = "ifp-back";
+  back.append(h("span", "←", "ifp-back-arrow"), h("span", "All entities", ""));
+  back.addEventListener("click", () => opts.onSelectEntity(null));
+  body.append(back);
 
-  const sec = section("Entity");
-  sec.append(textRow("Name", entity.name, (v) => opts.onChangeEntity({ name: v }), ro));
-  sec.append(
-    textareaRow(
-      "Notes",
-      entity.description,
-      (v) => opts.onChangeEntity({ description: v }),
-      4,
-      "What this table holds, invariants…",
-      ro,
-    ),
+  body.append(
+    fieldCell("Name", textInput(entity.name, (v) => opts.onChangeEntity({ name: v }), ro)),
   );
-  root.append(sec);
+
+  const notes = document.createElement("textarea");
+  notes.className = "fld-textarea";
+  notes.rows = 3;
+  notes.value = entity.description;
+  notes.disabled = ro;
+  notes.placeholder = "What this table holds, invariants…";
+  notes.addEventListener("change", () => opts.onChangeEntity({ description: notes.value }));
+  body.append(fieldCell("Notes", notes));
+
+  body.append(divider());
 
   // --- fields editor ---
-  const fieldsSec = section("Fields");
+  body.append(sectionLabel(`Fields · ${entity.fields.length}`));
   entity.fields.forEach((field, i) => {
-    fieldsSec.append(fieldRow(field, ro, (next) => {
-      const fields = entity.fields.map((f, j) => (j === i ? next : f));
-      opts.onChangeEntity({ fields });
-    }, () => {
-      const fields = entity.fields.filter((_, j) => j !== i);
-      opts.onChangeEntity({ fields });
-    }));
+    body.append(
+      fieldRow(
+        field,
+        ro,
+        (next) => {
+          const fields = entity.fields.map((f, j) => (j === i ? next : f));
+          opts.onChangeEntity({ fields });
+        },
+        () => {
+          const fields = entity.fields.filter((_, j) => j !== i);
+          opts.onChangeEntity({ fields });
+        },
+      ),
+    );
   });
   if (!entity.fields.length) {
-    fieldsSec.append(h("p", "No fields yet.", "empty"));
+    body.append(h("p", "No fields yet.", "ifp-muted"));
   }
   if (opts.canEdit) {
     const add = document.createElement("button");
-    add.className = "doc-add";
+    add.className = "ifp-addsub";
     add.textContent = "+ Add field";
     add.addEventListener("click", () => {
       const fields: EntityField[] = [
@@ -383,17 +1019,18 @@ function renderEntityEditor(root: HTMLElement, opts: EntityPanelHandlers): void 
       ];
       opts.onChangeEntity({ fields });
     });
-    fieldsSec.append(add);
+    body.append(add);
   }
-  root.append(fieldsSec);
 
   if (opts.canEdit) {
+    body.append(divider());
     const remove = document.createElement("button");
-    remove.className = "doc-remove";
-    remove.textContent = "Remove entity";
+    remove.className = "ifp-danger";
+    remove.textContent = "Delete entity";
     remove.addEventListener("click", opts.onRemoveEntity);
-    root.append(remove);
+    body.append(remove);
   }
+  root.append(body);
 }
 
 /** One editable field row: name, type, PK/FK/UK keys, note, and a remove button. */
@@ -466,73 +1103,74 @@ function fieldRow(
   return wrap;
 }
 
-/** Editor for the selected relation: endpoints, per-end cardinality, verb, line. */
+/** RELATION detail: back link, endpoints' cardinality, verb, identifying, remove. */
 function renderRelationEditor(root: HTMLElement, opts: EntityPanelHandlers): void {
   const r = opts.relation;
   if (!r) return;
   const ro = !opts.canRelate;
+  const body = scrollBody();
 
-  root.append(h("h2", "Relation"));
-  root.append(
-    h("p", `${opts.entityName(r.from)} → ${opts.entityName(r.to)}`, "empty"),
+  const back = document.createElement("button");
+  back.className = "ifp-back";
+  back.append(h("span", "←", "ifp-back-arrow"), h("span", "All entities", ""));
+  back.addEventListener("click", () => opts.onSelectRelation(null));
+  body.append(back);
+
+  body.append(sectionLabel("Relation"));
+  body.append(
+    h("p", `${opts.entityName(r.from)} → ${opts.entityName(r.to)}`, "ifp-muted"),
   );
 
-  const sec = section("Relation");
-  sec.append(
-    selectRow(
-      `From (${opts.entityName(r.from)})`,
-      r.fromCardinality,
-      RelationCardinality.options,
-      (v) => opts.onChangeRelation({ fromCardinality: v as EntityRelation["fromCardinality"] }),
-      ro,
-      (v) => CARDINALITY_LABELS[v as EntityRelation["fromCardinality"]],
+  body.append(
+    fieldCell(
+      `From — ${opts.entityName(r.from)}`,
+      selectInput(
+        r.fromCardinality,
+        RelationCardinality.options,
+        (v) => opts.onChangeRelation({ fromCardinality: v as EntityRelation["fromCardinality"] }),
+        ro,
+        (v) => CARDINALITY_LABELS[v as EntityRelation["fromCardinality"]],
+      ),
     ),
   );
-  sec.append(
-    selectRow(
-      `To (${opts.entityName(r.to)})`,
-      r.toCardinality,
-      RelationCardinality.options,
-      (v) => opts.onChangeRelation({ toCardinality: v as EntityRelation["toCardinality"] }),
-      ro,
-      (v) => CARDINALITY_LABELS[v as EntityRelation["toCardinality"]],
+  body.append(
+    fieldCell(
+      `To — ${opts.entityName(r.to)}`,
+      selectInput(
+        r.toCardinality,
+        RelationCardinality.options,
+        (v) => opts.onChangeRelation({ toCardinality: v as EntityRelation["toCardinality"] }),
+        ro,
+        (v) => CARDINALITY_LABELS[v as EntityRelation["toCardinality"]],
+      ),
     ),
   );
-  sec.append(
-    textRow("Verb", r.label ?? "", (v) => opts.onChangeRelation({ label: v || undefined }), ro),
-  );
-  sec.append(
-    checkboxRow(
-      "Identifying (solid line)",
-      r.identifying,
-      (v) => opts.onChangeRelation({ identifying: v }),
-      ro,
+  body.append(
+    fieldCell(
+      "Verb",
+      textInput(r.label ?? "", (v) => opts.onChangeRelation({ label: v || undefined }), ro),
     ),
   );
-  root.append(sec);
 
-  if (opts.canRelate) {
-    const remove = document.createElement("button");
-    remove.className = "doc-remove";
-    remove.textContent = "Remove relation";
-    remove.addEventListener("click", opts.onRemoveRelation);
-    root.append(remove);
-  }
-}
-
-/** A labelled checkbox row, matching the other row builders. */
-function checkboxRow(
-  label: string,
-  value: boolean,
-  onChange: (v: boolean) => void,
-  readOnly = false,
-): HTMLElement {
+  const check = document.createElement("label");
+  check.className = "ifp-check";
   const cb = document.createElement("input");
   cb.type = "checkbox";
-  cb.checked = value;
-  cb.disabled = readOnly;
-  cb.addEventListener("change", () => onChange(cb.checked));
-  return row(label, cb);
+  cb.checked = r.identifying;
+  cb.disabled = ro;
+  cb.addEventListener("change", () => opts.onChangeRelation({ identifying: cb.checked }));
+  check.append(cb, document.createTextNode("Identifying (solid line)"));
+  body.append(check);
+
+  if (opts.canRelate) {
+    body.append(divider());
+    const remove = document.createElement("button");
+    remove.className = "ifp-danger";
+    remove.textContent = "Delete relation";
+    remove.addEventListener("click", opts.onRemoveRelation);
+    body.append(remove);
+  }
+  root.append(body);
 }
 
 /** A collapsible panel section: a <details> with the title as its <summary>. */
@@ -883,15 +1521,6 @@ function textInput(
   return input;
 }
 
-function textRow(
-  label: string,
-  value: string,
-  onChange: (v: string) => void,
-  readOnly = false,
-): HTMLElement {
-  return row(label, textInput(value, onChange, readOnly));
-}
-
 /** A multiline `<textarea>` sized for the floating-label cells — used for the
  * design Text field so `\n`s can be entered. Grows to fit its content. */
 function textAreaInput(
@@ -1008,38 +1637,6 @@ function selectInput(
   return select;
 }
 
-function selectRow(
-  label: string,
-  value: string,
-  options: readonly string[],
-  onChange: (v: string) => void,
-  readOnly = false,
-  optionLabel?: (v: string) => string,
-): HTMLElement {
-  return row(label, selectInput(value, options, onChange, readOnly, optionLabel));
-}
-
-function textareaRow(
-  label: string,
-  value: string,
-  onChange: (v: string) => void,
-  rows = 4,
-  placeholder = "",
-  readOnly = false,
-): HTMLElement {
-  const ta = document.createElement("textarea");
-  ta.rows = rows;
-  ta.value = value;
-  ta.disabled = readOnly;
-  if (placeholder) ta.placeholder = placeholder;
-  ta.addEventListener("change", () => onChange(ta.value));
-  const div = document.createElement("div");
-  div.className = "row row-stack";
-  const l = document.createElement("label");
-  l.textContent = label;
-  div.append(l, ta);
-  return div;
-}
 
 function timelineList(timeline: VersionEntry[]): HTMLElement {
   const ul = document.createElement("ul");
