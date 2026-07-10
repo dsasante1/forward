@@ -120,10 +120,29 @@ export class ClerkAuthGuard implements CanActivate {
     const now = Date.now();
     const lastWrite = this.lastSeenWrites.get(userId) ?? 0;
     if (now - lastWrite < ClerkAuthGuard.LAST_SEEN_INTERVAL_MS) return;
+    // Keep the dedupe map bounded: an entry older than the interval has already
+    // served its purpose (the throttle window has elapsed), so drop stale entries
+    // before inserting. Without this the map grows one entry per distinct user
+    // for the life of the instance.
+    this.pruneLastSeen(now);
     this.lastSeenWrites.set(userId, now); // set eagerly to dedupe parallel requests
     void this.prisma.user
       .updateMany({ where: { id: userId }, data: { lastSeenAt: new Date() } })
       .catch(() => undefined);
+  }
+
+  /**
+   * Evict `lastSeenWrites` entries older than the throttle interval, so the map
+   * stays proportional to *recently active* users rather than growing forever.
+   * An evicted user simply gets a fresh `lastSeenAt` write on their next request,
+   * which is harmless (it's presence data). O(n) but only over the live set.
+   */
+  private pruneLastSeen(now: number): void {
+    for (const [id, ts] of this.lastSeenWrites) {
+      if (now - ts >= ClerkAuthGuard.LAST_SEEN_INTERVAL_MS) {
+        this.lastSeenWrites.delete(id);
+      }
+    }
   }
 }
 

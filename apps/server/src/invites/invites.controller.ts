@@ -7,6 +7,7 @@ import {
   Post,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { z } from "zod";
 import { ProjectRole } from "forward-core";
 import { CurrentUser, type AuthUser } from "../auth/current-user.decorator.js";
@@ -29,6 +30,10 @@ export class InvitesController {
     return this.invites.list(projectId);
   }
 
+  // Each invite sends an email to an attacker-controllable address from our
+  // domain — the amplification surface. Cap it hard per caller (the service adds
+  // a per-recipient cooldown + per-project pending cap on top).
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post("projects/:projectId/invites")
   @UseGuards(MembershipGuard)
   @RequireOwner()
@@ -56,6 +61,7 @@ export class InvitesController {
    * Redeem an invitation. Deliberately NOT membership-guarded — the caller is not
    * yet a member; that's the whole point. ClerkAuthGuard still requires sign-in.
    */
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Post("invites/:token/accept")
   accept(@Param("token") token: string, @CurrentUser() user: AuthUser) {
     return this.invites.accept(token, user.id);

@@ -7,6 +7,7 @@ import {
   Req,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { SkipThrottle } from "@nestjs/throttler";
 import { verifyWebhook, type WebhookEvent } from "@clerk/backend/webhooks";
 import { Public } from "../auth/public.decorator.js";
 import { ClerkUserService } from "../common/clerk-user.service.js";
@@ -28,6 +29,7 @@ interface RawRequest {
  * verified against CLERK_WEBHOOK_SIGNING_SECRET over the exact request bytes.
  */
 @Controller("webhooks/clerk")
+@SkipThrottle()
 export class WebhooksController {
   private readonly logger = new Logger(WebhooksController.name);
   private readonly signingSecret: string;

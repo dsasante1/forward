@@ -22,6 +22,11 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   app.enableShutdownHooks();
 
+  // Behind Cloud Run the real client IP is in X-Forwarded-For; trust the single
+  // hop so the rate limiter (ThrottlerGuard) keys on the caller, not the proxy
+  // (otherwise every request shares one bucket and the caps are meaningless).
+  app.getHttpAdapter().getInstance().set("trust proxy", 1);
+
   const origins = process.env.CORS_ORIGINS?.split(",")
     .map((o) => o.trim())
     .filter(Boolean);

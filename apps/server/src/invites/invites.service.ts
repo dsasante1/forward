@@ -1,6 +1,8 @@
 import {
   ForbiddenException,
   GoneException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -16,6 +18,12 @@ import { inviteEmail } from "../common/email-template.js";
 import { RealtimeService } from "../common/realtime.service.js";
 
 const INVITE_TTL_DAYS = 7;
+
+/** Don't re-send an invite to the same address on the same project faster than this. */
+const RESEND_COOLDOWN_MS = 60_000;
+
+/** Ceiling on outstanding pending invites per project — a spam/abuse backstop. */
+const MAX_PENDING_INVITES = 100;
 
 /**
  * Email-based project invitations — the flow a user expects from a SaaS:
@@ -75,6 +83,34 @@ export class InvitesService {
     invitedBy: string,
   ) {
     const normalized = email.trim().toLowerCase();
+
+    // Per-recipient cooldown: block rapid re-sends to the same address on this
+    // project (an owner clicking twice, or scripting the endpoint). The route
+    // throttle caps the caller's overall rate; this caps a single victim's inbox.
+    const recent = await this.prisma.invite.findFirst({
+      where: { projectId, email: normalized },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    if (recent && Date.now() - recent.createdAt.getTime() < RESEND_COOLDOWN_MS) {
+      throw new HttpException(
+        "An invitation was just sent to this address. Please wait a moment before resending.",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // Cap outstanding invites per project so a project can't be turned into a
+    // bulk mailer regardless of the caller's request rate.
+    const pending = await this.prisma.invite.count({
+      where: { projectId, status: "pending" },
+    });
+    if (pending >= MAX_PENDING_INVITES) {
+      throw new HttpException(
+        "This project has too many pending invitations. Revoke some before sending more.",
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       select: { name: true },

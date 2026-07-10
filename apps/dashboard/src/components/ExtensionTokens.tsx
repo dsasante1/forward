@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useApi } from "../api/client.js";
 import { useAsync } from "../api/useAsync.js";
 import { AsyncStates } from "./AsyncStates.js";
@@ -35,9 +35,18 @@ export function ExtensionTokens() {
   // Index into DURATIONS; defaults to the 90-day option.
   const [durationIdx, setDurationIdx] = useState(2);
   const [busy, setBusy] = useState(false);
+  // Id of the token whose rotate/revoke is in flight, so we can disable just its
+  // row's buttons and block a double-submit.
+  const [rowBusy, setRowBusy] = useState<string>();
   const [error, setError] = useState<string>();
   // The one-time plaintext, held only until the user dismisses it.
   const [fresh, setFresh] = useState<{ name: string; token: string }>();
+  // Focus target so screen-reader users are taken to the copy-now notice (the
+  // plaintext is shown exactly once).
+  const freshRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (fresh) freshRef.current?.focus();
+  }, [fresh]);
 
   const expiresInDays = DURATIONS[durationIdx]?.days ?? 90;
 
@@ -66,22 +75,34 @@ export function ExtensionTokens() {
     )
       return;
     setError(undefined);
+    setRowBusy(id);
     try {
       const rotated = await api.rotateApiToken(id, expiresInDays);
       setFresh({ name: rotated.name, token: rotated.token });
       tokens.reload();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRowBusy(undefined);
     }
   }
 
-  async function revoke(id: string) {
+  async function revoke(id: string, tokenName: string) {
+    if (
+      !window.confirm(
+        `Revoke “${tokenName}”? Any extension or CLI using it stops working immediately. This cannot be undone.`,
+      )
+    )
+      return;
     setError(undefined);
+    setRowBusy(id);
     try {
       await api.revokeApiToken(id);
       tokens.reload();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRowBusy(undefined);
     }
   }
 
@@ -99,6 +120,7 @@ export function ExtensionTokens() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Token name (e.g. Work laptop)"
+          aria-label="Token name"
           maxLength={100}
         />
         <select
@@ -118,7 +140,12 @@ export function ExtensionTokens() {
       </form>
 
       {fresh && (
-        <div className="notice">
+        <div
+          className="notice"
+          aria-live="polite"
+          tabIndex={-1}
+          ref={freshRef}
+        >
           <p className="muted small">
             Copy <strong>{fresh.name}</strong> now — it won't be shown again.
           </p>
@@ -137,7 +164,11 @@ export function ExtensionTokens() {
         </div>
       )}
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       <h3 className="section-label">Your tokens</h3>
       <AsyncStates
@@ -157,10 +188,19 @@ export function ExtensionTokens() {
                 ? `last used ${new Date(t.lastUsedAt).toLocaleDateString()}`
                 : "never used"}
             </span>
-            <button type="button" onClick={() => rotate(t.id, t.name)}>
+            <button
+              type="button"
+              onClick={() => rotate(t.id, t.name)}
+              disabled={rowBusy === t.id}
+            >
               Rotate
             </button>
-            <button type="button" className="danger" onClick={() => revoke(t.id)}>
+            <button
+              type="button"
+              className="danger"
+              onClick={() => revoke(t.id, t.name)}
+              disabled={rowBusy === t.id}
+            >
               Revoke
             </button>
           </li>

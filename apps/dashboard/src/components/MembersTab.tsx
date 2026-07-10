@@ -46,6 +46,8 @@ export function MembersTab() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<ProjectRole>("editor");
   const [busy, setBusy] = useState(false);
+  // Id (member uid or invite id) whose action is in flight, to disable its row.
+  const [rowBusy, setRowBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -73,31 +75,50 @@ export function MembersTab() {
 
   async function changeRole(uid: string, next: ProjectRole) {
     setError(undefined);
+    setRowBusy(uid);
     try {
       await api.updateMemberRole(projectId, uid, next);
       reloadMembers();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRowBusy(undefined);
     }
   }
 
-  async function removeMember(uid: string) {
+  async function removeMember(uid: string, label: string) {
+    if (
+      !window.confirm(
+        `Remove ${label} from this project? They lose access immediately.`,
+      )
+    )
+      return;
     setError(undefined);
+    setRowBusy(uid);
     try {
       await api.removeMember(projectId, uid);
       reloadMembers();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRowBusy(undefined);
     }
   }
 
-  async function revokeInvite(id: string) {
+  async function revokeInvite(id: string, label: string) {
+    if (
+      !window.confirm(`Revoke the invitation for ${label}? The link stops working.`)
+    )
+      return;
     setError(undefined);
+    setRowBusy(id);
     try {
       await api.revokeInvite(projectId, id);
       invites.reload();
     } catch (err) {
       setError((err as Error).message);
+    } finally {
+      setRowBusy(undefined);
     }
   }
 
@@ -110,11 +131,14 @@ export function MembersTab() {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="teammate@email.com"
+            aria-label="Invite email address"
+            autoComplete="email"
           />
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as ProjectRole)}
             title={ROLE_HELP[role]}
+            aria-label="Invite role"
           >
             {ROLES.map((r) => (
               <option key={r} value={r}>
@@ -132,8 +156,16 @@ export function MembersTab() {
           {ROLES.map((r) => `${r} = ${ROLE_HELP[r].toLowerCase()}`).join(" · ")}
         </p>
       )}
-      {notice && <p className="muted small">{notice}</p>}
-      {error && <p className="error">{error}</p>}
+      {notice && (
+        <p className="muted small" aria-live="polite">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
 
       {/* Pending invitations */}
       {invites.error && (
@@ -152,7 +184,8 @@ export function MembersTab() {
                   <button
                     type="button"
                     className="danger"
-                    onClick={() => revokeInvite(inv.id)}
+                    onClick={() => revokeInvite(inv.id, inv.email)}
+                    disabled={rowBusy === inv.id}
                   >
                     Revoke
                   </button>
@@ -191,6 +224,8 @@ export function MembersTab() {
                   value={m.role}
                   onChange={(e) => changeRole(m.uid, e.target.value as ProjectRole)}
                   title={ROLE_HELP[m.role]}
+                  aria-label={`Role for ${m.name ?? person.name}`}
+                  disabled={rowBusy === m.uid}
                 >
                   {ROLES.map((r) => (
                     <option key={r} value={r}>
@@ -205,7 +240,8 @@ export function MembersTab() {
                 <button
                   type="button"
                   className="danger"
-                  onClick={() => removeMember(m.uid)}
+                  onClick={() => removeMember(m.uid, m.name ?? person.name)}
+                  disabled={rowBusy === m.uid}
                 >
                   Remove
                 </button>
