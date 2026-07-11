@@ -1047,8 +1047,19 @@ function setView(next: PrimaryView): void {
     flowZoom = 1; // open at fit
     flowEdit = false; // open in view mode
     selectedFlowAgents = next === "agents";
-    selectedFlowEr = false; // the ER lens is opened from the Data inspector, not a rail
+    selectedFlowEr = false; // the ER lens is opened from the Data view, not this rail
     if (next === "agents") selectedFlowId = null;
+  } else if (next === "data") {
+    // The Data view leads with the read-only Mermaid ER diagram; "Edit" drops to
+    // the editable graph. With no entities yet there is nothing to render, so open
+    // straight into the graph so the first table can be added.
+    const hasEntities = entities.size > 0;
+    flowOpen = hasEntities;
+    flowZoom = 1; // open at fit
+    flowEdit = false;
+    selectedFlowEr = hasEntities;
+    selectedFlowAgents = false;
+    selectedFlowId = null;
   } else if (flowOpen) {
     flowOpen = false;
     flowEdit = false;
@@ -4604,9 +4615,20 @@ async function renderFlowPanel(): Promise<void> {
   const headActions = document.createElement("div");
   headActions.className = "flowview-head-actions";
 
-  // Authoring: create a journey, or toggle the editor for the selected one. The
-  // ER lens is a read-only render, so it never shows the journey authoring buttons.
-  if (canEditFlows && !selectedFlowEr) {
+  // Authoring. The ER lens leads with a read-only diagram whose only authoring
+  // affordance is "Edit" — it drops to the editable ER graph underneath (shown
+  // only when the source can persist entities). The Flows lens instead offers
+  // journey creation + the step editor toggle.
+  if (selectedFlowEr) {
+    if (source.saveEntity) {
+      const editBtn = document.createElement("button");
+      editBtn.className = "flowview-action";
+      editBtn.textContent = "Edit";
+      editBtn.title = "Edit the data model as a graph";
+      editBtn.addEventListener("click", editErDiagram);
+      headActions.append(editBtn);
+    }
+  } else if (canEditFlows) {
     const newBtn = document.createElement("button");
     newBtn.className = "flowview-action";
     newBtn.textContent = "+ New journey";
@@ -4671,7 +4693,9 @@ async function renderFlowPanel(): Promise<void> {
 
   if (!mermaidSrc) {
     const message = selectedFlowEr
-      ? "No entities yet — add tables in the Data view to see the ER diagram."
+      ? source.saveEntity
+        ? 'No entities yet — click "Edit" to add tables to the data model.'
+        : "No entities yet in this data model."
       : selectedFlowAgents
         ? "No agents or MCP servers yet — document them from VS Code or an AI agent (the Forward MCP server) to see this diagram."
         : canEditFlows
@@ -4697,25 +4721,28 @@ async function renderFlowPanel(): Promise<void> {
 
 /** Close the rendered Flows view. */
 function closeFlow(): void {
-  // The ER lens is an overlay opened *over* the Data view (view stays "data"), so
-  // closing it just tears the overlay down and drops back to the ER graph — not
-  // all the way to design like the Flows/Agents rails do.
-  if (selectedFlowEr) {
-    selectedFlowEr = false;
-    flowOpen = false;
-    void renderFlowPanel(); // hides + clears the overlay, leaving the Data view intact
-    return;
-  }
-  // The Flows panel's own close affordances (backdrop / ✕) route back to design;
-  // setView() handles tearing the panel down + syncing the rail.
+  // The Flows/Agents panels and the Data view's ER diagram (now the Data view's
+  // default face) all route their ✕ / backdrop back to design; setView() tears the
+  // panel down + syncs the rail.
   setView("design");
+}
+
+/**
+ * The ER diagram's "Edit" action: drop the read-only Mermaid `erDiagram` to reveal
+ * the editable ER graph underneath (view stays "data"). Its counterpart is the
+ * inspector's "Diagram" button (`viewEntityDiagram`), which brings the diagram back.
+ */
+function editErDiagram(): void {
+  selectedFlowEr = false;
+  flowOpen = false;
+  void renderFlowPanel(); // hides + clears the overlay, leaving the editable graph
 }
 
 /**
  * Open the ER (data-model) diagram as a themed Mermaid `erDiagram` over the Data
  * view — the polished, read-only twin of the editable ER graph. Reuses the Flows
  * diagram surface (zoom / copy / fit / sanitize) with the ER lens flag, and stays
- * in the "data" view so closing drops back to the editable graph.
+ * in the "data" view so "Edit" drops back to the editable graph.
  */
 function viewEntityDiagram(): void {
   selectedFlowEr = true;
