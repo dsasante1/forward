@@ -2825,8 +2825,11 @@ svg.addEventListener("pointerover", (e) => {
 // component / place instance / delete); on empty canvas it offers "Add element"
 // (the catalog), placing the new shape where you clicked.
 svg.addEventListener("contextmenu", (e) => {
-  if (showInfra) {
-    closeContextMenu(); // infra overlay keeps the native menu
+  // The "Add element" / element-action menu is a design-layer affordance only. The
+  // infra/data (and other) views draw their own graphs on this same <svg>, so keep
+  // the native menu there instead of offering to add design shapes.
+  if (view !== "design") {
+    closeContextMenu();
     return;
   }
   e.preventDefault();
