@@ -17,6 +17,7 @@ import {
   type Task,
   agentsToComponentMermaid,
   applyTaskChange,
+  entityToMermaid,
   flowToMermaid,
   newTask,
   paintOrder,
@@ -400,6 +401,7 @@ const agentNodes = new Map<string, AgentNode>(); // Agent / MCP layer
 const mcpServers = new Map<string, McpServerNode>();
 let selectedFlowId: string | null = null; // sequence flow chosen in the Flows view
 let selectedFlowAgents = false; // is the agent/MCP wiring diagram the chosen render?
+let selectedFlowEr = false; // is the ER (data-model) diagram the chosen render?
 let selectedInfraId: string | null = null; // infra node selected for editing/deletion
 let linkMode = false; // Link tool armed: clicks pick two nodes to connect
 let linkSourceId: string | null = null; // first node picked while linking
@@ -1045,10 +1047,12 @@ function setView(next: PrimaryView): void {
     flowZoom = 1; // open at fit
     flowEdit = false; // open in view mode
     selectedFlowAgents = next === "agents";
+    selectedFlowEr = false; // the ER lens is opened from the Data inspector, not a rail
     if (next === "agents") selectedFlowId = null;
   } else if (flowOpen) {
     flowOpen = false;
     flowEdit = false;
+    selectedFlowEr = false;
     flowPanelEl.replaceChildren();
   }
 
@@ -3668,6 +3672,7 @@ function renderViewTools(): void {
           entityPanelPos = { x, y };
         }),
       onAddEntity: () => void addEntityOnCanvas(),
+      onViewDiagram: viewEntityDiagram,
       onToggleRelate: toggleEntityLink,
       // While the Relate tool is armed, a list click picks a relation endpoint;
       // otherwise it opens the entity's detail.
@@ -4461,6 +4466,38 @@ function bindResize(): void {
   });
 }
 
+/**
+ * Mermaid `%%{init}%%` theme override for the ER lens. Mermaid is initialized
+ * once globally (`theme: "dark"`); this directive merges onto that theme for the
+ * ER render only, remapping the entity-table / relationship colours to the
+ * canvas's warm-dark palette (the same hexes the CSS variables resolve to) so the
+ * diagram sits seamlessly on the `--bg` pane instead of Mermaid's stock dark
+ * hues. Colours only — no `theme` swap — so the merge stays predictable, and no
+ * key here is on Mermaid's secure list, so it survives `securityLevel: "strict"`.
+ */
+const ER_THEME_DIRECTIVE = `%%{init: ${JSON.stringify({
+  themeVariables: {
+    darkMode: true,
+    background: "#0c0d11", // --bg (matches the pane behind it)
+    mainBkg: "#1a1c23", // --surface-3 — entity header + box fill
+    nodeBorder: "#3a3d47", // solid stand-in for --line-3 on the dark pane
+    lineColor: "#7d7c76", // --muted-2 — crow's-foot relationship lines
+    textColor: "#e8e5de", // --text
+    attributeBackgroundColorOdd: "#171920", // --surface-2 (zebra rows)
+    attributeBackgroundColorEven: "#121319", // --bg-panel (zebra rows)
+    edgeLabelBackground: "#22242c", // relationship-label pill
+    fontFamily: "Space Grotesk, sans-serif", // --sans
+  },
+})}}%%`;
+
+/** The ER model serialised to a themed Mermaid `erDiagram` for the Data lens. */
+function erDiagramSrc(
+  entityList: Entity[],
+  relations: EntityRelation[],
+): string {
+  return `${ER_THEME_DIRECTIVE}\n${entityToMermaid(entityList, relations)}`;
+}
+
 /** Copy Mermaid text to the clipboard with a small confirmation. */
 function copyMermaid(text: string): void {
   void navigator.clipboard
@@ -4488,24 +4525,29 @@ async function renderFlowPanel(): Promise<void> {
   // The Flows panel renders one behavioural sequence diagram per narrated flow.
   // (The Agents rail button shares this surface for the agent/MCP wiring lens.)
   // Default to the first flow so opening Flows lands on a diagram, not a blank pane.
-  if (!selectedFlowAgents && !selectedFlowId) {
+  if (!selectedFlowAgents && !selectedFlowEr && !selectedFlowId) {
     const [first] = infraFlows.values();
     selectedFlowId = first ? first.id : null;
   }
   const flow = selectedFlowId ? infraFlows.get(selectedFlowId) : undefined;
-  const mermaidSrc = selectedFlowAgents
-    ? agentNodes.size || mcpServers.size
-      ? agentsToComponentMermaid(
-          [...agentNodes.values()],
-          [...mcpServers.values()],
-        )
+  const mermaidSrc = selectedFlowEr
+    ? entities.size
+      ? erDiagramSrc([...entities.values()], entityRelations)
       : null
-    : flow
-      ? flowToMermaid(flow, infraNodes)
-      : null;
+    : selectedFlowAgents
+      ? agentNodes.size || mcpServers.size
+        ? agentsToComponentMermaid(
+            [...agentNodes.values()],
+            [...mcpServers.values()],
+          )
+        : null
+      : flow
+        ? flowToMermaid(flow, infraNodes)
+        : null;
   const canEditFlows = Boolean(source.saveInfraFlow);
-  // The flow editor only applies to a selected sequence flow, never the agents lens.
-  if (!canEditFlows || selectedFlowAgents) flowEdit = false;
+  // The flow editor only applies to a selected sequence flow, never the read-only
+  // agents/ER lenses.
+  if (!canEditFlows || selectedFlowAgents || selectedFlowEr) flowEdit = false;
 
   // Backdrop: clicking outside the card closes the view.
   flowPanelEl.replaceChildren();
@@ -4521,10 +4563,16 @@ async function renderFlowPanel(): Promise<void> {
   const head = document.createElement("div");
   head.className = "flowview-head";
 
-  // The Agents lens (opened from its own rail button) shares this surface for a
-  // single wiring diagram, so it shows a static title instead of the picker.
-  if (selectedFlowAgents) {
-    head.append(hEl("h3", "Agents & MCP — wiring diagram"));
+  // The Agents and ER lenses (each opened from its own surface, not the journey
+  // list) share this diagram pane for a single structural render, so they show a
+  // static title instead of the journey picker.
+  if (selectedFlowAgents || selectedFlowEr) {
+    head.append(
+      hEl(
+        "h3",
+        selectedFlowEr ? "Data model — ER diagram" : "Agents & MCP — wiring diagram",
+      ),
+    );
   } else {
     // The Flows picker lists one entry per narrated flow — each renders as a
     // sequence diagram. The structural lenses (component / ER) live on their own
@@ -4556,8 +4604,9 @@ async function renderFlowPanel(): Promise<void> {
   const headActions = document.createElement("div");
   headActions.className = "flowview-head-actions";
 
-  // Authoring: create a journey, or toggle the editor for the selected one.
-  if (canEditFlows) {
+  // Authoring: create a journey, or toggle the editor for the selected one. The
+  // ER lens is a read-only render, so it never shows the journey authoring buttons.
+  if (canEditFlows && !selectedFlowEr) {
     const newBtn = document.createElement("button");
     newBtn.className = "flowview-action";
     newBtn.textContent = "+ New journey";
@@ -4621,11 +4670,13 @@ async function renderFlowPanel(): Promise<void> {
   flowPanelEl.append(card);
 
   if (!mermaidSrc) {
-    const message = selectedFlowAgents
-      ? "No agents or MCP servers yet — document them from VS Code or an AI agent (the Forward MCP server) to see this diagram."
-      : canEditFlows
-        ? 'No journeys yet — click "+ New journey" to author one.'
-        : "No journeys to render. Add a flow to the infrastructure graph.";
+    const message = selectedFlowEr
+      ? "No entities yet — add tables in the Data view to see the ER diagram."
+      : selectedFlowAgents
+        ? "No agents or MCP servers yet — document them from VS Code or an AI agent (the Forward MCP server) to see this diagram."
+        : canEditFlows
+          ? 'No journeys yet — click "+ New journey" to author one.'
+          : "No journeys to render. Add a flow to the infrastructure graph.";
     body.append(hEl("p", message, "flowview-empty"));
     return;
   }
@@ -4646,9 +4697,34 @@ async function renderFlowPanel(): Promise<void> {
 
 /** Close the rendered Flows view. */
 function closeFlow(): void {
+  // The ER lens is an overlay opened *over* the Data view (view stays "data"), so
+  // closing it just tears the overlay down and drops back to the ER graph — not
+  // all the way to design like the Flows/Agents rails do.
+  if (selectedFlowEr) {
+    selectedFlowEr = false;
+    flowOpen = false;
+    void renderFlowPanel(); // hides + clears the overlay, leaving the Data view intact
+    return;
+  }
   // The Flows panel's own close affordances (backdrop / ✕) route back to design;
   // setView() handles tearing the panel down + syncing the rail.
   setView("design");
+}
+
+/**
+ * Open the ER (data-model) diagram as a themed Mermaid `erDiagram` over the Data
+ * view — the polished, read-only twin of the editable ER graph. Reuses the Flows
+ * diagram surface (zoom / copy / fit / sanitize) with the ER lens flag, and stays
+ * in the "data" view so closing drops back to the editable graph.
+ */
+function viewEntityDiagram(): void {
+  selectedFlowEr = true;
+  selectedFlowAgents = false;
+  selectedFlowId = null;
+  flowOpen = true;
+  flowZoom = 1; // open at fit
+  flowEdit = false;
+  void renderFlowPanel();
 }
 
 // ------------------------------------------------------------------------

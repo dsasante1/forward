@@ -524,16 +524,13 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 /* --- rendered Flows view (full-stage backdrop + centered card) --- */
 #flowpanel {
   position: absolute; inset: 0; z-index: 30;
-  /* Scrim follows the active theme background (dark in dark themes, paper in
-     light ones) so it never shows as a black frame around the card. */
-  display: flex; padding: 14px; background: color-mix(in srgb, var(--bg) 92%, transparent);
+  display: flex; background: var(--bg);
 }
 #flowpanel[hidden] { display: none; }
 .flowview-card {
   display: flex; flex-direction: column;
   width: 100%; height: 100%; overflow: hidden;
-  background: var(--bg-panel); border: 1px solid var(--line); border-radius: 12px;
-  box-shadow: 0 22px 60px rgba(0, 0, 0, .6);
+  background: var(--bg-panel);
 }
 .flowview-head {
   display: flex; align-items: center; gap: 10px;

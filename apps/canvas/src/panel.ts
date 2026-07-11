@@ -704,6 +704,12 @@ function dataGlyph(): SVGElement {
   g.classList.add("ifp-glyph");
   return g;
 }
+/** Two connected tables — the "view as ER diagram" affordance. */
+function diagramIcon(): SVGElement {
+  const g = svgNS(["M3 4h7v6H3zM3 7h7", "M14 14h7v6h-7zM14 17h7", "M10 7h4v10"]);
+  g.classList.add("ifp-icon");
+  return g;
+}
 
 /** A plain accent-coloured dot (entities have no kind colour). */
 function accentDot(): HTMLElement {
@@ -743,6 +749,8 @@ export interface EntityPanelHandlers {
   onToggleCollapse(): void;
   onDragStart(e: MouseEvent): void;
   onAddEntity(): void;
+  /** Open the read-only Mermaid ER diagram of the current model. */
+  onViewDiagram(): void;
   onToggleRelate(): void;
   onSelectEntity(id: string | null): void;
   onSelectRelation(id: string | null): void;
@@ -794,22 +802,25 @@ export function renderEntityPanel(
   );
   if (opts.collapsed) return;
 
-  // --- toolbar: Add entity (primary) + Relate (toggle) ---
-  if (opts.canEdit || opts.canRelate) {
-    const btns: HTMLElement[] = [];
-    if (opts.canEdit) btns.push(primaryBtn("Add entity", opts.onAddEntity));
-    if (opts.canRelate) {
-      btns.push(
-        toggleBtn(
-          linkIcon(),
-          opts.relating ? "Relating…" : "Relate",
-          opts.relating,
-          opts.onToggleRelate,
-        ),
-      );
-    }
-    root.append(toolbarRow(btns));
+  // --- toolbar: Add entity (primary) + Relate (toggle) + Diagram (view) ---
+  const btns: HTMLElement[] = [];
+  if (opts.canEdit) btns.push(primaryBtn("Add entity", opts.onAddEntity));
+  if (opts.canRelate) {
+    btns.push(
+      toggleBtn(
+        linkIcon(),
+        opts.relating ? "Relating…" : "Relate",
+        opts.relating,
+        opts.onToggleRelate,
+      ),
+    );
   }
+  // The read-only ER diagram is always available (even on a read-only source) as
+  // long as there is something to render.
+  if (entCount) {
+    btns.push(toggleBtn(diagramIcon(), "Diagram", false, opts.onViewDiagram));
+  }
+  if (btns.length) root.append(toolbarRow(btns));
   root.append(divider());
 
   if (opts.relating) {
