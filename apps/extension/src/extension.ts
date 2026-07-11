@@ -91,6 +91,7 @@ export function activate(context: vscode.ExtensionContext): void {
       "forward.connectEndpoint",
       connectEndpoint,
     ),
+    vscode.commands.registerCommand("forward.insertAnchor", insertAnchor),
     vscode.commands.registerCommand("forward.openCanvas", () =>
       openCanvas(context),
     ),
@@ -290,9 +291,67 @@ async function connectEndpoint(): Promise<void> {
   if (!cfg) return;
 
   // Backend devs document elements the designers already drew. Pick one.
-  const elementId = await pickElement(cfg);
-  if (!elementId) return;
-  await documentElement(cfg, elementId);
+  const picked = await pickElement(cfg);
+  if (!picked) return;
+  await documentElement(cfg, picked.id);
+}
+
+/**
+ * Insert an `@adc` anchor for a design element at the cursor, so the developer
+ * never has to discover or transcribe the opaque element id. They pick the
+ * element by name; we write a comment in the file's own syntax, carrying the
+ * id (the stable link) plus the element name as a human-readable label:
+ *
+ *     // @adc el_mretvz0t "Celebrity sign-up"
+ *
+ * Resolution is always by id; the quoted label is for humans reading the diff
+ * and lets `resolve_anchors` flag drift if the design is later renamed.
+ */
+async function insertAnchor(): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor) {
+    vscode.window.showWarningMessage(
+      "Open the file where you implemented the endpoint, then run this command.",
+    );
+    return;
+  }
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  const picked = await pickElement(cfg, "Select the design element to anchor here");
+  if (!picked) return;
+
+  // A quoted label can't contain a double-quote (the anchor grammar ends it),
+  // so soften any in the name to keep the anchor well-formed.
+  const label = picked.name.trim().replace(/"/g, "'");
+  const anchor = `@adc ${picked.id}${label ? ` "${label}"` : ""}`;
+
+  const pos = editor.selection.active;
+  const lineText = editor.document.lineAt(pos.line).text;
+  const indent = lineText.match(/^[ \t]*/)?.[0] ?? "";
+  const comment = commentFor(editor.document.languageId, anchor);
+
+  await editor.edit((b) =>
+    b.insert(new vscode.Position(pos.line, 0), `${indent}${comment}\n`),
+  );
+}
+
+/** Wrap `text` in the line/block comment syntax for the given editor language. */
+function commentFor(languageId: string, text: string): string {
+  if (["html", "xml", "xsl", "svg", "markdown", "vue"].includes(languageId)) {
+    return `<!-- ${text} -->`;
+  }
+  if (["css", "scss", "less"].includes(languageId)) return `/* ${text} */`;
+  if (languageId === "sql") return `-- ${text}`;
+  if (
+    [
+      "python", "ruby", "shellscript", "yaml", "dockerfile", "makefile",
+      "toml", "perl", "r", "elixir", "coffeescript", "powershell",
+    ].includes(languageId)
+  ) {
+    return `# ${text}`;
+  }
+  return `// ${text}`;
 }
 
 /**
@@ -1627,8 +1686,13 @@ function canvasHtml(
  * annotate elements the designer has already created — there is no "new element"
  * path here, which keeps the two sides from drifting.
  */
-async function pickElement(cfg: ApiConfig): Promise<string | undefined> {
-  let elements: Array<{ id: string; name: string; type: string }> = [];
+type PickedElement = { id: string; name: string; type: string };
+
+async function pickElement(
+  cfg: ApiConfig,
+  placeHolder = "Select the design element to annotate with this endpoint",
+): Promise<PickedElement | undefined> {
+  let elements: PickedElement[] = [];
   try {
     elements = await listElements(cfg);
   } catch {
@@ -1642,17 +1706,17 @@ async function pickElement(cfg: ApiConfig): Promise<string | undefined> {
     return undefined;
   }
 
-  const items: Array<vscode.QuickPickItem & { id: string }> = elements.map(
+  const items: Array<vscode.QuickPickItem & { el: PickedElement }> = elements.map(
     (el) => ({
       label: el.name || el.id,
       description: el.type,
       detail: el.id,
-      id: el.id,
+      el,
     }),
   );
   const choice = await vscode.window.showQuickPick(items, {
-    placeHolder: "Select the design element to annotate with this endpoint",
+    placeHolder,
     matchOnDetail: true,
   });
-  return choice?.id;
+  return choice?.el;
 }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { findAnchorsInSource } from "./anchor.js";
+import { findAnchorsInSource, resolveAnchors } from "./anchor.js";
+import type { AnchorElement } from "./anchor.js";
 
 describe("findAnchorsInSource", () => {
   it("finds an anchor in a line comment with its line number", () => {
@@ -35,5 +36,81 @@ describe("findAnchorsInSource", () => {
       { elementId: "el_a", line: 1, file: "routes.ts" },
       { elementId: "el_b", line: 2, file: "routes.ts" },
     ]);
+  });
+
+  it("captures an optional quoted label after the id", () => {
+    const src = '// @adc el_login_submit "Login submit button"';
+    expect(findAnchorsInSource(src)).toEqual([
+      { elementId: "el_login_submit", line: 1, label: "Login submit button" },
+    ]);
+  });
+
+  it("ignores the trailing comment close of a block/HTML comment in the label", () => {
+    const src = [
+      '/* @adc el_block "Block label" */',
+      '<!-- @adc el_html "HTML label" -->',
+    ].join("\n");
+    expect(findAnchorsInSource(src)).toEqual([
+      { elementId: "el_block", line: 1, label: "Block label" },
+      { elementId: "el_html", line: 2, label: "HTML label" },
+    ]);
+  });
+
+  it("omits the label when it is empty or absent", () => {
+    const src = ['// @adc el_a ""', "// @adc el_b"].join("\n");
+    expect(findAnchorsInSource(src)).toEqual([
+      { elementId: "el_a", line: 1 },
+      { elementId: "el_b", line: 2 },
+    ]);
+  });
+});
+
+describe("resolveAnchors", () => {
+  const byId = new Map<string, AnchorElement>([
+    ["el_login", { name: "Login button", type: "component", documented: true }],
+  ]);
+
+  it("flags labelDrifted when the label no longer matches the element name", () => {
+    const anchors = findAnchorsInSource('// @adc el_login "Sign in button"');
+    expect(resolveAnchors(anchors, byId, true)).toEqual([
+      {
+        elementId: "el_login",
+        line: 1,
+        label: "Sign in button",
+        exists: true,
+        name: "Login button",
+        type: "component",
+        documented: true,
+        labelDrifted: true,
+        currentName: "Login button",
+      },
+    ]);
+  });
+
+  it("does not flag drift when the label still matches the current name", () => {
+    const anchors = findAnchorsInSource('// @adc el_login "Login button"');
+    const [resolved] = resolveAnchors(anchors, byId, true);
+    expect(resolved).not.toHaveProperty("labelDrifted");
+    expect(resolved).toMatchObject({ exists: true, name: "Login button" });
+  });
+
+  it("does not flag drift for a bare anchor with no label", () => {
+    const anchors = findAnchorsInSource("// @adc el_login");
+    const [resolved] = resolveAnchors(anchors, byId, true);
+    expect(resolved).not.toHaveProperty("labelDrifted");
+  });
+
+  it("reports a missing element as exists:false without drift", () => {
+    const anchors = findAnchorsInSource('// @adc el_ghost "Anything"');
+    expect(resolveAnchors(anchors, byId, true)).toEqual([
+      { elementId: "el_ghost", line: 1, label: "Anything", exists: false },
+    ]);
+  });
+
+  it("reports exists:null and skips drift when the canvas is unvalidated", () => {
+    const anchors = findAnchorsInSource('// @adc el_login "Sign in button"');
+    const [resolved] = resolveAnchors(anchors, byId, false);
+    expect(resolved).not.toHaveProperty("labelDrifted");
+    expect(resolved).toMatchObject({ exists: null });
   });
 });

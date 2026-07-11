@@ -2923,6 +2923,7 @@ function openElementMenu(
   ctxItem(docsIcon(), el.apiBinding ? "Edit API docs" : "Add API docs", () =>
     openApiDocsFor(id),
   );
+  ctxItem(linkIcon(), "Copy @adc anchor", () => copyAnchor(id));
   if (el.type !== "component" && el.type !== "instance") {
     ctxItem(compIcon(), "Make component", makeComponent);
   }
@@ -3346,6 +3347,30 @@ function deleteSelected(): void {
     void source.deleteElement(cid);
   }
   select(null);
+}
+
+/**
+ * Copy a ready-to-paste `@adc` anchor for an element to the clipboard, so a
+ * developer never has to transcribe the opaque element id. The id is the stable
+ * link; the element name rides along as a human-readable, quote-delimited label
+ * (`// @adc el_xxx "Login button"`). The `//` comment is parsed regardless of
+ * the destination file's language — the anchor reader is comment-agnostic.
+ */
+function copyAnchor(id: string): void {
+  const el = elements.get(id);
+  if (!el) return;
+  // A quoted label can't hold a double-quote (it would close the label early);
+  // soften any in the name so the pasted anchor stays well-formed.
+  const label = el.name.trim().replace(/"/g, "'");
+  const anchor = `// @adc ${el.id}${label ? ` "${label}"` : ""}`;
+  if (!navigator.clipboard) {
+    notify("Clipboard isn't available here — copy the id from the inspector.");
+    return;
+  }
+  void navigator.clipboard.writeText(anchor).then(
+    () => notify(`Copied anchor: ${anchor}`),
+    () => notify("Couldn't copy the anchor to the clipboard."),
+  );
 }
 
 function makeComponent(): void {
@@ -5586,6 +5611,13 @@ function docsIcon(): SVGElement {
     path("M14 3v5h5"),
     path("M9 13h6"),
     path("M9 17h6"),
+  ]);
+}
+// Chain link, for "copy anchor" — two interlocked link halves.
+function linkIcon(): SVGElement {
+  return lineIcon([
+    path("M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"),
+    path("M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"),
   ]);
 }
 // Sitemap: one node branching to two below.

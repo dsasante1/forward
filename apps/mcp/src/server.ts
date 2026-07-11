@@ -59,7 +59,8 @@ import {
   unbindApiFromElement,
   type ApiConfig,
 } from "forward-core/api";
-import { findAnchorsInSource, scanPath } from "./anchor.js";
+import { findAnchorsInSource, resolveAnchors, scanPath } from "./anchor.js";
+import type { AnchorElement } from "./anchor.js";
 import { rankElements } from "./match.js";
 
 /**
@@ -219,8 +220,10 @@ server.registerTool(
       "Find `@adc <elementId>` anchors in source code and resolve each to its design element " +
       "— the deterministic alternative to find_element. Pass a file or directory `path` to " +
       "scan, or raw `source` text. Each anchor pins code to a design element unambiguously, so " +
-      "prefer this over fuzzy matching whenever the developer has anchored their code. The " +
-      "result flags anchors whose elementId doesn't exist (typos / stale ids).",
+      "prefer this over fuzzy matching whenever the developer has anchored their code. An anchor " +
+      "may carry an optional quoted label (`@adc <id> \"Login button\"`); the result echoes it and " +
+      "sets `labelDrifted` when it no longer matches the element's current name. The result also " +
+      "flags anchors whose elementId doesn't exist (typos / stale ids).",
     inputSchema: {
       path: z
         .string()
@@ -249,7 +252,7 @@ server.registerTool(
       // Cross-check each anchor against the live design elements so typos and
       // stale ids surface instead of silently writing nowhere. If the database
       // is unreachable we still return the anchors, just unvalidated.
-      let byId = new Map<string, { name: string; type: string; documented: boolean }>();
+      let byId = new Map<string, AnchorElement>();
       let warning: string | undefined;
       try {
         byId = new Map(
@@ -262,14 +265,7 @@ server.registerTool(
         warning = `Anchors not validated against the canvas: ${(err as Error).message}`;
       }
 
-      const resolved = anchors.map((a) => {
-        const el = byId.get(a.elementId);
-        return {
-          ...a,
-          exists: warning ? null : Boolean(el),
-          ...(el ? { name: el.name, type: el.type, documented: el.documented } : {}),
-        };
-      });
+      const resolved = resolveAnchors(anchors, byId, !warning);
       return ok({ count: resolved.length, ...(warning ? { warning } : {}), anchors: resolved });
     } catch (err) {
       return fail((err as Error).message);

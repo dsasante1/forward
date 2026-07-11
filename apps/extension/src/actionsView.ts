@@ -77,6 +77,13 @@ const GROUPS: readonly Group[] = [
         tooltip: "Attach API documentation to a design element on the canvas.",
       },
       {
+        label: "Insert Anchor at Cursor (@adc)",
+        command: "forward.insertAnchor",
+        icon: "link",
+        tooltip:
+          "Insert an @adc anchor for a design element at the cursor — pick by name, no id to transcribe.",
+      },
+      {
         label: "Show Endpoint History",
         command: "forward.showHistory",
         icon: "history",
