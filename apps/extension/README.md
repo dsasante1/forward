@@ -10,11 +10,16 @@ From inside VS Code you can:
 - **Document API on Design Element** — pick a design element the designer made
   on the canvas and attach an endpoint, method, request/response shape, etc.
   Docs are framework-agnostic Markdown, so any language/stack fits.
+- **Insert Anchor at Cursor (@adc)** — pick a design element by name and drop an
+  `@adc <id> "Label"` comment at the cursor in your file's own comment syntax.
+  It pins the code↔element link in the source — no opaque id to transcribe — so
+  CI (or an MCP agent) can re-document that endpoint deterministically.
 - **Remove API Documentation** — detach the binding (the design element stays).
 - **Infrastructure diagram** — add, link and remove infrastructure nodes to map
   your architecture as a component diagram.
 - **Flows & sequence diagrams** — narrate ordered hops across your
-  infrastructure; they render as a Mermaid sequence diagram.
+  infrastructure; they render as a Mermaid sequence diagram. A step can carry an
+  optional branch guard — steps sharing one condition render as an `alt`/`else`.
 - **Tasks** — file tasks and update their status, optionally linked to an
   element, flow or endpoint.
 - **Open Design Canvas** — view the live design with your API docs and diagrams
@@ -70,9 +75,12 @@ server** — lets a pipeline agent do the same documentation work on merge, so
 docs stay current without anyone opening the dashboard.
 
 1. **Anchor your code.** Drop an `@adc <elementId>` comment next to the
-   handler that implements a design element (any comment syntax works):
+   handler that implements a design element (any comment syntax works) — type
+   it by hand, or run **Forward: Insert Anchor at Cursor (@adc)** to pick the
+   element by name and have the extension write the comment (id + a readable
+   label) for you:
 
-       // @adc el_login_submit
+       // @adc el_login_submit "Login submit"
        app.post("/api/v1/login", loginHandler)
 
    The anchor pins the code↔element link in the source itself — unambiguous

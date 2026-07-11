@@ -634,6 +634,15 @@ export function DocsPage() {
               </table>
             </div>
             <p>
+              A step can also carry an optional{" "}
+              <code className="d-code">condition</code> — a branch guard like
+              "token valid" or "409 duplicate". Consecutive steps that share one
+              condition render together as a Mermaid{" "}
+              <code className="d-code">alt</code>/<code className="d-code">else</code>{" "}
+              block, so a flow can show conditional paths, not just a straight
+              line.
+            </p>
+            <p>
               Flows render as numbered arrows across the graph and export to a
               Mermaid <code className="d-code">sequenceDiagram</code> you can drop
               straight into a design doc.
@@ -896,7 +905,10 @@ export function DocsPage() {
                 <strong>Document.</strong> Use the{" "}
                 <code className="d-code">forward.*</code> commands to connect an
                 endpoint to an element, edit infra/flows, and file or update
-                tasks — all from the editor.
+                tasks — all from the editor. <strong>Insert Anchor at Cursor</strong>{" "}
+                drops an <code className="d-code">@adc</code> comment (pick the
+                element by name) so the code↔element link lives in the source —
+                the same anchor CI and MCP agents resolve.
               </li>
             </ol>
             <Figure caption="fig 9 — Forward in VS Code: the command palette filtered to forward.*, a deterministic @adc anchor in the source, and the signed-in status bar.">
@@ -1307,6 +1319,10 @@ export function DocsPage() {
                   <tr>
                     <td>forward.connectEndpoint</td>
                     <td>Document an API on a design element.</td>
+                  </tr>
+                  <tr>
+                    <td>forward.insertAnchor</td>
+                    <td>Insert an <code className="d-code">@adc</code> anchor at the cursor — pick an element by name; no id to transcribe.</td>
                   </tr>
                   <tr>
                     <td>forward.removeDocumentation</td>
