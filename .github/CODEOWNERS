@@ -13,11 +13,9 @@
 # canvas, extension, MCP, and server at once — review it as a contract, not a file.
 /packages/shared/                   @dsasante1
 
-# The two writer twins (must stay signature- AND behaviour-identical) and the
-# server module that persists what they send. The apiBinding-through-saveElement
-# regression lived precisely in the gap between these.
+# The API client and the server module that persists what it sends. The
+# apiBinding-through-saveElement regression lived precisely in the gap between these.
 /packages/shared/src/api-rest.ts    @dsasante1
-/packages/shared/src/rtdb-rest.ts   @dsasante1
 /apps/server/src/elements/          @dsasante1
 
 # The canvas data-source boundary (interface + the server-backed implementation)

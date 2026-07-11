@@ -1,7 +1,0 @@
-{
-  "//": "TEST-MODE ONLY — fully open. Use for the first end-to-end manual test, then switch to firebase.rules.json (auth-scoped) before anything real. Anyone with the URL can read/write.",
-  "rules": {
-    ".read": true,
-    ".write": true
-  }
-}

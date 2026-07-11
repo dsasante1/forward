@@ -33,8 +33,8 @@ export interface Membership {
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
- * Enforces per-project tenancy on every project-scoped route. Replaces the
- * Firebase membership rules (firebase.rules.json) with a server-side check:
+ * Enforces per-project tenancy on every project-scoped route with a server-side
+ * check:
  * the authenticated user must be on the project's roster, and `@RequireOwner()`
  * routes additionally require the `owner` role. Attaches the resolved membership
  * to `req.membership` for handlers that need the role.

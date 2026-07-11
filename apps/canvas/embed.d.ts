@@ -1,7 +1,7 @@
 /**
  * Public types for `forward-canvas/embed`, hand-written so host apps (the
  * dashboard) get types without their tsc parsing the canvas app source — which
- * uses Vite-only imports (`*.css?inline`) and pulls in mermaid/firebase.
+ * uses Vite-only imports (`*.css?inline`) and pulls in mermaid.
  *
  * Keep in sync with src/embed.ts. The runtime ("import" condition) resolves to
  * src/embed.ts; this file only backs the "types" condition.

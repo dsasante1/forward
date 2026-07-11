@@ -1,7 +1,6 @@
 // Forward backend data model — Supabase Postgres.
 //
-// This is the centralized translation of the old Firebase RTDB tree (see the
-// `paths` map in packages/shared/src/schema.ts). The flexible per-layer shapes
+// The flexible per-layer shapes
 // (DesignElement, InfraNode, …) live in `data Json` columns and are validated on
 // write by the SAME forward-core Zod schemas the canvas/extension/MCP use, so the
 // contract stays single-sourced. The relational columns carry only what we query
@@ -144,8 +143,8 @@ model AdminAuditEvent {
 
 // A long-lived Personal Access Token, the headless surfaces' (VS Code extension,
 // CLIs) credential. Clerk session JWTs are short-lived and browser-bound; a PAT
-// lets a non-browser client authenticate as its owner without the god-secret the
-// old Firebase extension carried. The plaintext is shown once at creation and
+// lets a non-browser client authenticate as its owner with exactly its owner's
+// access (no elevated powers). The plaintext is shown once at creation and
 // only its sha256 hash is stored; ClerkAuthGuard resolves a `fwd_pat_` bearer
 // token to this row's `userId`, so the PAT grants exactly its owner's access.
 model ApiToken {
@@ -163,7 +162,7 @@ model ApiToken {
   @@index([userId])
 }
 
-// A project = the tenancy boundary (the old RTDB "project id" namespace).
+// A project = the tenancy boundary (the "project id" namespace).
 model Project {
   id        String   @id @default(cuid())
   name      String
@@ -199,7 +198,7 @@ model Project {
   @@index([organizationId])
 }
 
-// Per-project membership roster — replaces project_members + the Firebase rules ACL.
+// Per-project membership roster — the server-enforced access ACL.
 model ProjectMember {
   projectId String
   userId    String

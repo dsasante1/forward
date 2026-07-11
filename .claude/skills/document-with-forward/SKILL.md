@@ -103,7 +103,7 @@ explicit.
 
 - **Tool calls fail / "server not connected".** Cause: the forward MCP server isn't
   running or configured. Solution: confirm it's connected in your client's MCP settings; the
-  server holds the Firebase credentials, so a config/credential problem there blocks every
+  server holds the API credentials, so a config/credential problem there blocks every
   tool.
 - **`resolve_anchors` reports an anchor whose `exists` is false.** Cause: a typo or stale
   `@adc` id in the source. Solution: fix the id in code (or pick the right element via

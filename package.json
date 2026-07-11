@@ -12,9 +12,7 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "setup": "node scripts/setup.mjs",
-    "deploy:rules": "firebase deploy --only database",
-    "bootstrap": "npm install && npm run build && npm run setup"
+    "bootstrap": "npm install && npm run build"
   },
   "devDependencies": {
     "firebase-tools": "^15.19.0",

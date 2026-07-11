@@ -67,7 +67,7 @@ import {
   unbindApiFromElement,
   updateMemberRole,
   type ApiConfig,
-} from "./firebase.js";
+} from "forward-core/api";
 import { registerActionsView } from "./actionsView.js";
 
 const POLL_MS = 1000; // cadence each subscribed channel polls while visible

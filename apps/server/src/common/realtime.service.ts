@@ -12,8 +12,7 @@ export type { ChangeEvent, RealtimeResource };
 const SUBSCRIBE_TIMEOUT_MS = 5000;
 
 /**
- * The realtime sync bus. Previously Firebase *was* the bus (the canvas
- * used `onValue`, the extension polled with ETags). Centralized, the server is
+ * The realtime sync bus. The server is
  * the single writer, so after every successful write it broadcasts a compact
  * change event on a per-project Supabase Realtime channel (`project:<id>`).
  * Clients subscribe with the Supabase **anon** key (never the service-role key

@@ -4456,22 +4456,6 @@ var ProjectInvite = external_exports.object({
   expiresAt: external_exports.string().datetime(),
   acceptedAt: external_exports.string().datetime().optional()
 });
-var DatabaseTree = external_exports.object({
-  user_configs: external_exports.record(UserConfig).default({}),
-  /** Per-project access roster — gates every project-scoped subtree below. */
-  project_members: external_exports.record(external_exports.record(ProjectMember)).default({}),
-  design_elements: external_exports.record(external_exports.record(DesignElement)).default({}),
-  version_timeline: external_exports.record(external_exports.record(external_exports.array(VersionEntry))).default({}),
-  infra_nodes: external_exports.record(external_exports.record(InfraNode)).default({}),
-  infra_edges: external_exports.record(external_exports.record(InfraEdge)).default({}),
-  infra_flows: external_exports.record(external_exports.record(InfraFlow)).default({}),
-  entities: external_exports.record(external_exports.record(Entity)).default({}),
-  entity_relations: external_exports.record(external_exports.record(EntityRelation)).default({}),
-  agent_nodes: external_exports.record(external_exports.record(AgentNode)).default({}),
-  mcp_servers: external_exports.record(external_exports.record(McpServerNode)).default({}),
-  tasks: external_exports.record(external_exports.record(Task)).default({}),
-  checkpoints: external_exports.record(external_exports.record(Checkpoint)).default({})
-});
 
 // ../../packages/shared/dist/api-rest.js
 function base(cfg) {

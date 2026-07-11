@@ -3,9 +3,8 @@ import type { ZodSchema } from "zod";
 
 /**
  * Validates a request body against a Zod schema and returns the *parsed* value
- * (with forward-core's defaults applied). This is liability #5 from the migration
- * doc fixed at the boundary: validation used to run only in the client before a
- * direct DB write, and the Firebase rules never checked payload shape. Now the
+ * (with forward-core's defaults applied). Validation is enforced at the trust
+ * boundary: the
  * server re-validates every write with the SAME forward-core schemas, so the
  * contract is enforced server-side regardless of which client called.
  *

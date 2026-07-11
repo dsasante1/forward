@@ -9,8 +9,8 @@ import { PrismaClient } from "@prisma/client";
 /**
  * The single database handle for the app. Connects to Supabase Postgres via the
  * pooled `DATABASE_URL`. All persistence goes through here — there is no other
- * writer (the previous Firebase-direct model had every client writing the DB
- * directly; now the server is the only one holding credentials).
+ * writer; the server is the only one holding credentials, and no client touches
+ * the database directly.
  */
 @Injectable()
 export class PrismaService

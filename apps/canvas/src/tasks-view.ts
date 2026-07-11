@@ -8,7 +8,7 @@ import type { Task, TaskStatus } from "forward-core";
  * filter to just the tasks linked to it — the "link-driven" view — and new tasks
  * are pre-linked to that selection.
  *
- * This module only draws; the source-of-truth lives in the RTDB and the writes
+ * This module only draws; the source-of-truth lives on the server and the writes
  * go back through the CanvasSource via the callbacks.
  */
 
