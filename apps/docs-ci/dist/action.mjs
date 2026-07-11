@@ -4189,7 +4189,14 @@ var InfraFlowStep = external_exports.object({
   /** Call style — arrowhead on the overlay, arrow token in Mermaid. */
   kind: InfraStepKind.default("sync"),
   /** Optional design element id whose apiBinding drives this hop. */
-  endpointId: external_exports.string().max(SHORT_TEXT_MAX).optional()
+  endpointId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /**
+   * Optional branch guard, e.g. "token valid" or "409 duplicate". Consecutive
+   * steps sharing the same `condition` are wrapped in one Mermaid `alt`/`else`
+   * block, so an endpoint's success and error paths render as a single diagram
+   * instead of separate flows. Steps with no `condition` stay unconditional.
+   */
+  condition: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
 var InfraFlow = external_exports.object({
   id: external_exports.string().min(1).max(SHORT_TEXT_MAX),

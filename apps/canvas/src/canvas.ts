@@ -2923,6 +2923,7 @@ function openElementMenu(
   ctxItem(docsIcon(), el.apiBinding ? "Edit API docs" : "Add API docs", () =>
     openApiDocsFor(id),
   );
+  ctxItem(linkIcon(), "Copy @adc anchor", () => copyAnchor(id));
   if (el.type !== "component" && el.type !== "instance") {
     ctxItem(compIcon(), "Make component", makeComponent);
   }
@@ -3346,6 +3347,30 @@ function deleteSelected(): void {
     void source.deleteElement(cid);
   }
   select(null);
+}
+
+/**
+ * Copy a ready-to-paste `@adc` anchor for an element to the clipboard, so a
+ * developer never has to transcribe the opaque element id. The id is the stable
+ * link; the element name rides along as a human-readable, quote-delimited label
+ * (`// @adc el_xxx "Login button"`). The `//` comment is parsed regardless of
+ * the destination file's language — the anchor reader is comment-agnostic.
+ */
+function copyAnchor(id: string): void {
+  const el = elements.get(id);
+  if (!el) return;
+  // A quoted label can't hold a double-quote (it would close the label early);
+  // soften any in the name so the pasted anchor stays well-formed.
+  const label = el.name.trim().replace(/"/g, "'");
+  const anchor = `// @adc ${el.id}${label ? ` "${label}"` : ""}`;
+  if (!navigator.clipboard) {
+    notify("Clipboard isn't available here — copy the id from the inspector.");
+    return;
+  }
+  void navigator.clipboard.writeText(anchor).then(
+    () => notify(`Copied anchor: ${anchor}`),
+    () => notify("Couldn't copy the anchor to the clipboard."),
+  );
 }
 
 function makeComponent(): void {
@@ -4464,12 +4489,176 @@ function fitFlowSvg(): void {
   svgEl.style.maxHeight = "none";
   svgEl.style.width = `${iw * scale}px`;
   svgEl.style.height = `${ih * scale}px`;
+  // Only offer the grab cursor when the diagram overflows the pane (i.e. there's
+  // somewhere to pan to); at fit it sits still, so a grab affordance would lie.
+  markFlowPannable(body);
 }
 
-/** Step the Flows diagram zoom (minimize/maximize) and re-fit. */
+const FLOW_ZOOM_MIN = 0.2;
+const FLOW_ZOOM_MAX = 6;
+
+/** Step the Flows diagram zoom (minimize/maximize) around the pane centre. */
 function zoomFlow(factor: number): void {
-  flowZoom = Math.min(6, Math.max(0.2, flowZoom * factor));
+  const body = flowPanelEl.querySelector(".flowview-body") as HTMLElement | null;
+  if (!body) {
+    flowZoom = Math.min(FLOW_ZOOM_MAX, Math.max(FLOW_ZOOM_MIN, flowZoom * factor));
+    fitFlowSvg();
+    return;
+  }
+  const box = body.getBoundingClientRect();
+  zoomFlowAt(factor, box.left + box.width / 2, box.top + box.height / 2);
+}
+
+/**
+ * Zoom the diagram around a screen point, keeping whatever sits under the cursor
+ * pinned there. The SVG is sized in real pixels inside the scrollable body, so we
+ * re-anchor by scrolling: capture the fraction of the diagram under the pointer
+ * before the resize, then scroll so that fraction lands back under the pointer.
+ */
+function zoomFlowAt(factor: number, clientX: number, clientY: number): void {
+  const body = flowPanelEl.querySelector(".flowview-body") as HTMLElement | null;
+  const svgEl = body?.querySelector("svg") as SVGSVGElement | null;
+  const next = Math.min(FLOW_ZOOM_MAX, Math.max(FLOW_ZOOM_MIN, flowZoom * factor));
+  if (!body || !svgEl || next === flowZoom) {
+    flowZoom = next;
+    fitFlowSvg();
+    return;
+  }
+  const before = svgEl.getBoundingClientRect();
+  const bodyBox = body.getBoundingClientRect();
+  const fracX = before.width ? (clientX - before.left) / before.width : 0.5;
+  const fracY = before.height ? (clientY - before.top) / before.height : 0.5;
+  const px = clientX - bodyBox.left; // pointer offset inside the pane
+  const py = clientY - bodyBox.top;
+  flowZoom = next;
   fitFlowSvg();
+  // Re-anchor: the svg's start in the body's scrollable content (rect delta plus
+  // the current scroll is scroll-invariant), so scrolling the picked fraction to
+  // the pointer keeps that point pinned across the resize + flex centring/padding.
+  const after = svgEl.getBoundingClientRect();
+  const svgLeftInContent = after.left - bodyBox.left + body.scrollLeft;
+  const svgTopInContent = after.top - bodyBox.top + body.scrollTop;
+  body.scrollLeft = svgLeftInContent + fracX * after.width - px;
+  body.scrollTop = svgTopInContent + fracY * after.height - py;
+}
+
+// ---- Data/Flows diagram pan + edge auto-scroll --------------------------
+// The rendered diagram lives in a scrollable body (its SVG sized in real px), so
+// panning here means dragging the scroll offset rather than moving a viewport
+// transform like the design canvas. A grab-drag scrolls 1:1 with the pointer, and
+// a separate rAF loop keeps scrolling while the pointer rests against a pane edge
+// so you can reach content past the corner without lifting the drag.
+const FLOW_EDGE_MARGIN = 48; // px from an edge where auto-scroll begins
+const FLOW_EDGE_MAX_SPEED = 20; // px/frame at (or past) the very edge
+let flowPan: { body: HTMLElement; lastX: number; lastY: number; pointerId: number } | null = null;
+let flowEdgeVX = 0;
+let flowEdgeVY = 0;
+let flowEdgeRAF: number | null = null;
+
+/** Toggle the grab affordance: pannable only when the diagram overflows the pane. */
+function markFlowPannable(body: HTMLElement): void {
+  const canPan =
+    body.scrollWidth > body.clientWidth + 1 ||
+    body.scrollHeight > body.clientHeight + 1;
+  body.classList.toggle("pannable", canPan);
+}
+
+function flowEdgeSpeed(dist: number): number {
+  const t = Math.max(0, Math.min(1, 1 - dist / FLOW_EDGE_MARGIN));
+  return t * FLOW_EDGE_MAX_SPEED;
+}
+
+/** Recompute edge-scroll velocity from the pointer's distance to each pane edge. */
+function updateFlowEdgeScroll(body: HTMLElement, clientX: number, clientY: number): void {
+  const box = body.getBoundingClientRect();
+  const rightDist = box.right - clientX;
+  const leftDist = clientX - box.left;
+  const botDist = box.bottom - clientY;
+  const topDist = clientY - box.top;
+  flowEdgeVX =
+    rightDist < FLOW_EDGE_MARGIN
+      ? flowEdgeSpeed(rightDist)
+      : leftDist < FLOW_EDGE_MARGIN
+        ? -flowEdgeSpeed(leftDist)
+        : 0;
+  flowEdgeVY =
+    botDist < FLOW_EDGE_MARGIN
+      ? flowEdgeSpeed(botDist)
+      : topDist < FLOW_EDGE_MARGIN
+        ? -flowEdgeSpeed(topDist)
+        : 0;
+  if ((flowEdgeVX !== 0 || flowEdgeVY !== 0) && flowEdgeRAF === null) {
+    flowEdgeRAF = requestAnimationFrame(flowEdgeScrollTick);
+  }
+}
+
+function flowEdgeScrollTick(): void {
+  flowEdgeRAF = null;
+  if (!flowPan || (flowEdgeVX === 0 && flowEdgeVY === 0)) return;
+  flowPan.body.scrollLeft += flowEdgeVX;
+  flowPan.body.scrollTop += flowEdgeVY;
+  flowEdgeRAF = requestAnimationFrame(flowEdgeScrollTick);
+}
+
+function stopFlowEdgeScroll(): void {
+  flowEdgeVX = 0;
+  flowEdgeVY = 0;
+  if (flowEdgeRAF !== null) {
+    cancelAnimationFrame(flowEdgeRAF);
+    flowEdgeRAF = null;
+  }
+}
+
+/** Wire grab-to-pan, edge auto-scroll, and cursor-anchored wheel zoom on the
+ *  diagram body. Called fresh each render since the body is rebuilt. */
+function wireFlowBodyPan(body: HTMLElement): void {
+  body.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    if (
+      body.scrollWidth <= body.clientWidth + 1 &&
+      body.scrollHeight <= body.clientHeight + 1
+    ) {
+      return; // nothing to pan; leave clicks/selection to the diagram
+    }
+    flowPan = { body, lastX: e.clientX, lastY: e.clientY, pointerId: e.pointerId };
+    body.setPointerCapture(e.pointerId);
+    body.classList.add("grabbing");
+    e.preventDefault();
+  });
+  body.addEventListener("pointermove", (e) => {
+    if (!flowPan) return;
+    body.scrollLeft -= e.clientX - flowPan.lastX;
+    body.scrollTop -= e.clientY - flowPan.lastY;
+    flowPan.lastX = e.clientX;
+    flowPan.lastY = e.clientY;
+    updateFlowEdgeScroll(body, e.clientX, e.clientY); // "border to scroll"
+  });
+  const endPan = (e: PointerEvent) => {
+    if (!flowPan) return;
+    body.classList.remove("grabbing");
+    try {
+      body.releasePointerCapture(e.pointerId);
+    } catch {
+      /* capture may already be gone */
+    }
+    flowPan = null;
+    stopFlowEdgeScroll();
+  };
+  body.addEventListener("pointerup", endPan);
+  body.addEventListener("pointercancel", endPan);
+  // Ctrl/⌘ + wheel zooms toward the cursor (matching the design canvas); plain
+  // wheel keeps native scrolling. Stop propagation so the window-level design-
+  // canvas zoom handler doesn't also fire on the hidden canvas beneath.
+  body.addEventListener(
+    "wheel",
+    (e) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      zoomFlowAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY);
+    },
+    { passive: false },
+  );
 }
 
 // Keep the diagram fitted when the window (and thus the pane) resizes.
@@ -4530,9 +4719,14 @@ function copyMermaid(text: string): void {
 async function renderFlowPanel(): Promise<void> {
   flowPanelEl.hidden = !flowOpen;
   if (!flowOpen) {
+    flowPan = null; // a rebuild/close mid-drag must not keep scrolling a stale body
+    stopFlowEdgeScroll();
     flowPanelEl.replaceChildren();
     return;
   }
+  // Any full re-render replaces the body, so drop an in-flight pan on the old one.
+  flowPan = null;
+  stopFlowEdgeScroll();
 
   // Drop a stale flow selection so the dropdown + render stay consistent.
   if (selectedFlowId && !infraFlows.has(selectedFlowId)) selectedFlowId = null;
@@ -4716,6 +4910,7 @@ async function renderFlowPanel(): Promise<void> {
     if (!flowOpen || token !== flowSeq) return; // superseded by a newer render/close
     body.innerHTML = svg;
     fitFlowSvg(); // size the diagram to the pane (no scrollbar at 100%)
+    wireFlowBodyPan(body); // grab-to-pan, edge auto-scroll, cursor-anchored zoom
   } catch (err) {
     body.innerHTML = "";
     body.append(hEl("pre", `Couldn't render flow diagram:\n${(err as Error).message}`, "flowview-error"));
@@ -4953,6 +5148,17 @@ function buildFlowStep(
   const rm = miniBtn("✕", "Remove step", false, () => mutateFlowSteps(i, "remove"));
   row2.append(up, down, rm);
   wrap.append(row2);
+
+  // Optional branch guard: consecutive steps sharing one render as an alt/else block.
+  const cond = document.createElement("input");
+  cond.type = "text";
+  cond.value = step.condition ?? "";
+  cond.placeholder = "branch guard (optional, e.g. token valid) — groups into an alt block";
+  cond.addEventListener("change", () => {
+    const v = cond.value.trim();
+    updateFlowStep(i, { condition: v || undefined });
+  });
+  wrap.append(cond);
   return wrap;
 }
 
@@ -5405,6 +5611,13 @@ function docsIcon(): SVGElement {
     path("M14 3v5h5"),
     path("M9 13h6"),
     path("M9 17h6"),
+  ]);
+}
+// Chain link, for "copy anchor" — two interlocked link halves.
+function linkIcon(): SVGElement {
+  return lineIcon([
+    path("M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1.5 1.5"),
+    path("M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1.5-1.5"),
   ]);
 }
 // Sitemap: one node branching to two below.

@@ -359,6 +359,13 @@ export const InfraFlowStep = z.object({
   kind: InfraStepKind.default("sync"),
   /** Optional design element id whose apiBinding drives this hop. */
   endpointId: z.string().max(SHORT_TEXT_MAX).optional(),
+  /**
+   * Optional branch guard, e.g. "token valid" or "409 duplicate". Consecutive
+   * steps sharing the same `condition` are wrapped in one Mermaid `alt`/`else`
+   * block, so an endpoint's success and error paths render as a single diagram
+   * instead of separate flows. Steps with no `condition` stay unconditional.
+   */
+  condition: z.string().max(SHORT_TEXT_MAX).optional(),
 });
 export type InfraFlowStep = z.infer<typeof InfraFlowStep>;
 

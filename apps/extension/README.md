@@ -43,6 +43,26 @@ companion web canvas is where designers draw the UI.
 Sign out any time with **Forward: Sign Out**. The token grants exactly your own
 project access — every request is authenticated per-user by the server.
 
+## Connect an AI agent (MCP)
+
+Want an AI agent (e.g. Claude Code) to do the same documentation work? It talks
+to Forward through the **[Forward MCP server](../mcp/README.md)** — a headless
+sibling of this extension. You do **not** need a second token: a Personal Access
+Token is user-scoped, so the one you already signed in with authorizes the MCP
+server too. (The dashboard only stores a hash of a minted token, so this
+extension's stored copy is the only place the plaintext still exists — which is
+exactly why reusing it beats minting a fresh one.)
+
+1. Run **Forward: Set Up MCP for AI Agents** (Command Palette). It copies a
+   ready `claude mcp add forward …` command to your clipboard, pre-filled with
+   your base URL, project id, and existing access token.
+2. Paste it in your terminal.
+3. **Restart your agent session** so it loads the newly-registered Forward
+   tools — a running session won't pick them up automatically.
+
+Only mint a *separate* token when you want independent revocation/audit for the
+agent (for example, an unattended CI pipeline — see below).
+
 ## Automate documentation in your CI/CD
 
 The extension is the human surface; its headless sibling — the **Forward MCP

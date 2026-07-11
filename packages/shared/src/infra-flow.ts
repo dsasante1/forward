@@ -54,13 +54,14 @@ function clean(s: string): string {
  * verbatim — so a raw `<` in a node label or step text is a stored-XSS vector.
  * Entity-escape the HTML-significant characters (Mermaid decodes them back to
  * literal text on render) after collapsing newlines. `&` must go first so the
- * entities we introduce aren't themselves re-escaped.
+ * entities we introduce aren't themselves re-escaped. A bare `>` is deliberately
+ * left literal: it can't open a tag (only `<` can, and we still escape that), so
+ * escaping it only made copied diagram source render `->`/`>=` as `-&gt;`/`&gt;=`.
  */
 function escapeLabel(s: string): string {
   return clean(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
 
@@ -101,15 +102,37 @@ export function flowToMermaid(
     alias(step.to);
   }
 
-  flow.steps.forEach((step, i) => {
+  // Render message lines, wrapping consecutive steps that share a `condition`
+  // in a Mermaid alt/else block so an endpoint's success + error paths live in
+  // one diagram. Dangling steps (a node missing from the map) are dropped first
+  // — mirroring the overlay — so they can't leave an unbalanced/empty block.
+  const renderable = flow.steps
+    .map((step, i) => ({ step, n: i + 1 }))
+    .filter(({ step }) => aliases.has(step.from) && aliases.has(step.to));
+
+  let openCond: string | undefined; // condition of the alt block currently open
+  for (const { step, n } of renderable) {
     const from = aliases.get(step.from);
     const to = aliases.get(step.to);
-    if (!from || !to) return; // dangling node — skip, mirroring the overlay
+    if (!from || !to) continue; // guarded by the filter above; keeps TS happy
+    const cond = step.condition?.trim() || undefined;
+    if (cond !== openCond) {
+      if (openCond !== undefined && cond !== undefined) {
+        // Adjacent conditioned run → another branch of the same alt.
+        lines.push(`    else ${escapeLabel(cond)}`);
+      } else {
+        if (openCond !== undefined) lines.push("    end"); // leaving conditioned steps
+        if (cond !== undefined) lines.push(`    alt ${escapeLabel(cond)}`);
+      }
+      openCond = cond;
+    }
     const arrow = ARROW[step.kind];
     const label = escapeLabel(step.label) || "—";
     const suffix = step.endpointId ? ` (${escapeLabel(step.endpointId)})` : "";
-    lines.push(`    ${from}${arrow}${to}: ${i + 1}. ${label}${suffix}`);
-  });
+    const indent = openCond !== undefined ? "        " : "    ";
+    lines.push(`${indent}${from}${arrow}${to}: ${n}. ${label}${suffix}`);
+  }
+  if (openCond !== undefined) lines.push("    end");
 
   return lines.join("\n");
 }

@@ -41,6 +41,12 @@ const GROUPS: readonly Group[] = [
         tooltip: "Choose which Forward project to annotate.",
       },
       {
+        label: "Set Up MCP for AI Agents",
+        command: "forward.setupMcp",
+        icon: "copy",
+        tooltip: "Copy a claude mcp add command that reuses your existing access token.",
+      },
+      {
         label: "Sign Out",
         command: "forward.signOut",
         icon: "sign-out",
@@ -69,6 +75,13 @@ const GROUPS: readonly Group[] = [
         command: "forward.connectEndpoint",
         icon: "plug",
         tooltip: "Attach API documentation to a design element on the canvas.",
+      },
+      {
+        label: "Insert Anchor at Cursor (@adc)",
+        command: "forward.insertAnchor",
+        icon: "link",
+        tooltip:
+          "Insert an @adc anchor for a design element at the cursor — pick by name, no id to transcribe.",
       },
       {
         label: "Show Endpoint History",

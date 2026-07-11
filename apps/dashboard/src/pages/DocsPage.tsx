@@ -934,27 +934,51 @@ export function DocsPage() {
               <a href="#reference">reference</a>.
             </p>
             <h3>Connect it</h3>
+            <div className="d-note">
+              <span>
+                <b>Fastest path — one command.</b> If you already use the VS Code
+                extension, run{" "}
+                <strong>Forward: Set Up MCP for AI Agents</strong> from the
+                Command Palette. It copies a ready{" "}
+                <code className="d-code">claude mcp add forward …</code> line
+                pre-filled with your base URL, project id, and{" "}
+                <em>existing</em> access token — paste it in your terminal and
+                you're done. You don't need to mint a second token: a{" "}
+                <code className="d-code">fwd_pat_…</code> is user-scoped, so the
+                one you signed the extension in with authorizes the MCP server
+                too.
+              </span>
+            </div>
             <p>
               The MCP server authenticates with the same{" "}
               <code className="d-code">fwd_pat_…</code> PAT model as the extension;
               the only difference is delivery — the process reads three ambient
-              environment variables since no human is present to paste a token:
+              environment variables since no human is present to paste a token.
+              Registering with Claude Code looks like:
             </p>
             <pre className="d-pre">
               <code>
-                <span className="c"># environment for the Forward MCP server</span>
-                {"\n"}FORWARD_API_BASE_URL=<span className="t">&lt;Forward API URL from account settings&gt;</span>
-                {"\n"}FORWARD_PROJECT_ID=<span className="t">project_xyz</span>
-                {"\n"}FORWARD_API_TOKEN=<span className="t">fwd_pat_…</span>
+                claude mcp add forward {"\\"}
+                {"\n"}  --env FORWARD_API_BASE_URL=<span className="t">&lt;Forward API URL from account settings&gt;</span> {"\\"}
+                {"\n"}  --env FORWARD_PROJECT_ID=<span className="t">project_xyz</span> {"\\"}
+                {"\n"}  --env FORWARD_API_TOKEN=<span className="t">fwd_pat_…</span> {"\\"}
+                {"\n"}  -- node <span className="t">/absolute/path/to/apps/mcp/dist/server.js</span>
               </code>
             </pre>
             <p>
-              Register the server with your agent host (Claude Desktop, Claude
-              Code, or any MCP client). From there the agent can resolve elements
-              by fuzzy feature matching, drop deterministic source anchors, and
-              document what it builds — the same jobs a backend dev does in VS
-              Code.
+              Any MCP client works too (Claude Desktop, Cursor, …) — set the same
+              three variables in its config. From there the agent can resolve
+              elements by fuzzy feature matching, drop deterministic source
+              anchors, and document what it builds — the same jobs a backend dev
+              does in VS Code.
             </p>
+            <div className="d-note">
+              <span>
+                <b>After registering, restart your agent session.</b> A session
+                that was already running won't load the Forward tools until it
+                reconnects — that's MCP-client behaviour, not a Forward setting.
+              </span>
+            </div>
             <Figure caption="fig 10 — an agent working through forward-mcp: fuzzy element resolution, then documenting and closing out the task it implemented.">
               <McpFigure />
             </Figure>
@@ -1271,6 +1295,10 @@ export function DocsPage() {
                   <tr>
                     <td>forward.selectProject</td>
                     <td>Choose which project this workspace documents.</td>
+                  </tr>
+                  <tr>
+                    <td>forward.setupMcp</td>
+                    <td>Copy a <code className="d-code">claude mcp add …</code> command that reuses your existing token to connect an AI agent.</td>
                   </tr>
                   <tr>
                     <td>forward.openCanvas</td>

@@ -53,6 +53,11 @@
         "category": "Forward"
       },
       {
+        "command": "forward.insertAnchor",
+        "title": "Insert Anchor at Cursor (@adc)",
+        "category": "Forward"
+      },
+      {
         "command": "forward.openCanvas",
         "title": "Open Design Canvas",
         "category": "Forward",
@@ -147,6 +152,11 @@
         "command": "forward.selectProject",
         "title": "Select Project",
         "category": "Forward"
+      },
+      {
+        "command": "forward.setupMcp",
+        "title": "Set Up MCP for AI Agents",
+        "category": "Forward"
       }
     ],
     "viewsContainers": {
@@ -168,6 +178,12 @@
       ]
     },
     "menus": {
+      "editor/context": [
+        {
+          "command": "forward.insertAnchor",
+          "group": "1_modification"
+        }
+      ],
       "editor/title": [
         {
           "command": "forward.openCanvas",

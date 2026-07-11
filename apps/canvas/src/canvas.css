@@ -586,6 +586,10 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
   flex: 1; min-height: 0; padding: 16px; overflow: auto;
   background: var(--bg); display: flex;
 }
+/* Grab-to-pan is offered only when the diagram overflows the pane. */
+.flowview-body.pannable { cursor: grab; }
+.flowview-body.grabbing { cursor: grabbing; user-select: none; }
+.flowview-body.grabbing svg { pointer-events: none; }
 .flowview-editor {
   flex: none; width: 320px; overflow: auto; padding: 14px;
   border-left: 1px solid var(--line); background: var(--bg-strip);

@@ -23,13 +23,13 @@ function clean(s: string): string {
  * Entity-escape the HTML-significant characters in a user-supplied label. The
  * canvas renders Mermaid with `securityLevel: "loose"`, so raw `<` in a label is
  * a stored-XSS vector; escape it (Mermaid decodes back to literal text). `&`
- * first so the entities we introduce aren't re-escaped. Mirrors infra-flow.ts.
+ * first so the entities we introduce aren't re-escaped. A bare `>` is left
+ * literal — it can't open a tag on its own. Mirrors infra-flow.ts.
  */
 function escapeLabel(s: string): string {
   return clean(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
 

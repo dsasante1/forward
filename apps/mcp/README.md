@@ -64,7 +64,7 @@ token; the agent never sees it. Set:
 |---|---|---|
 | `FORWARD_API_BASE_URL` | yes | Base URL of the Forward backend, e.g. `https://api.forward.dev` |
 | `FORWARD_PROJECT_ID` | yes | Project id (must match the extension / canvas; `ADC_PROJECT_ID` still works) |
-| `FORWARD_API_TOKEN` | yes | A Forward Personal Access Token (`fwd_pat_…`) minted from the dashboard's Account page |
+| `FORWARD_API_TOKEN` | yes | A Forward Personal Access Token (`fwd_pat_…`). Reuse the one you already pasted into the VS Code extension — it's user-scoped, so the same token works here; you don't need to mint a second one. Only mint a separate token when you want independent revocation (e.g. unattended CI). |
 | `FORWARD_AGENT` | no | Author label for local logging (the server records the token's owner as the author) |
 
 ## Build & run
@@ -77,6 +77,11 @@ npm start -w apps/mcp         # run over stdio (normally launched by the agent)
 
 ## Register with an agent
 
+> **Shortcut:** if you use the VS Code extension, run **Forward: Set Up MCP for
+> AI Agents** — it copies a ready `claude mcp add forward …` line pre-filled with
+> your base URL, project id, and existing token (no new token needed). Then jump
+> to the reload note below.
+
 Point your MCP client at the built server. For example, Claude Code:
 
 ```bash
@@ -86,6 +91,10 @@ claude mcp add forward \
   --env FORWARD_API_TOKEN=fwd_pat_yourtoken \
   -- node /absolute/path/to/apps/mcp/dist/server.js
 ```
+
+**After adding the server, restart your agent session.** A session that was
+already running when you registered the server won't load its tools until it
+reconnects — this is MCP-client behaviour, not a Forward setting.
 
 Or the equivalent JSON in any MCP client (Cursor `mcp.json`, Claude Desktop
 `claude_desktop_config.json`, …):

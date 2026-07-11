@@ -44,13 +44,14 @@ function clean(s: string): string {
  * renders these diagrams with `securityLevel: "loose"`, so Mermaid emits label
  * text verbatim — a raw `<` would be a stored-XSS vector. Entity-escape the
  * HTML-significant characters (`&` first so introduced entities aren't
- * re-escaped) and the double-quote, since names/notes are emitted quoted.
+ * re-escaped) and the double-quote, since names/notes are emitted quoted. A bare
+ * `>` is left literal: it can't open a tag (only `<` can, still escaped), so
+ * escaping it only made copied source render `>=` as `&gt;=`.
  */
 function escapeLabel(s: string): string {
   return clean(s)
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 }
 
