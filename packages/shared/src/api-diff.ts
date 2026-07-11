@@ -11,8 +11,8 @@ import {
  *
  * An `apiBinding` is just `{ title, description }`, so a "git diff for API docs"
  * is a title-change pair plus a line-level diff of the Markdown description. Pure
- * and framework-free (like the rest of the timeline helpers) so the single writer
- * (`rtdb-rest`) and the unit tests share one implementation.
+ * and framework-free (like the rest of the timeline helpers) so the server and
+ * the unit tests share one implementation.
  *
  * `prev`/`next` are optional so the same helper covers the whole lifecycle: a
  * create (no `prev`) is all-added, a delete (no `next`) is all-removed. The

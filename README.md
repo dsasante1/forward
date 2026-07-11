@@ -9,17 +9,16 @@ live in one place.
 
 Forward runs on a **centrally-hosted backend** ([apps/server](apps/server) — NestJS · Prisma ·
 Supabase Postgres · Clerk) that owns authentication, sign-up, the database, tenancy and the realtime
-sync bus. The dashboard, canvas and VS Code extension talk to that server through the shared
-`forward-core` contract. One surface — the MCP server for AI agents — still syncs through a Firebase
-Realtime Database (the original data layer); it is the last piece being migrated onto the server.
+sync bus. The dashboard, canvas, VS Code extension and MCP server all talk to that server through the
+shared `forward-core` contract.
 
 ```
    designers                backend devs                AI agents
       │                          │                          │
  [ web canvas ]           [ VS Code extension ]        [ MCP server ]
       │                          │                          │
-      └──────────► apps/server (REST + Realtime) ◄──────────┘        MCP → Firebase RTDB
-                   Postgres · Clerk · Supabase                       (legacy, being migrated)
+      └──────────► apps/server (REST + Realtime) ◄──────────┘
+                   Postgres · Clerk · Supabase
 ```
 
 ## Seven data layers, one contract
@@ -50,12 +49,12 @@ npm workspaces (Node >= 20; `.nvmrc` pins 22).
 
 | Path | Package | What it is |
 |---|---|---|
-| [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types + `paths`, the timeline/diff/infra/entity helpers, and **two data clients** — `rtdb-rest` (Firebase, used by MCP) and `api-rest` (the central server, exported as `forward-core/api`) |
+| [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types, the timeline/diff/infra/entity helpers, and the `api-rest` data client for the central server (exported as `forward-core/api`) |
 | [apps/server](apps/server) | — | Central backend API (NestJS · Prisma · Supabase Postgres · Clerk): auth, sign-up, tenancy, RBAC, invites, tokens, the realtime bus, and CRUD for every data layer |
 | [apps/dashboard](apps/dashboard) | `forward-dashboard` | React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members — and the host that embeds the canvas. Includes the org-admin portal |
 | [apps/canvas](apps/canvas) | `forward-canvas` | design editor, consumed **only as an embedded library** (`forward-canvas/embed`). Renders timeline/infra/ER diagrams via Mermaid |
 | [apps/extension](apps/extension) | `forward-vscode` | VS Code extension: pick a design element → write API/infra/flow/task docs onto it. Talks to the central server with a Clerk session token |
-| [apps/mcp](apps/mcp) | `forward-mcp` | MCP server giving any AI agent full parity with the canvas (~30 tools). Still syncs through Firebase RTDB |
+| [apps/mcp](apps/mcp) | `forward-mcp` | MCP server giving any AI agent full parity with the canvas (~30 tools). Talks to the central server via `forward-core/api` |
 | [apps/admin](apps/admin) | `forward-admin` | Platform-admin SPA — cross-tenant staff console (overview, orgs, users, projects, billing, audit) |
 | [infra](infra) | — | Terraform for the GCP deployment (Cloud Run, Firebase Hosting, Artifact Registry, Secret Manager, Workload Identity) |
 
@@ -68,7 +67,7 @@ npm install          # install all workspaces
 npm run build        # build every workspace (packages/shared builds before the apps)
 npm test             # run all Vitest suites
 npm run typecheck    # typecheck all workspaces
-npm run bootstrap    # install → build → setup (interactive Firebase config for the MCP path)
+npm run bootstrap    # install → build
 ```
 
 Per-workspace with `-w`, e.g. a single test file or test name:
@@ -111,10 +110,10 @@ The canvas is **not** a standalone app — open it in the dashboard at
 - **VS Code extension** — Sign in (`forward.signIn`) against your Forward server, then use the
   `forward.*` commands to connect an endpoint's docs to a design element, edit the infra graph and
   flows, and file/update tasks. Configure `forward.apiBaseUrl` and `forward.projectId` in Settings.
-- **MCP server** — Point any MCP-capable agent at it (env: `ADC_FIREBASE_DATABASE_URL`,
-  `ADC_PROJECT_ID`, `ADC_AUTH_TOKEN`). The agent gets scoped tools with full parity: author and
-  document elements, edit the infra/ER graphs and flows, read the timeline/catch-up digest, and
-  manage members.
+- **MCP server** — Point any MCP-capable agent at it (env: `FORWARD_API_BASE_URL`,
+  `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN` — a `fwd_pat_…` PAT). The agent gets scoped tools with
+  full parity: author and document elements, edit the infra/ER graphs and flows, read the
+  timeline/catch-up digest, and manage members.
 
 A **project id** is a tenancy namespace (e.g. `project_xyz`), **not** a GCP project id. The
 extension's `forward.projectId` and the canvas's project must match to share elements.
@@ -133,9 +132,6 @@ to an audit trail.
 The realtime bus is Supabase Realtime: after each write the server broadcasts a compact change event
 on a per-project channel whose name is an HMAC of the project id (a capability handed only to
 members), so clients re-fetch without touching the database directly.
-
-The legacy MCP path still reads/writes Firebase directly; that path is gated by the per-project
-membership ACL in [apps/canvas/firebase.rules.json](apps/canvas/firebase.rules.json).
 
 ## Publishing
 

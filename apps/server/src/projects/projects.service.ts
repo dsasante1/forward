@@ -20,9 +20,8 @@ export interface ListOptions {
 }
 
 /**
- * Projects = the tenancy boundary, and their member roster. Replaces the
- * `project_members` subtree + the Firebase "first user claims owner" rule
- * (firebase.rules.json:11-19) with explicit, server-enforced ownership.
+ * Projects = the tenancy boundary, and their member roster, with explicit,
+ * server-enforced ownership (the creator claims the `owner` role).
  */
 @Injectable()
 export class ProjectsService {

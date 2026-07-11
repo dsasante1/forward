@@ -16,8 +16,7 @@ type Json = Prisma.InputJsonValue;
 
 /**
  * Design elements + their optional apiBinding + the append-only documentation
- * timeline. This is the server-side equivalent of the element/binding/timeline
- * functions in packages/shared/src/rtdb-rest.ts, with the centralization fixes:
+ * timeline. Persists the design/binding/timeline layers, with:
  *   - server stamps `updatedAt`, `author`, `timestamp` (never the client)
  *   - the three steps of a bind run in ONE transaction (atomic)
  *   - version history is INSERT-only
@@ -207,7 +206,7 @@ export class ElementsService {
         changeLog: version.changeLog,
         endpoint: { title: clean.title },
         // Structured doc diff (prior binding → new) so the History viewer can
-        // expand the change, mirroring what rtdb-rest writes for the extension/MCP.
+        // expand the change.
         diff: diffBindings(current.apiBinding, clean),
       });
       await this.timeline.record(tx, projectId, actor, {

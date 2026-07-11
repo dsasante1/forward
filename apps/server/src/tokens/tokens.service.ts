@@ -26,7 +26,7 @@ function hashToken(plaintext: string): string {
  * plaintext is generated here, shown to the caller exactly once, and never
  * stored: only its sha256 hash lives in the database. ClerkAuthGuard resolves a
  * `fwd_pat_` bearer back to a user via {@link verify}, so a PAT carries exactly
- * its owner's access — no god-powers like the old Firebase DB secret.
+ * its owner's access — no elevated powers.
  */
 @Injectable()
 export class TokensService {

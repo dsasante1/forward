@@ -17,34 +17,58 @@ import {
   Task,
   VersionEntry,
 } from "./schema.js";
-// Type-only imports (erased at runtime → no coupling to the Firebase client) so
-// the surfaces see the exact same VersionInput / poll-state shapes either way.
-import type {
-  EntityPollState,
-  InfraPollState,
-  ProjectTimelines,
-  VersionInput,
-} from "./rtdb-rest.js";
-
-export type { EntityPollState, InfraPollState, ProjectTimelines, VersionInput };
 
 /**
- * The closed-source API client — the centralized replacement for `rtdb-rest.ts`.
+ * What a caller supplies for a version-history entry. `timestamp` is stamped by
+ * the server; `action` and the endpoint snapshot are optional here — the schema
+ * defaults `action` and `bindApiToElement` derives the snapshot from the binding
+ * — but a caller that knows (created vs modified, or a deletion) should pass them.
+ */
+export type VersionInput = Omit<VersionEntry, "timestamp" | "action" | "endpoint"> &
+  Partial<Pick<VersionEntry, "action" | "endpoint">> & {
+    /**
+     * Flag this change as breaking; merged onto the auto-computed `diff` so a
+     * caller can warn clients without having to build the whole diff itself.
+     * Ignored when the caller supplies a full `diff` (which carries its own).
+     */
+    breaking?: string;
+  };
+
+/** Per-element version histories for a whole project, keyed by element id. */
+export type ProjectTimelines = Record<string, VersionEntry[]>;
+
+/** ETags + last-parsed graph the infra poller carries between ticks. */
+export interface InfraPollState {
+  nodeEtag?: string;
+  edgeEtag?: string;
+  flowEtag?: string;
+  nodes: InfraNode[];
+  edges: InfraEdge[];
+  flows: InfraFlow[];
+}
+
+/** ETags + last-parsed model the entity poller carries between ticks. */
+export interface EntityPollState {
+  entityEtag?: string;
+  relationEtag?: string;
+  entities: Entity[];
+  relations: EntityRelation[];
+}
+
+/**
+ * The Forward API client used by every surface (canvas, VS Code extension, MCP
+ * server, docs CI). It talks to the Forward backend (apps/server) over its REST
+ * API: build an `ApiConfig` (`baseUrl` + `projectId` + token) and call the
+ * exported functions.
  *
- * It is a deliberate drop-in: every exported function mirrors the name, argument
- * order and return type of its `rtdb-rest` twin, so a surface migrates by swapping
- * its import (`forward-core` → `forward-core/api`) and building an `ApiConfig`
- * instead of a `FirebaseConfig`. Nothing else in the caller changes.
- *
- * The differences are exactly the centralization fixes:
- *   - talks to the Forward backend (apps/server), never the database directly;
- *   - sends a per-user token in the `Authorization: Bearer` header (no `?auth=`);
+ *   - talks to the Forward backend, never the database directly;
+ *   - sends a per-user token in the `Authorization: Bearer` header;
  *   - the server owns identity + timestamps, so the `author` a caller passes is
  *     ignored — the session decides who wrote it.
  *
- * The ETag/conditional pollers are kept for signature-compatibility but always
- * return data (the server has no 304 path yet). Subscribe to the project's
- * Supabase Realtime channel for push updates instead of tight polling.
+ * The ETag/conditional pollers always return data (the server has no 304 path
+ * yet). Subscribe to the project's Supabase Realtime channel for push updates
+ * instead of tight polling.
  */
 export interface ApiConfig {
   /** Base URL of the Forward backend, e.g. https://api.forward.dev */
@@ -96,10 +120,6 @@ const get = <T>(cfg: ApiConfig, path: string) => request<T>(cfg, "GET", path);
  * a client passes to Supabase Realtime to receive the server's ChangeEvent
  * broadcasts (see forward-core realtime.ts). Server-issued: the client never
  * derives it from the project id.
- *
- * Deliberately has no `rtdb-rest` twin (the one exception to the
- * signature-identical rule): on the Firebase path the database itself was the
- * realtime bus, so there is no channel capability to fetch.
  */
 export async function fetchRealtimeChannel(cfg: ApiConfig): Promise<string> {
   const { channel } = await get<{ channel: string }>(cfg, "/realtime");
@@ -569,7 +589,7 @@ interface AgentsResponse {
   servers: unknown[];
 }
 
-/** Read the project's agents + MCP servers (the twin of rtdb-rest.fetchAgents). */
+/** Read the project's agents + MCP servers in one call. */
 export async function fetchAgents(
   cfg: ApiConfig,
 ): Promise<{ agents: AgentNode[]; servers: McpServerNode[] }> {
@@ -716,7 +736,7 @@ export async function restoreCheckpoint(
 }
 
 // --------------------------------------------------------------------------
-// poller-facing reads (signature-compatible with the Firebase ETag pollers)
+// poller-facing reads (ETag-based conditional pollers)
 //
 // The backend has no 304 path yet, so these always return fresh data rather than
 // `null`. They exist so the extension's existing poll loop runs unchanged; the

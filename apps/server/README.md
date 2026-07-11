@@ -1,25 +1,20 @@
 # forward-server
 
-The backend that replaces Forward's original Firebase-direct model. It is the
-**one component the old architecture deliberately omitted**: a central API that
-owns authentication, the database, tenancy, and the realtime sync bus. No client
-ever touches the database directly anymore.
+The central API and trust boundary: it owns authentication, the database, tenancy,
+and the realtime sync bus. No client ever touches the database directly.
 
 Stack (as chosen): **NestJS · Prisma · Supabase Postgres · Clerk · Supabase
 Realtime · Google Cloud Run.**
 
-## How it maps to the old model
+## What the server owns
 
-| Old (Firebase-direct) | Now (this server) |
-|---|---|
-| Each client wrote the user's own Firebase RTDB directly | Clients call this API; it is the only DB writer |
-| Firebase security rules (`apps/canvas/firebase.rules.json`) | `ClerkAuthGuard` (authn) + `MembershipGuard` (per-project authz) + Postgres RLS |
-| Extension's Firebase **admin secret** that bypassed rules | Per-user **Clerk** bearer token, no admin powers |
-| `?auth=<token>` in the query string | `Authorization: Bearer <token>` header only |
-| Client-set `author` / `timestamp` / `updatedAt` | Server stamps identity + time from the session |
-| `version_timeline` writable (history rewritable) | `VersionEntry` table is **INSERT-only** |
-| Client-side Zod validation only | Server re-validates every write with the **same `forward-core` Zod** |
-| Firebase `onValue` / ETag polling = the sync bus | **Supabase Realtime** broadcast on `project:<id>` after each write |
+- Clients call this API; it is the only DB writer.
+- `ClerkAuthGuard` (authn) + `MembershipGuard` (per-project authz) + Postgres RLS enforce access.
+- Every request carries a per-user bearer token (`Authorization: Bearer <token>`), no admin powers.
+- The server stamps identity + time (`author` / `timestamp` / `updatedAt`) from the session.
+- The `VersionEntry` table is **INSERT-only** (history is not rewritable).
+- Every write is re-validated with the **same `forward-core` Zod** schemas.
+- **Supabase Realtime** broadcasts on `project:<id>` after each write.
 
 The flexible per-layer shapes (`DesignElement`, `InfraNode`, `Task`, …) are stored
 in `data JSONB` columns and validated by `forward-core` on write, so the data
@@ -119,19 +114,16 @@ gcloud run deploy forward-server \
 (The repo-root `apps/server/Dockerfile` builds the workspace so `forward-core`
 is included; `--source .` uses it.)
 
-## Connecting the existing surfaces
+## How the surfaces connect
 
-The migration is a one-module swap, because every surface already goes through
-`forward-core`. Replace the Firebase REST calls in
-`packages/shared/src/rtdb-rest.ts` (and the canvas `LiveSource`) with `fetch`
-calls to this API that send the Clerk token as `Authorization: Bearer …`:
+Every surface goes through `forward-core/api`, sending its token as
+`Authorization: Bearer …`:
 
-- **Canvas** — sign in with Clerk's web SDK; subscribe to the project's Supabase
-  Realtime channel with the **anon** key; mutate via this API.
-- **Extension** — authenticate with `vscode.authentication` (OAuth), store the
-  token in `context.secrets`, and call this API. **Delete `forward.authToken`** —
-  the admin secret is gone.
-- **MCP** — use a per-tenant service token issued by this API.
+- **Canvas** — signs in with Clerk's web SDK; subscribes to the project's Supabase
+  Realtime channel with the **anon** key; mutates via this API.
+- **Extension** — authenticates with a `fwd_pat_…` Personal Access Token kept in
+  VS Code SecretStorage, and calls this API.
+- **MCP** — uses a `fwd_pat_…` Personal Access Token supplied via env.
 
 ## Status / not yet done
 

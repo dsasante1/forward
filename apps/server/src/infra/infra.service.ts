@@ -20,7 +20,7 @@ type InfraModel = "infraNode" | "infraEdge" | "infraFlow" | "entity" | "entityRe
 
 /**
  * The project-scoped infrastructure graph (nodes + edges) and the narrated flows
- * over it. Mirrors the infra functions in packages/shared/src/rtdb-rest.ts, with
+ * over it. Persists the infra layer with
  * server-stamped `updatedAt`, sanitized Markdown, and realtime broadcast.
  *
  * Every write runs in ONE `withUser` transaction — the existence probe, the

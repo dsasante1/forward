@@ -3,9 +3,9 @@ import { z } from "zod";
 /**
  * The data contract shared by the VS Code extension and the web canvas.
  *
- * Mirrors the Firebase Realtime Database JSON tree. Keep this flat (Firebase
- * favours shallow trees) and treat it as the single source of truth: if a shape
- * changes, change it here once and both apps follow.
+ * Treat it as the single source of truth: if a shape changes, change it here once
+ * and every surface follows. The server stores each layer as a validated JSON
+ * column, so both the client and the backend speak the identical contract.
  *
  * Three layers, intentionally separate:
  *   1. DESIGN  — what a designer draws on the canvas (frames, shapes, text,
@@ -179,8 +179,7 @@ export type DesignElement = z.infer<typeof DesignElement>;
  * `bind()`/`unbind()` (so it can version it) and deliberately ignores any binding
  * sent via `saveElement`. Encoding that here turns "don't persist a binding
  * through saveElement" from a comment (which drifts) into a **compile error** at
- * every call site — the guard that would have caught the Firebase→server
- * migration silently dropping seeded docs. `apiBinding?: never` rather than a bare
+ * every call site. `apiBinding?: never` rather than a bare
  * `Omit` so passing a *bound* element is rejected structurally, not silently
  * widened away.
  */
@@ -246,6 +245,29 @@ export function paintOrder(elements: DesignElement[]): DesignElement[] {
   visit(null);
   // Defensive: an element unreachable from any root (e.g. a cycle) still surfaces.
   for (const el of elements) if (!seen.has(el.id)) out.push(el);
+  return out;
+}
+
+/**
+ * Ids of every descendant of `id` (children, grandchildren, …) by `parentId`,
+ * so a delete or move can cascade through a frame's whole subtree — the same
+ * containment rule the canvas applies. The starting id itself is not included.
+ */
+export function descendantIds(
+  id: string,
+  elements: Array<Pick<DesignElement, "id" | "parentId">>,
+): string[] {
+  const out: string[] = [];
+  const stack = [id];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const el of elements) {
+      if (el.parentId === current && !out.includes(el.id)) {
+        out.push(el.id);
+        stack.push(el.id);
+      }
+    }
+  }
   return out;
 }
 
@@ -882,76 +904,3 @@ export const ProjectInvite = z.object({
   acceptedAt: z.string().datetime().optional(),
 });
 export type ProjectInvite = z.infer<typeof ProjectInvite>;
-
-/**
- * Full Firebase tree (handy for fixtures / offline mode).
- * Keyed maps mirror Firebase's object-as-collection convention.
- */
-export const DatabaseTree = z.object({
-  user_configs: z.record(UserConfig).default({}),
-  /** Per-project access roster — gates every project-scoped subtree below. */
-  project_members: z.record(z.record(ProjectMember)).default({}),
-  design_elements: z.record(z.record(DesignElement)).default({}),
-  version_timeline: z.record(z.record(z.array(VersionEntry))).default({}),
-  infra_nodes: z.record(z.record(InfraNode)).default({}),
-  infra_edges: z.record(z.record(InfraEdge)).default({}),
-  infra_flows: z.record(z.record(InfraFlow)).default({}),
-  entities: z.record(z.record(Entity)).default({}),
-  entity_relations: z.record(z.record(EntityRelation)).default({}),
-  agent_nodes: z.record(z.record(AgentNode)).default({}),
-  mcp_servers: z.record(z.record(McpServerNode)).default({}),
-  tasks: z.record(z.record(Task)).default({}),
-  checkpoints: z.record(z.record(Checkpoint)).default({}),
-});
-export type DatabaseTree = z.infer<typeof DatabaseTree>;
-
-/** RTDB path helpers — the one place paths are constructed. */
-export const paths = {
-  element: (projectId: string, elementId: string) =>
-    `design_elements/${projectId}/${elementId}`,
-  projectElements: (projectId: string) => `design_elements/${projectId}`,
-  /** Just the apiBinding sub-tree of one element — what VS Code writes to. */
-  apiBinding: (projectId: string, elementId: string) =>
-    `design_elements/${projectId}/${elementId}/apiBinding`,
-  timeline: (projectId: string, elementId: string) =>
-    `version_timeline/${projectId}/${elementId}`,
-  /** All element histories of a project — what the timeline views read. */
-  projectTimelines: (projectId: string) => `version_timeline/${projectId}`,
-  userConfig: (userId: string) => `user_configs/${userId}`,
-  // Per-project access roster (membership ACL).
-  projectMembers: (projectId: string) => `project_members/${projectId}`,
-  projectMember: (projectId: string, uid: string) =>
-    `project_members/${projectId}/${uid}`,
-  // Infrastructure graph — project-scoped, separate from design_elements.
-  infraNodes: (projectId: string) => `infra_nodes/${projectId}`,
-  infraNode: (projectId: string, nodeId: string) =>
-    `infra_nodes/${projectId}/${nodeId}`,
-  infraEdges: (projectId: string) => `infra_edges/${projectId}`,
-  infraEdge: (projectId: string, edgeId: string) =>
-    `infra_edges/${projectId}/${edgeId}`,
-  // Narrated flows over the infra graph — project-scoped, walk infra_nodes.
-  infraFlows: (projectId: string) => `infra_flows/${projectId}`,
-  infraFlow: (projectId: string, flowId: string) =>
-    `infra_flows/${projectId}/${flowId}`,
-  // ER / data model — project-scoped, separate graph of entities + relations.
-  entities: (projectId: string) => `entities/${projectId}`,
-  entity: (projectId: string, entityId: string) =>
-    `entities/${projectId}/${entityId}`,
-  entityRelations: (projectId: string) => `entity_relations/${projectId}`,
-  entityRelation: (projectId: string, relationId: string) =>
-    `entity_relations/${projectId}/${relationId}`,
-  // Agent / MCP layer — project-scoped, separate graph of agents + MCP servers.
-  agentNodes: (projectId: string) => `agent_nodes/${projectId}`,
-  agentNode: (projectId: string, agentId: string) =>
-    `agent_nodes/${projectId}/${agentId}`,
-  mcpServers: (projectId: string) => `mcp_servers/${projectId}`,
-  mcpServer: (projectId: string, serverId: string) =>
-    `mcp_servers/${projectId}/${serverId}`,
-  // Task tracker — project-scoped, stands apart but links into the other layers.
-  tasks: (projectId: string) => `tasks/${projectId}`,
-  task: (projectId: string, taskId: string) => `tasks/${projectId}/${taskId}`,
-  // Manual, named canvas snapshots — project-scoped, stands apart like tasks.
-  checkpoints: (projectId: string) => `checkpoints/${projectId}`,
-  checkpoint: (projectId: string, checkpointId: string) =>
-    `checkpoints/${projectId}/${checkpointId}`,
-} as const;

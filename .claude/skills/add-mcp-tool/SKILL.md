@@ -43,7 +43,7 @@ server.registerTool(
 
 ## Rules
 
-- **Import data helpers from `forward-core`**, not raw Firebase calls — `saveElement`,
+- **Import data helpers from `forward-core/api`**, not raw fetch/HTTP calls — `saveElement`,
   `patchElement`, `bindApiToElement`, `saveInfraNode`, `saveInfraFlow`, `fetchElements`,
   `digest`, `listMembers`, etc. are all already exported. Add to the contract first via the
   [[schema-change]] workflow if a helper is missing.

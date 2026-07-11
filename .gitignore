@@ -9,7 +9,6 @@ out/
 .env
 .env.*
 !.env.example
-firebase-config.local.json
 .vscode-test/
 
 # Firebase deploy cache (per-machine, regenerated on every deploy)

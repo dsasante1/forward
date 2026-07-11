@@ -10,8 +10,8 @@ type Json = Prisma.InputJsonValue;
 
 /**
  * The project-scoped Agent / MCP layer — agents (model + system prompt) and the
- * MCP servers they call. Mirrors the agent functions in
- * packages/shared/src/rtdb-rest.ts, with server-stamped `updatedAt`, sanitized
+ * MCP servers they call. Persists the agent layer with server-stamped
+ * `updatedAt`, sanitized
  * Markdown, realtime broadcast, and an `agent`-domain timeline event per write so
  * the change lands in the History view like every other layer.
  */
@@ -23,7 +23,7 @@ export class AgentsService {
     private readonly timeline: TimelineService,
   ) {}
 
-  /** Agents + MCP servers in one read (the twin of rtdb-rest.fetchAgents). */
+  /** Agents + MCP servers in one read. */
   async fetch(projectId: string, actor: string) {
     return this.prisma.withUser(actor, async (tx) => {
       const [agents, servers] = await Promise.all([

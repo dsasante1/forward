@@ -16,9 +16,8 @@ import { PrismaService } from "../prisma/prisma.service.js";
 
 /**
  * Authenticates every request and attaches the principal to `req.user`. This is
- * the heart of the closed-source pivot: the old extension carried a Firebase
- * admin secret that bypassed all rules (firebase.rules.json:3) — that god-token
- * is gone. Two user-scoped credentials are accepted, both with no admin powers:
+ * the trust boundary: there is no admin secret or god-token — the server enforces
+ * access itself. Two user-scoped credentials are accepted, both with no admin powers:
  *
  *   - a short-lived Clerk session JWT (browsers: dashboard + embedded canvas), and
  *   - a long-lived Personal Access Token, `fwd_pat_…` (headless: the VS Code

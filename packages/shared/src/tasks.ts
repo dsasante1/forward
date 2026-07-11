@@ -1,7 +1,7 @@
 // --------------------------------------------------------------------------
 // Task helpers — the ONE place task work-items are created, mutated and
-// commented on. Every surface (dashboard via the server, and canvas / extension
-// / MCP via the RTDB) calls these so a task's history is built identically no
+// commented on. Every surface (dashboard, canvas, extension and MCP, all via the
+// server) calls these so a task's history is built identically no
 // matter who touched it. Pure functions: they take the prior task + a change +
 // the acting uid and return the next task with the right `activity` appended and
 // `updatedAt` stamped. Persisting the result is the caller's job.
@@ -58,9 +58,9 @@ function entry(
 }
 
 /**
- * Next sequential `FWD-NN` key from the keys already in use. Best-effort and
- * client-side: the RTDB has no atomic counter, so concurrent creates can race —
- * the key is a human label, not an identity. The server backstops a missing key.
+ * Next sequential `FWD-NN` key from the keys already in use. Best-effort:
+ * concurrent creates can race, so the key is a human label, not an identity.
+ * The server backstops a missing key.
  */
 export function nextTaskKey(existing: Iterable<string | undefined>): string {
   let max = 0;
