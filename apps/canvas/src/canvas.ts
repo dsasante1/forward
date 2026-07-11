@@ -4953,6 +4953,17 @@ function buildFlowStep(
   const rm = miniBtn("✕", "Remove step", false, () => mutateFlowSteps(i, "remove"));
   row2.append(up, down, rm);
   wrap.append(row2);
+
+  // Optional branch guard: consecutive steps sharing one render as an alt/else block.
+  const cond = document.createElement("input");
+  cond.type = "text";
+  cond.value = step.condition ?? "";
+  cond.placeholder = "branch guard (optional, e.g. token valid) — groups into an alt block";
+  cond.addEventListener("change", () => {
+    const v = cond.value.trim();
+    updateFlowStep(i, { condition: v || undefined });
+  });
+  wrap.append(cond);
   return wrap;
 }
 

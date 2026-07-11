@@ -101,7 +101,7 @@ describe("agentsToComponentMermaid (wiring diagram)", () => {
   it("escapes HTML-significant characters in labels", () => {
     const agents = [agent("a1", "<script>alert(1)</script>")];
     const out = agentsToComponentMermaid(agents, []);
-    expect(out).toContain("&lt;script&gt;");
+    expect(out).toContain("&lt;script>");
     expect(out).not.toContain("<script>");
   });
 });

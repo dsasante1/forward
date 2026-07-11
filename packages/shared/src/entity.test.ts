@@ -112,7 +112,7 @@ describe("entityToMermaid (ER diagram)", () => {
     expect(out).not.toContain("<b>");
     expect(out).not.toContain("<script>");
     expect(out).toContain("&lt;img");
-    expect(out).toContain("&lt;script&gt;");
+    expect(out).toContain("&lt;script>");
   });
 
   it("skips relations referencing an entity missing from the list", () => {

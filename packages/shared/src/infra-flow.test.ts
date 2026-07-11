@@ -114,7 +114,21 @@ describe("flowToMermaid (sequence diagram)", () => {
     expect(out).not.toContain("<img");
     expect(out).not.toContain("<script>");
     expect(out).toContain("&lt;img");
-    expect(out).toContain("&lt;script&gt;");
+    // `<` is escaped so no tag can open; the trailing `>` is left literal (it
+    // can't open a tag on its own), so the closing marker is `&lt;/script>`.
+    expect(out).toContain("&lt;script>");
+  });
+
+  it("leaves a bare `>` literal so arrows/comparisons survive in copied source", () => {
+    const flow = InfraFlow.parse({
+      id: "f5",
+      name: "Compare",
+      steps: [{ from: "web", to: "api", label: "if count >= 3 -> retry" }],
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    const out = flowToMermaid(flow, nodes);
+    expect(out).toContain("if count >= 3 -> retry");
+    expect(out).not.toContain("&gt;");
   });
 
   it("skips steps that reference a node missing from the map", () => {
@@ -132,6 +146,65 @@ describe("flowToMermaid (sequence diagram)", () => {
     // Numbering follows the original step index so the overlay and the diagram
     // agree on step numbers even when a dangling hop is skipped (hence "2.").
     expect(out).toContain("N0->>N1: 2. real");
+  });
+
+  it("wraps consecutive same-condition steps in one alt block", () => {
+    const flow = InfraFlow.parse({
+      id: "f6",
+      name: "Register",
+      steps: [
+        { from: "web", to: "api", label: "POST /register" },
+        { from: "api", to: "redis", label: "reserve email", condition: "email free" },
+        { from: "api", to: "web", label: "201 Created", condition: "email free" },
+      ],
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    const out = flowToMermaid(flow, nodes);
+    // Unconditional step stays outside the block; the two guarded hops share one alt.
+    expect(out).toContain("N0->>N1: 1. POST /register");
+    expect(out).toContain("alt email free");
+    expect(out).toContain("N1->>N2: 2. reserve email");
+    expect(out).toContain("N1->>N0: 3. 201 Created");
+    expect(out).toContain("end");
+    expect(out).not.toContain("else");
+    // Exactly one alt and one end — the shared condition isn't repeated.
+    expect(out.match(/^\s*alt /gm)?.length).toBe(1);
+    expect(out.match(/^\s*end$/gm)?.length).toBe(1);
+  });
+
+  it("renders adjacent differing conditions as else branches of one alt", () => {
+    const flow = InfraFlow.parse({
+      id: "f7",
+      name: "Register with error path",
+      steps: [
+        { from: "web", to: "api", label: "POST /register" },
+        { from: "api", to: "web", label: "201 Created", condition: "email free" },
+        { from: "api", to: "web", label: "409 Conflict", condition: "email taken" },
+      ],
+      updatedAt: "2026-05-28T11:45:00Z",
+    });
+    const out = flowToMermaid(flow, nodes);
+    expect(out).toContain("alt email free");
+    expect(out).toContain("else email taken");
+    // One alt / one end spanning both branches.
+    expect(out.match(/^\s*alt /gm)?.length).toBe(1);
+    expect(out.match(/^\s*end$/gm)?.length).toBe(1);
+    // A guard interrupted by an unconditional step closes and reopens.
+    const reopened = flowToMermaid(
+      InfraFlow.parse({
+        id: "f8",
+        name: "Split",
+        steps: [
+          { from: "web", to: "api", label: "a", condition: "x" },
+          { from: "web", to: "api", label: "b" },
+          { from: "web", to: "api", label: "c", condition: "y" },
+        ],
+        updatedAt: "2026-05-28T11:45:00Z",
+      }),
+      nodes,
+    );
+    expect(reopened.match(/^\s*alt /gm)?.length).toBe(2);
+    expect(reopened.match(/^\s*end$/gm)?.length).toBe(2);
   });
 });
 
@@ -176,7 +249,7 @@ describe("infraToComponentMermaid (component diagram)", () => {
     expect(out).not.toContain("<b ");
     expect(out).not.toContain("<i>");
     expect(out).toContain("&lt;b");
-    expect(out).toContain("&lt;i&gt;calls");
+    expect(out).toContain("&lt;i>calls");
     // The intentional «component» line break is still a real <br/>.
     expect(out).toContain("«component»<br/>");
   });

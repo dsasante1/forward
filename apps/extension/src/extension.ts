@@ -127,6 +127,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("forward.signIn", signIn),
     vscode.commands.registerCommand("forward.signOut", signOut),
     vscode.commands.registerCommand("forward.selectProject", selectProject),
+    vscode.commands.registerCommand("forward.setupMcp", setupMcp),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
@@ -218,6 +219,32 @@ async function signIn(): Promise<void> {
 async function signOut(): Promise<void> {
   await secrets.delete(PAT_SECRET_KEY);
   vscode.window.showInformationMessage("Signed out of Forward.");
+}
+
+/**
+ * Copy a ready-to-paste `claude mcp add forward …` command that wires the Forward
+ * MCP server up for an AI agent. It reuses the exact base URL, project id, and PAT
+ * this extension already holds — the token is user-scoped, so the same credential
+ * authorizes the extension and the headless MCP process; there is no need to mint
+ * a second token (and a PAT can't mint one anyway). The extension's SecretStorage
+ * copy is the only recoverable plaintext — the dashboard stores only a hash — which
+ * is exactly why "just export the one you have" beats minting a new one. Copied to
+ * the clipboard (not written to a repo file) so the token can't be committed.
+ */
+async function setupMcp(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return; // readConfig already prompts sign-in / project selection.
+  const command =
+    "claude mcp add forward \\\n" +
+    `  --env FORWARD_API_BASE_URL=${cfg.baseUrl} \\\n` +
+    `  --env FORWARD_PROJECT_ID=${cfg.projectId} \\\n` +
+    `  --env FORWARD_API_TOKEN=${cfg.token}`;
+  await vscode.env.clipboard.writeText(command);
+  vscode.window.showInformationMessage(
+    "Copied a “claude mcp add forward …” command to your clipboard — it reuses your existing " +
+      "Forward access token, so you don't need to mint a new one. Paste it in your terminal, " +
+      "then restart your agent session to load the Forward tools.",
+  );
 }
 
 /** Pick from the projects the token can access and persist it to settings. */
@@ -834,11 +861,17 @@ async function promptForStep(
     placeHolder: "Message style for this step",
   });
   if (!kindPick) return undefined;
+  const condition = await vscode.window.showInputBox({
+    prompt: "Branch guard? (optional — steps sharing one render as a Mermaid alt/else block)",
+    placeHolder: "e.g. token valid, 409 duplicate — leave empty for an unconditional step",
+  });
+  if (condition === undefined) return undefined;
   return InfraFlowStep.parse({
     from: from.id,
     to: to.id,
     label: label.trim(),
     kind: kindPick.stepKind,
+    ...(condition.trim() ? { condition: condition.trim() } : {}),
   });
 }
 

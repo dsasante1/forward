@@ -41,6 +41,12 @@ const GROUPS: readonly Group[] = [
         tooltip: "Choose which Forward project to annotate.",
       },
       {
+        label: "Set Up MCP for AI Agents",
+        command: "forward.setupMcp",
+        icon: "copy",
+        tooltip: "Copy a claude mcp add command that reuses your existing access token.",
+      },
+      {
         label: "Sign Out",
         command: "forward.signOut",
         icon: "sign-out",

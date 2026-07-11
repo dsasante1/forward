@@ -111,9 +111,12 @@ The canvas is **not** a standalone app — open it in the dashboard at
   `forward.*` commands to connect an endpoint's docs to a design element, edit the infra graph and
   flows, and file/update tasks. Configure `forward.apiBaseUrl` and `forward.projectId` in Settings.
 - **MCP server** — Point any MCP-capable agent at it (env: `FORWARD_API_BASE_URL`,
-  `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN` — a `fwd_pat_…` PAT). The agent gets scoped tools with
-  full parity: author and document elements, edit the infra/ER graphs and flows, read the
-  timeline/catch-up digest, and manage members.
+  `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN` — a `fwd_pat_…` PAT). Already using the extension? Run
+  **Forward: Set Up MCP for AI Agents** (`forward.setupMcp`) to copy a ready `claude mcp add …` line
+  that reuses your existing token — a PAT is user-scoped, so no second token is needed. Restart the
+  agent session afterwards to load the tools. The agent gets scoped tools with full parity: author
+  and document elements, edit the infra/ER graphs and flows, read the timeline/catch-up digest, and
+  manage members.
 
 A **project id** is a tenancy namespace (e.g. `project_xyz`), **not** a GCP project id. The
 extension's `forward.projectId` and the canvas's project must match to share elements.

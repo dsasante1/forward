@@ -941,7 +941,10 @@ server.registerTool(
       "the message style: sync (default, a solid request arrow), async (an open fire-and-" +
       "forget arrow), or reply (a dashed return arrow). Set endpointId to tie a step to a " +
       "documented design element. Pass an existing flow id to replace it, or omit to create. " +
-      "Replaces all steps — use add_flow_step to append to an existing flow without resending them.",
+      "Replaces all steps — use add_flow_step to append to an existing flow without resending them. " +
+      "Give consecutive steps the same `condition` (e.g. \"email free\" / \"email taken\") to wrap " +
+      "them in a Mermaid alt/else block, so one endpoint's success and error paths render as a " +
+      "single sequence diagram instead of separate flows.",
     inputSchema: {
       id: InfraFlow.shape.id
         .optional()
@@ -951,7 +954,9 @@ server.registerTool(
       steps: z
         .array(InfraFlowStep)
         .describe(
-          "Ordered hops: { from, to, label, kind?: sync|async|reply, endpointId? }.",
+          "Ordered hops: { from, to, label, kind?: sync|async|reply, endpointId?, condition? }. " +
+            "Steps sharing a `condition` group into one alt block (adjacent differing conditions " +
+            "become else branches).",
         ),
     },
   },
@@ -991,6 +996,10 @@ server.registerTool(
       ),
       endpointId: InfraFlowStep.shape.endpointId.describe(
         "Optional design element id whose apiBinding drives this hop.",
+      ),
+      condition: InfraFlowStep.shape.condition.describe(
+        'Optional branch guard, e.g. "token valid" or "409 duplicate". Steps sharing a ' +
+          "condition render inside one Mermaid alt/else block.",
       ),
     },
   },

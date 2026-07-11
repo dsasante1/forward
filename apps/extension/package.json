@@ -147,6 +147,11 @@
         "command": "forward.selectProject",
         "title": "Select Project",
         "category": "Forward"
+      },
+      {
+        "command": "forward.setupMcp",
+        "title": "Set Up MCP for AI Agents",
+        "category": "Forward"
       }
     ],
     "viewsContainers": {
