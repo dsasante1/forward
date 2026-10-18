@@ -1,0 +1,161 @@
+# Publish forward-mcp (the MCP server + `forward` CLI) to npm from a tag.
+#
+# `git push origin mcp-v0.2.0` runs this. It repeats the full verification —
+# build, typecheck, tests, the self-contained pack and the packed-tarball smoke
+# test — and only then publishes that one version:
+#
+#   npm     forward-mcp, with provenance (trusted publishing: no token)
+#   GitHub  a Release with generated notes and the npm tarball attached
+#
+# Tags are namespaced `mcp-v*` because release.yml owns `v*` for the VS Code
+# extension, and the two version independently. The tag must equal the version
+# in apps/mcp/package.json, checked before anything else runs. The GitHub
+# Release is created last and only if the publish succeeded. docs/releasing.md
+# has the one-time setup.
+name: Release forward-mcp
+
+on:
+  push:
+    tags: ['mcp-v*.*.*']
+
+# Never cancel a release half-way through publishing.
+concurrency:
+  group: release-mcp-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # repo-mode tests read git history
+
+      # The floor we claim to support, not the newest Node.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Tag matches the package version
+        id: version
+        run: |
+          version="$(node -p "require('./apps/mcp/package.json').version")"
+          if [ "mcp-v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match apps/mcp/package.json version $version (want mcp-v$version)"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.com
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.com
+
+      - name: Pack
+        run: npm run pack -w apps/mcp
+
+      - name: Package smoke test
+        run: npm run smoke:package -w apps/mcp
+
+      # `--pack-destination` does not create the directory.
+      - name: Tarball
+        run: mkdir -p release && npm pack ./apps/mcp/pkg --pack-destination release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: release/*.tgz
+          if-no-files-found: error
+
+  npm:
+    name: publish to npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Trusted publishing: npm exchanges this workflow's OIDC token for a
+      # short-lived publish credential and attaches provenance automatically.
+      # There is deliberately no NPM_TOKEN path in this workflow.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      # Trusted publishing needs npm >= 11.5.1 and Node >= 22.14. Node 24
+      # satisfies both; the explicit npm upgrade removes any dependence on what
+      # the runner bundles.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+
+      - run: npm install -g npm@11
+
+      - name: Install
+        run: npm ci
+
+      # Rebuilt here rather than taken from the verify job's artifact so the
+      # provenance statement describes the bundle it is attached to.
+      - name: Build + pack
+        run: |
+          npm run build
+          npm run pack -w apps/mcp
+
+      # Skips a version already on npm: the manual first publish (docs/releasing.md)
+      # still gets its tag, which `forward init` workflows pin the Action to, and
+      # its GitHub Release; and a full re-run after a later failure stays safe.
+      - name: Publish
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          if [ "$(npm view "forward-mcp@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+            echo "::notice::forward-mcp@$VERSION is already on npm; skipping publish."
+          else
+            npm publish ./apps/mcp/pkg --access public
+          fi
+
+  release:
+    name: github release
+    needs: [verify, npm]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: npm-package
+          path: release
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/*.tgz \
+            --verify-tag \
+            --title "forward-mcp v$VERSION" \
+            --generate-notes

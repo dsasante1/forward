@@ -15,7 +15,8 @@ workspace depends on. Change it here once; all three apps consume the same types
 - [packages/shared/src/schema.ts](../../../packages/shared/src/schema.ts) — `DesignElement`, `ApiBinding`, `Style`, the design/binding tree.
 - [packages/shared/src/infra-flow.ts](../../../packages/shared/src/infra-flow.ts) — `InfraNode`, `InfraEdge`, `InfraFlow`, `InfraFlowStep` + mermaid helpers.
 - [packages/shared/src/timeline.ts](../../../packages/shared/src/timeline.ts) — endpoint version timeline + `digest`.
-- [packages/shared/src/api-rest.ts](../../../packages/shared/src/api-rest.ts) — the central-server client (`forward-core/api`) that every surface uses.
+- [packages/shared/src/api-rest.ts](../../../packages/shared/src/api-rest.ts) — the client (`forward-core/api`) that every surface uses.
+- [packages/shared/src/repo/](../../../packages/shared/src/repo/) — the backend over `.forward/` files (`RepoStore`, router, validation, PR diff). Add a test to `repo.test.ts` when a semantic changes.
 - [packages/shared/src/index.ts](../../../packages/shared/src/index.ts) — the public barrel; every consumer imports from `forward-core`, so a new export must be re-exported here.
 
 ## Workflow
@@ -31,7 +32,7 @@ workspace depends on. Change it here once; all three apps consume the same types
    ```bash
    grep -rn "forward-core" apps/*/src | grep -i <symbol>
    ```
-   - `apps/mcp/src/server.ts` imports many schema symbols directly and reuses
+   - `apps/mcp/src/tools.ts` imports many schema symbols directly and reuses
      `Foo.shape.bar` for tool input schemas — a renamed/removed field breaks it.
    - `apps/canvas` and `apps/extension` render/edit these objects in their webviews.
 5. **Verify from the repo root** (workspace-aware):
@@ -44,11 +45,11 @@ workspace depends on. Change it here once; all three apps consume the same types
 
 ## Gotchas
 
-- The server re-validates every write with the same `forward-core` Zod schemas. A required new field can be rejected on existing records — keep additive changes optional (or give them a default).
+- `RepoStore` re-validates every write, and every `.forward/` file is read through the same Zod schemas — a record that fails to parse is skipped and `forward validate` fails CI. Teams' repos already hold files in the old shape, so keep additive changes optional (or give them a default). A breaking layout change bumps `FORMAT_VERSION`.
 - Don't fork types in an app to "fix" a build — fix it in shared and rebuild.
 
 ## Troubleshooting
 
 - **An app's typecheck fails after the schema edit.** Cause: you didn't rebuild shared, so the app still sees the old `.d.ts`. Solution: `npm run build -w packages/shared` (or root `npm run build`) before typechecking the apps.
 - **A new symbol isn't importable from `forward-core`.** Cause: not re-exported. Solution: add it to [packages/shared/src/index.ts](../../../packages/shared/src/index.ts).
-- **Writes succeed against a fixture/mock but fail against the live server.** Cause: the server's Zod re-validation rejected the new shape. Solution: make the field optional (or give it a default) so old and new payloads both parse.
+- **Writes succeed against a fixture/mock but fail through the repo store, or existing records vanish.** Cause: Zod validation rejected the new or old shape. Solution: make the field optional (or give it a default) so old and new payloads both parse.

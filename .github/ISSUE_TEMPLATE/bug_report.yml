@@ -1,0 +1,32 @@
+name: Bug report
+description: Something doesn't work as documented.
+labels: [bug]
+body:
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - CLI (forward)
+        - MCP server (forward-mcp)
+        - Canvas
+        - VS Code extension
+        - GitHub Action
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, tool calls or a minimal .forward/ that shows the problem.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: forward 0.2.0, Node 22, macOS 15

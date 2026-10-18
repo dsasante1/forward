@@ -1,9 +1,0 @@
-{
-  "//": "Hosting-only config for the internal Platform Admin SPA (apps/admin). Kept separate from firebase.hosting.json (the dashboard) so the two never collide. Deployed by .github/workflows/deploy-admin.yml with: firebase deploy --only hosting --config firebase.admin.json",
-  "hosting": {
-    "site": "forward-admin",
-    "public": "apps/admin/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
-  }
-}

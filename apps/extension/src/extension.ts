@@ -24,12 +24,10 @@ import {
   type InfraEdge,
   type InfraNode,
   type InfraStepKind,
-  type ProjectRole,
   type Task,
   type TimelineEvent,
 } from "forward-core";
 import {
-  addMember,
   deleteAgentNode,
   deleteMcpServer,
   fetchAgents,
@@ -54,8 +52,6 @@ import {
   fetchTimelinesConditional,
   listElements,
   listMembers,
-  listProjects,
-  removeMember,
   restoreCheckpoint,
   saveElement,
   saveEntity,
@@ -65,26 +61,15 @@ import {
   saveInfraNode,
   saveTask,
   unbindApiFromElement,
-  updateMemberRole,
   type ApiConfig,
 } from "forward-core/api";
+import { RepoStore, findRepoRoot, initRepo, repoConfig } from "forward-core/repo";
 import { registerActionsView } from "./actionsView.js";
+import { commentFor } from "./comment.js";
 
 const POLL_MS = 1000; // cadence each subscribed channel polls while visible
 
-/** Key under which the Personal Access Token is held in VS Code SecretStorage. */
-const PAT_SECRET_KEY = "forward.apiToken";
-
-/**
- * The extension's secret store, set once in `activate`. The PAT lives here rather
- * than in settings.json (which is often committed): the token is the only
- * credential and must not leak — mirroring the server guard's "never in a query
- * string / never in logs" stance.
- */
-let secrets: vscode.SecretStorage;
-
 export function activate(context: vscode.ExtensionContext): void {
-  secrets = context.secrets;
   registerActionsView(context);
   context.subscriptions.push(
     vscode.commands.registerCommand(
@@ -125,10 +110,8 @@ export function activate(context: vscode.ExtensionContext): void {
     ),
     vscode.commands.registerCommand("forward.showHistory", showHistory),
     vscode.commands.registerCommand("forward.catchUp", catchUp),
-    vscode.commands.registerCommand("forward.signIn", signIn),
-    vscode.commands.registerCommand("forward.signOut", signOut),
-    vscode.commands.registerCommand("forward.selectProject", selectProject),
     vscode.commands.registerCommand("forward.setupMcp", setupMcp),
+    vscode.commands.registerCommand("forward.initRepo", initRepoCommand),
   );
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
@@ -136,8 +119,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const c = vscode.workspace.getConfiguration("forward");
   if (
     c.get<boolean>("openCanvasOnStartup") &&
-    c.get<string>("apiBaseUrl") &&
-    c.get<string>("projectId")
+    activeRepoRoot()
   ) {
     void openCanvas(context);
   }
@@ -146,144 +128,74 @@ export function activate(context: vscode.ExtensionContext): void {
 export function deactivate(): void {}
 
 /**
- * Build the API config for a request: base URL + project id from settings, and
- * the Personal Access Token from SecretStorage. Returns undefined (after showing
- * an actionable error) when anything required is missing, so callers just bail.
+ * The repository whose `.forward/` this workspace edits. There is no server,
+ * sign-in or project picker: the project is the files, and git is the sync.
  */
-async function readConfig(): Promise<ApiConfig | undefined> {
-  const c = vscode.workspace.getConfiguration("forward");
-  const baseUrl = c.get<string>("apiBaseUrl") ?? "";
-  const projectId = c.get<string>("projectId") ?? "";
-  if (!baseUrl) {
-    vscode.window.showErrorMessage(
-      "forward.apiBaseUrl is empty — restore the default Forward server URL in Settings.",
-    );
-    return undefined;
+function activeRepoRoot(): string | undefined {
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    const root = findRepoRoot(folder.uri.fsPath);
+    if (root) return root;
   }
-  const token = await secrets.get(PAT_SECRET_KEY);
-  if (!token) {
-    void vscode.window
-      .showErrorMessage(
-        "Not signed in to Forward. Generate a token in the dashboard, then sign in.",
-        "Sign in to Forward",
-      )
-      .then((pick) => {
-        if (pick) void vscode.commands.executeCommand("forward.signIn");
-      });
-    return undefined;
-  }
-  if (!projectId) {
-    void vscode.window
-      .showErrorMessage("No Forward project selected.", "Select project")
-      .then((pick) => {
-        if (pick) void vscode.commands.executeCommand("forward.selectProject");
-      });
-    return undefined;
-  }
-  return { baseUrl, projectId, token };
+  return undefined;
 }
 
-/** Store a pasted PAT after verifying it can reach the server. */
-async function signIn(): Promise<void> {
-  const baseUrl =
-    vscode.workspace.getConfiguration("forward").get<string>("apiBaseUrl") ?? "";
-  if (!baseUrl) {
-    vscode.window.showErrorMessage(
-      "forward.apiBaseUrl is empty — restore the default Forward server URL in Settings before signing in.",
-    );
+const repoConfigs = new Map<string, ApiConfig>();
+
+/** Create `.forward/` in the first workspace folder. */
+async function initRepoCommand(): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    vscode.window.showErrorMessage("Open a folder first — Forward stores the project in it.");
     return;
   }
-  const token = await vscode.window.showInputBox({
-    title: "Sign in to Forward",
-    prompt: "Paste a Personal Access Token (generate one in the dashboard → Account).",
-    password: true,
-    ignoreFocusOut: true,
-    placeHolder: "fwd_pat_…",
-  });
-  if (!token) return;
-  try {
-    // Validate by calling an authenticated account-level route.
-    await listProjects(baseUrl, token);
-  } catch {
-    vscode.window.showErrorMessage(
-      "That token was rejected by the server. Check the token and forward.apiBaseUrl.",
-    );
-    return;
-  }
-  await secrets.store(PAT_SECRET_KEY, token);
+  const { created, manifest } = initRepo(folder.uri.fsPath);
+  repoConfigs.clear();
   vscode.window.showInformationMessage(
-    "Signed in to Forward. Run “Forward: Select Project” to choose a project.",
+    created
+      ? `Created .forward/ for “${manifest.name}”. Commit it with your code; run “npx -y -p forward-mcp forward agents” to wire up AI agents.`
+      : ".forward/ already exists in this workspace.",
   );
-}
-
-/** Forget the stored PAT. */
-async function signOut(): Promise<void> {
-  await secrets.delete(PAT_SECRET_KEY);
-  vscode.window.showInformationMessage("Signed out of Forward.");
 }
 
 /**
- * Copy a ready-to-paste `claude mcp add forward …` command that wires the Forward
- * MCP server up for an AI agent. It reuses the exact base URL, project id, and PAT
- * this extension already holds — the token is user-scoped, so the same credential
- * authorizes the extension and the headless MCP process; there is no need to mint
- * a second token (and a PAT can't mint one anyway). The extension's SecretStorage
- * copy is the only recoverable plaintext — the dashboard stores only a hash — which
- * is exactly why "just export the one you have" beats minting a new one. Copied to
- * the clipboard (not written to a repo file) so the token can't be committed.
+ * Build the API config for a request: the workspace's `.forward/` project,
+ * served in-process. Returns undefined (after offering to create a project)
+ * when the workspace has none, so callers just bail.
  */
-async function setupMcp(): Promise<void> {
-  const cfg = await readConfig();
-  if (!cfg) return; // readConfig already prompts sign-in / project selection.
-  const command =
-    "claude mcp add forward \\\n" +
-    `  --env FORWARD_API_BASE_URL=${cfg.baseUrl} \\\n` +
-    `  --env FORWARD_PROJECT_ID=${cfg.projectId} \\\n` +
-    `  --env FORWARD_API_TOKEN=${cfg.token}`;
-  await vscode.env.clipboard.writeText(command);
-  vscode.window.showInformationMessage(
-    "Copied a “claude mcp add forward …” command to your clipboard — it reuses your existing " +
-      "Forward access token, so you don't need to mint a new one. Paste it in your terminal, " +
-      "then restart your agent session to load the Forward tools.",
-  );
+async function readConfig(): Promise<ApiConfig | undefined> {
+  const repo = activeRepoRoot();
+  if (!repo) {
+    void vscode.window
+      .showErrorMessage("No Forward project in this workspace.", "Initialize Forward here")
+      .then((pick) => {
+        if (pick) void vscode.commands.executeCommand("forward.initRepo");
+      });
+    return undefined;
+  }
+  let cfg = repoConfigs.get(repo);
+  if (!cfg) {
+    try {
+      cfg = repoConfig(repo);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Forward: ${(err as Error).message}`);
+      return undefined;
+    }
+    repoConfigs.set(repo, cfg);
+  }
+  return cfg;
 }
 
-/** Pick from the projects the token can access and persist it to settings. */
-async function selectProject(): Promise<void> {
-  const c = vscode.workspace.getConfiguration("forward");
-  const baseUrl = c.get<string>("apiBaseUrl") ?? "";
-  const token = await secrets.get(PAT_SECRET_KEY);
-  if (!baseUrl || !token) {
-    void vscode.window
-      .showErrorMessage(
-        "Sign in to Forward first (and set forward.apiBaseUrl).",
-        "Sign in to Forward",
-      )
-      .then((pick) => {
-        if (pick) void vscode.commands.executeCommand("forward.signIn");
-      });
-    return;
-  }
-  let projects: Awaited<ReturnType<typeof listProjects>>;
-  try {
-    projects = await listProjects(baseUrl, token);
-  } catch {
-    vscode.window.showErrorMessage("Could not list projects from the server.");
-    return;
-  }
-  if (projects.length === 0) {
-    vscode.window.showWarningMessage(
-      "You aren't a member of any Forward projects yet.",
-    );
-    return;
-  }
-  const pick = await vscode.window.showQuickPick(
-    projects.map((p) => ({ label: p.name, description: `${p.role} · ${p.id}`, id: p.id })),
-    { title: "Select Forward project", placeHolder: "Annotate elements under…" },
+/**
+ * Copy a ready-to-paste `claude mcp add forward …` command. The MCP server finds
+ * `.forward/` from its working directory, so there is no URL or token to pass.
+ */
+async function setupMcp(): Promise<void> {
+  await vscode.env.clipboard.writeText("claude mcp add forward -- npx -y forward-mcp");
+  vscode.window.showInformationMessage(
+    "Copied “claude mcp add forward -- npx -y forward-mcp”. Run it in this repository, then " +
+      "restart your agent session. For Cursor, VS Code and Codex configs plus AGENTS.md, run " +
+      "“npx -y -p forward-mcp forward agents”.",
   );
-  if (!pick) return;
-  await c.update("projectId", pick.id, vscode.ConfigurationTarget.Global);
-  vscode.window.showInformationMessage(`Forward project set to “${pick.label}”.`);
 }
 
 async function connectEndpoint(): Promise<void> {
@@ -334,24 +246,6 @@ async function insertAnchor(): Promise<void> {
   await editor.edit((b) =>
     b.insert(new vscode.Position(pos.line, 0), `${indent}${comment}\n`),
   );
-}
-
-/** Wrap `text` in the line/block comment syntax for the given editor language. */
-function commentFor(languageId: string, text: string): string {
-  if (["html", "xml", "xsl", "svg", "markdown", "vue"].includes(languageId)) {
-    return `<!-- ${text} -->`;
-  }
-  if (["css", "scss", "less"].includes(languageId)) return `/* ${text} */`;
-  if (languageId === "sql") return `-- ${text}`;
-  if (
-    [
-      "python", "ruby", "shellscript", "yaml", "dockerfile", "makefile",
-      "toml", "perl", "r", "elixir", "coffeescript", "powershell",
-    ].includes(languageId)
-  ) {
-    return `# ${text}`;
-  }
-  return `// ${text}`;
 }
 
 /**
@@ -1252,7 +1146,7 @@ async function updateTaskStatus(): Promise<void> {
 
   try {
     // Apply through the shared helper so the change is recorded in the task's
-    // activity feed, exactly as the dashboard and canvas do.
+    // activity feed, exactly as the canvas does.
     await saveTask(cfg, applyTaskChange(prev, { status: statusPick.status }, TASK_ACTOR));
     vscode.window.showInformationMessage(
       `"${choice.label}" → ${statusPick.status}`,
@@ -1444,7 +1338,7 @@ interface BridgeMessage {
 /**
  * Open the design canvas in a webview. Rather than a bespoke viewer, this mounts
  * the real `forward-canvas` editor — identical toolbar and full authoring
- * (Layers / Data / Flows / Tasks / Infra / checkpoints) to the dashboard's canvas —
+ * (Layers / Data / Flows / Tasks / Infra / checkpoints) to the canvas `forward serve` opens —
  * and drives it through a postMessage bridge. The webview's CanvasSource forwards
  * every subscription and mutation here; the host answers them against the Forward
  * server. The access token never leaves the extension process (the webview makes
@@ -1466,12 +1360,11 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
   );
   // The breadcrumb wants the project's display name; fall back silently to the id.
   let projectName: string | null = null;
+  const root = activeRepoRoot();
   try {
-    projectName =
-      (await listProjects(cfg.baseUrl, cfg.token)).find((p) => p.id === cfg.projectId)
-        ?.name ?? null;
+    projectName = root ? new RepoStore(root).manifest().name : null;
   } catch {
-    /* offline / unreachable — the canvas still mounts with the id */
+    /* unreadable manifest — the canvas still mounts with the id */
   }
   panel.webview.html = canvasHtml(panel.webview, scriptUri, cfg.projectId, projectName);
 
@@ -1583,11 +1476,7 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
     createCheckpoint: ([input]) => createCheckpoint(cfg, input as CheckpointInput),
     restoreCheckpoint: ([id]) => restoreCheckpoint(cfg, id as string),
     deleteCheckpoint: ([id]) => deleteCheckpoint(cfg, id as string),
-    addMember: ([uid, role]) => addMember(cfg, uid as string, role as ProjectRole | undefined),
     listMembers: () => listMembers(cfg),
-    updateMemberRole: ([uid, role]) =>
-      updateMemberRole(cfg, uid as string, role as ProjectRole),
-    removeMember: ([uid]) => removeMember(cfg, uid as string),
   };
 
   panel.webview.onDidReceiveMessage(async (msg: BridgeMessage) => {

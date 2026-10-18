@@ -6,7 +6,7 @@ var __export = (target, all) => {
 };
 
 // src/apply.ts
-import { readFile, appendFile, writeFile } from "node:fs/promises";
+import { readFile, appendFile } from "node:fs/promises";
 
 // ../../node_modules/zod/v3/external.js
 var external_exports = {};
@@ -499,15 +499,15 @@ var makeIssue = (params) => {
       message: issueData.message
     };
   }
-  let errorMessage = "";
+  let errorMessage2 = "";
   const maps = errorMaps.filter((m) => !!m).slice().reverse();
   for (const map of maps) {
-    errorMessage = map(fullIssue, { data, defaultError: errorMessage }).message;
+    errorMessage2 = map(fullIssue, { data, defaultError: errorMessage2 }).message;
   }
   return {
     ...issueData,
     path: fullPath,
-    message: errorMessage
+    message: errorMessage2
   };
 };
 var EMPTY_PATH = [];
@@ -4130,6 +4130,20 @@ var DesignElement = external_exports.object({
   /** ISO-8601 timestamp of the last write. */
   updatedAt: external_exports.string().datetime()
 });
+function descendantIds(id, elements) {
+  const out = [];
+  const stack = [id];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const el of elements) {
+      if (el.parentId === current && !out.includes(el.id)) {
+        out.push(el.id);
+        stack.push(el.id);
+      }
+    }
+  }
+  return out;
+}
 var InfraKind = external_exports.enum([
   "frontend",
   // web/mobile client
@@ -4439,36 +4453,104 @@ var ProjectTimelineEvent = external_exports.object({
   /** Epoch ms the change landed. */
   timestamp: external_exports.number().int()
 });
-var UserConfig = external_exports.object({
-  repositoryUrl: external_exports.string().url().optional(),
-  projectName: external_exports.string().min(1)
-});
 var ProjectRole = external_exports.enum(["viewer", "editor", "owner"]);
-var OrgRole = external_exports.enum(["admin", "member"]);
-var ProjectMember = external_exports.object({
-  role: ProjectRole.default("editor"),
-  /** ISO-8601 timestamp the membership was granted. */
-  addedAt: external_exports.string()
-});
-var InviteStatus = external_exports.enum(["pending", "accepted", "revoked", "expired"]);
-var ProjectInvite = external_exports.object({
-  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
-  projectId: external_exports.string().min(1),
-  email: external_exports.string().email(),
-  role: ProjectRole.default("editor"),
-  status: InviteStatus.default("pending"),
-  /** Clerk uid of the owner who sent it. */
-  invitedBy: external_exports.string().min(1),
-  createdAt: external_exports.string().datetime(),
-  expiresAt: external_exports.string().datetime(),
-  acceptedAt: external_exports.string().datetime().optional()
-});
+
+// ../../packages/shared/dist/api-diff.js
+function diffBindings(prev, next) {
+  const sections = [];
+  const titleRows = diffTitle(prev?.title ?? "", next?.title ?? "");
+  if (titleRows.length)
+    sections.push({ label: "Title", rows: titleRows });
+  const descRows = diffLines(prev?.description ?? "", next?.description ?? "");
+  if (descRows.length)
+    sections.push({ label: "Description", rows: descRows });
+  let added = 0;
+  let removed = 0;
+  for (const sec of sections) {
+    for (const r of sec.rows) {
+      if (r.op === "added")
+        added++;
+      else if (r.op === "removed")
+        removed++;
+    }
+  }
+  return VersionDiff.parse({ added, removed, sections });
+}
+function diffTitle(before, after) {
+  if (before === after) {
+    return after ? [{ op: "unchanged", cols: [after] }] : [];
+  }
+  const rows = [];
+  if (before)
+    rows.push({ op: "removed", cols: [before] });
+  if (after)
+    rows.push({ op: "added", cols: [after] });
+  return rows;
+}
+function splitLines(text) {
+  const trimmed = text.replace(/\s+$/, "");
+  return trimmed ? trimmed.split("\n").map((l) => l.replace(/\s+$/, "")) : [];
+}
+function diffLines(before, after) {
+  const a = splitLines(before);
+  const b = splitLines(after);
+  const n = a.length;
+  const m = b.length;
+  const w = m + 1;
+  const lcs = new Int32Array((n + 1) * w);
+  const g = (idx) => lcs[idx] ?? 0;
+  for (let i2 = n - 1; i2 >= 0; i2--) {
+    for (let j2 = m - 1; j2 >= 0; j2--) {
+      lcs[i2 * w + j2] = a[i2] === b[j2] ? g((i2 + 1) * w + (j2 + 1)) + 1 : Math.max(g((i2 + 1) * w + j2), g(i2 * w + (j2 + 1)));
+    }
+  }
+  const rows = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      rows.push({ op: "unchanged", cols: [a[i]] });
+      i++;
+      j++;
+    } else if (g((i + 1) * w + j) >= g(i * w + (j + 1))) {
+      rows.push({ op: "removed", cols: [a[i]] });
+      i++;
+    } else {
+      rows.push({ op: "added", cols: [b[j]] });
+      j++;
+    }
+  }
+  while (i < n)
+    rows.push({ op: "removed", cols: [a[i++]] });
+  while (j < m)
+    rows.push({ op: "added", cols: [b[j++]] });
+  return rows;
+}
+
+// ../../packages/shared/dist/tasks.js
+function nextTaskKey(existing) {
+  let max = 0;
+  for (const k of existing) {
+    const m = k?.match(/(\d+)\s*$/);
+    if (m)
+      max = Math.max(max, parseInt(m[1], 10));
+  }
+  return `FWD-${max + 1}`;
+}
 
 // ../../packages/shared/dist/api-rest.js
 function base(cfg) {
   return `${cfg.baseUrl.replace(/\/$/, "")}/projects/${encodeURIComponent(cfg.projectId)}`;
 }
 async function request(cfg, method, path, body) {
+  if (cfg.transport) {
+    const res2 = await cfg.transport({ method, path, body });
+    if (res2.status >= 400) {
+      const msg2 = res2.body?.message;
+      throw new Error(typeof msg2 === "string" && msg2 ? msg2 : `Forward API ${method} ${path} failed: ${res2.status}`);
+    }
+    return res2.body;
+  }
   const res = await fetch(`${base(cfg)}${path}`, {
     method,
     headers: {
@@ -4478,12 +4560,25 @@ async function request(cfg, method, path, body) {
     ...body !== void 0 ? { body: JSON.stringify(body) } : {}
   });
   if (!res.ok) {
-    throw new Error(`Forward API ${method} ${path} failed: ${res.status}`);
+    throw new Error(await errorMessage(res, `${method} ${path}`));
   }
   if (res.status === 204)
     return void 0;
   const text = await res.text();
   return text ? JSON.parse(text) : void 0;
+}
+async function errorMessage(res, ctx) {
+  try {
+    const text = await res.text();
+    if (text) {
+      const body = JSON.parse(text);
+      const msg2 = Array.isArray(body.message) ? body.message.join(", ") : body.message;
+      if (msg2)
+        return msg2;
+    }
+  } catch {
+  }
+  return `Forward API ${ctx} failed: ${res.status}`;
 }
 var get = (cfg, path) => request(cfg, "GET", path);
 async function fetchElements(cfg) {
@@ -4547,10 +4642,6 @@ async function saveAgentNode(cfg, agent) {
 async function saveMcpServer(cfg, server) {
   await request(cfg, "PUT", `/agents/servers/${encodeURIComponent(server.id)}`, server);
 }
-async function createCheckpoint(cfg, input) {
-  const raw = await request(cfg, "POST", "/checkpoints", input);
-  return Checkpoint.parse(raw);
-}
 function parseAll(values, schema) {
   const out = [];
   for (const value of values) {
@@ -4561,29 +4652,751 @@ function parseAll(values, schema) {
   return out;
 }
 
+// ../../packages/shared/dist/repo/layout.js
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+var FORWARD_DIR = ".forward";
+var MANIFEST_FILE = "forward.json";
+var FORMAT_VERSION = 1;
+var COLLECTIONS = {
+  elements: "design",
+  history: "history",
+  infraNodes: "infra/nodes",
+  infraEdges: "infra/edges",
+  infraFlows: "infra/flows",
+  entities: "data/entities",
+  relations: "data/relations",
+  agents: "agents/agents",
+  servers: "agents/servers",
+  tasks: "tasks",
+  checkpoints: "checkpoints"
+};
+var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+function fileNameForId(id) {
+  if (SAFE_ID.test(id))
+    return id;
+  const encoded = encodeURIComponent(id).replace(/\./g, "%2E").replace(/\*/g, "%2A");
+  if (encoded.length <= 100)
+    return `_${encoded}`;
+  return `_h${createHash("sha256").update(id).digest("hex").slice(0, 32)}`;
+}
+function collectionDir(root, key) {
+  return join(root, FORWARD_DIR, COLLECTIONS[key]);
+}
+function collectionOf(relPath) {
+  let best;
+  for (const [key, dir] of Object.entries(COLLECTIONS)) {
+    if (relPath.startsWith(`${dir}/`) && (!best || dir.length > COLLECTIONS[best].length)) {
+      best = key;
+    }
+  }
+  return best;
+}
+
+// ../../packages/shared/dist/repo/store.js
+import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join as join2 } from "node:path";
+var RepoError = class extends Error {
+  status;
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+    this.name = "RepoError";
+  }
+};
+var RepoStore = class {
+  root;
+  author;
+  now;
+  constructor(root, opts = {}) {
+    this.root = root;
+    this.author = opts.author ?? "local";
+    this.now = opts.now ?? (() => /* @__PURE__ */ new Date());
+  }
+  // --- manifest ------------------------------------------------------------
+  manifest() {
+    const file = join2(this.root, FORWARD_DIR, MANIFEST_FILE);
+    if (!existsSync(file)) {
+      throw new RepoError(404, `No Forward project at ${this.root}. Run \`forward init\` to create .forward/${MANIFEST_FILE}.`);
+    }
+    const raw = JSON.parse(readFileSync(file, "utf8"));
+    if (!raw.id)
+      throw new RepoError(500, `.forward/${MANIFEST_FILE} has no "id".`);
+    return { format: raw.format ?? FORMAT_VERSION, id: raw.id, name: raw.name ?? raw.id };
+  }
+  // --- design elements -----------------------------------------------------
+  listElements() {
+    return this.readAll("elements", DesignElement);
+  }
+  getElement(id) {
+    return this.readOne("elements", id, DesignElement);
+  }
+  /** Upsert geometry/style. A client-sent binding is ignored and the stored one kept. */
+  saveElement(input) {
+    const parsed = this.parse(DesignElement, input, "design element");
+    const { apiBinding: _ignored, ...clean } = parsed;
+    const stored = this.getElement(clean.id)?.apiBinding;
+    const next = DesignElement.parse({
+      ...clean,
+      ...stored ? { apiBinding: stored } : {},
+      updatedAt: this.iso()
+    });
+    this.write("elements", next.id, next);
+    return next;
+  }
+  /** Partial update that preserves untouched fields, including the binding. */
+  patchElement(id, patch) {
+    const current = this.requireElement(id);
+    const { apiBinding: _ignored, ...rest } = patch ?? {};
+    const next = this.parse(DesignElement, { ...current, ...rest, id, updatedAt: this.iso() }, "design element");
+    this.write("elements", id, next);
+    return next;
+  }
+  /** Delete an element, by default with its `parentId` subtree. History is kept. */
+  deleteElement(id, cascade = true) {
+    const all = this.listElements();
+    const ids = cascade ? [id, ...descendantIds(id, all)] : [id];
+    for (const target of ids)
+      this.remove("elements", target);
+    return ids;
+  }
+  /** Attach or replace the API docs and append a version entry with a diff. */
+  bind(id, body) {
+    const current = this.requireElement(id);
+    const binding = this.parse(ApiBinding, body.binding, "API binding");
+    const action = body.action === "created" ? "created" : "modified";
+    this.write("elements", id, DesignElement.parse({
+      ...current,
+      apiBinding: binding,
+      updatedAt: this.iso()
+    }));
+    this.appendVersion(id, {
+      version: body.version ?? "",
+      author: this.author,
+      action,
+      changeLog: body.changeLog ?? "",
+      endpoint: { title: binding.title },
+      diff: diffBindings(current.apiBinding, binding)
+    });
+  }
+  /** Remove the API docs and append a "deleted" version entry. */
+  unbind(id, body) {
+    const current = this.requireElement(id);
+    const { apiBinding: _drop, ...rest } = current;
+    this.write("elements", id, DesignElement.parse({ ...rest, updatedAt: this.iso() }));
+    this.appendVersion(id, {
+      version: body.version ?? "",
+      author: this.author,
+      action: "deleted",
+      changeLog: body.changeLog ?? "Removed API documentation",
+      ...body.title ? { endpoint: { title: body.title } } : {},
+      diff: diffBindings(current.apiBinding, void 0)
+    });
+  }
+  /** Every element's API-doc history, oldest first, keyed by element id. */
+  timelines() {
+    const dir = collectionDir(this.root, "history");
+    const out = {};
+    for (const sub of listDirs(dir)) {
+      const entries = [];
+      for (const file of listJson(join2(dir, sub))) {
+        const parsed = VersionEntry.safeParse(readJson(join2(dir, sub, file)));
+        if (parsed.success)
+          entries.push(parsed.data);
+      }
+      if (!entries.length)
+        continue;
+      entries.sort((a, b) => a.timestamp - b.timestamp);
+      const elementId = readJson(join2(dir, sub, ".element")) ?? sub;
+      out[typeof elementId === "string" ? elementId : sub] = entries;
+    }
+    return out;
+  }
+  // --- infra graph + flows -------------------------------------------------
+  infra() {
+    return {
+      nodes: this.readAll("infraNodes", InfraNode),
+      edges: this.readAll("infraEdges", InfraEdge),
+      flows: this.readAll("infraFlows", InfraFlow),
+      entities: this.readAll("entities", Entity),
+      relations: this.readAll("relations", EntityRelation)
+    };
+  }
+  saveInfraNode(input) {
+    return this.upsert("infraNodes", InfraNode, input, "infra node");
+  }
+  saveInfraEdge(input) {
+    return this.upsert("infraEdges", InfraEdge, input, "infra edge");
+  }
+  saveInfraFlow(input) {
+    return this.upsert("infraFlows", InfraFlow, input, "flow");
+  }
+  /** Delete a node and every edge touching it, so none dangle. */
+  deleteInfraNode(id) {
+    this.remove("infraNodes", id);
+    for (const edge of this.readAll("infraEdges", InfraEdge)) {
+      if (edge.from === id || edge.to === id)
+        this.remove("infraEdges", edge.id);
+    }
+  }
+  deleteInfraEdge(id) {
+    this.remove("infraEdges", id);
+  }
+  deleteInfraFlow(id) {
+    this.remove("infraFlows", id);
+  }
+  // --- entities (ER) -------------------------------------------------------
+  saveEntity(input) {
+    return this.upsert("entities", Entity, input, "entity");
+  }
+  saveRelation(input) {
+    return this.upsert("relations", EntityRelation, input, "relation");
+  }
+  /** Delete an entity and every relation touching it. */
+  deleteEntity(id) {
+    this.remove("entities", id);
+    for (const rel of this.readAll("relations", EntityRelation)) {
+      if (rel.from === id || rel.to === id)
+        this.remove("relations", rel.id);
+    }
+  }
+  deleteRelation(id) {
+    this.remove("relations", id);
+  }
+  // --- agents + MCP servers ------------------------------------------------
+  agents() {
+    return {
+      agents: this.readAll("agents", AgentNode),
+      servers: this.readAll("servers", McpServerNode)
+    };
+  }
+  saveAgent(input) {
+    return this.upsert("agents", AgentNode, input, "agent");
+  }
+  saveServer(input) {
+    return this.upsert("servers", McpServerNode, input, "MCP server");
+  }
+  deleteAgent(id) {
+    this.remove("agents", id);
+  }
+  /** Delete a server and drop it from every agent's `mcpServerIds`. */
+  deleteServer(id) {
+    this.remove("servers", id);
+    for (const agent of this.readAll("agents", AgentNode)) {
+      if (!agent.mcpServerIds.includes(id))
+        continue;
+      this.write("agents", agent.id, AgentNode.parse({
+        ...agent,
+        mcpServerIds: agent.mcpServerIds.filter((s) => s !== id),
+        updatedAt: this.iso()
+      }));
+    }
+  }
+  // --- tasks ---------------------------------------------------------------
+  listTasks() {
+    return this.readAll("tasks", Task);
+  }
+  /** Upsert a task. `createdAt` survives, `updatedAt` is stamped, a missing key is assigned. */
+  saveTask(input) {
+    const parsed = this.parse(Task, input, "task");
+    const prior = this.readOne("tasks", parsed.id, Task);
+    const now = this.iso();
+    const next = {
+      ...parsed,
+      createdAt: prior?.createdAt || parsed.createdAt || now,
+      updatedAt: now
+    };
+    if (!next.key)
+      next.key = nextTaskKey(this.listTasks().map((t) => t.key));
+    const valid = Task.parse(next);
+    this.write("tasks", valid.id, valid);
+    return valid;
+  }
+  deleteTask(id) {
+    this.remove("tasks", id);
+  }
+  // --- checkpoints ---------------------------------------------------------
+  listCheckpoints() {
+    return this.readAll("checkpoints", Checkpoint).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  /** Freeze the current design + infra into a new checkpoint. */
+  createCheckpoint(input) {
+    const clean = this.parse(CheckpointInput, input, "checkpoint");
+    const snapshot = CheckpointSnapshot.parse({
+      elements: this.listElements(),
+      infraNodes: this.readAll("infraNodes", InfraNode),
+      infraEdges: this.readAll("infraEdges", InfraEdge),
+      infraFlows: this.readAll("infraFlows", InfraFlow)
+    });
+    const cp = Checkpoint.parse({
+      id: `cp_${randomUUID()}`,
+      ...clean,
+      author: this.author,
+      changes: changesOf(snapshot),
+      snapshot,
+      createdAt: this.iso()
+    });
+    this.write("checkpoints", cp.id, cp);
+    return cp;
+  }
+  deleteCheckpoint(id) {
+    this.remove("checkpoints", id);
+  }
+  /** Rewind design + infra to a checkpoint. API-doc history is left intact. */
+  restoreCheckpoint(id) {
+    const cp = this.readOne("checkpoints", id, Checkpoint);
+    if (!cp)
+      throw new RepoError(404, `No checkpoint "${id}"`);
+    const layers = [
+      ["elements", cp.snapshot.elements],
+      ["infraNodes", cp.snapshot.infraNodes],
+      ["infraEdges", cp.snapshot.infraEdges],
+      ["infraFlows", cp.snapshot.infraFlows]
+    ];
+    for (const [key, items] of layers) {
+      rmSync(collectionDir(this.root, key), { recursive: true, force: true });
+      for (const item of items)
+        this.write(key, item.id, item);
+    }
+    return cp;
+  }
+  // --- internals -----------------------------------------------------------
+  iso() {
+    return this.now().toISOString();
+  }
+  requireElement(id) {
+    const el = this.getElement(id);
+    if (!el)
+      throw new RepoError(404, `No design element "${id}"`);
+    return el;
+  }
+  /** Validate a body against a schema, turning a Zod failure into a 400. */
+  parse(schema, value, what) {
+    const res = schema.safeParse(value);
+    if (res.success)
+      return res.data;
+    const issue = res.error.issues[0];
+    const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
+    throw new RepoError(400, `Invalid ${what}${where}: ${issue?.message ?? "bad shape"}`);
+  }
+  /** Validate, stamp `updatedAt`, write. Shared by every simple graph layer. */
+  upsert(key, schema, input, what) {
+    const stamped = { ...input, updatedAt: this.iso() };
+    const next = this.parse(schema, stamped, what);
+    this.write(key, next.id, next);
+    return next;
+  }
+  appendVersion(elementId, input) {
+    const entry = VersionEntry.parse({ ...input, timestamp: this.now().getTime() });
+    const dir = join2(collectionDir(this.root, "history"), fileNameForId(elementId));
+    mkdirSync(dir, { recursive: true });
+    if (fileNameForId(elementId) !== elementId) {
+      writeAtomic(join2(dir, ".element"), `${JSON.stringify(elementId)}
+`);
+    }
+    const name = `${entry.timestamp}-${randomBytes(3).toString("hex")}.json`;
+    writeAtomic(join2(dir, name), toJson(entry));
+  }
+  readAll(key, schema) {
+    const dir = collectionDir(this.root, key);
+    const out = [];
+    for (const file of listJson(dir)) {
+      const parsed = schema.safeParse(readJson(join2(dir, file)));
+      if (parsed.success)
+        out.push(parsed.data);
+    }
+    return out;
+  }
+  readOne(key, id, schema) {
+    const raw = readJson(this.pathOf(key, id));
+    if (raw === void 0)
+      return void 0;
+    const parsed = schema.safeParse(raw);
+    return parsed.success ? parsed.data : void 0;
+  }
+  write(key, id, value) {
+    const file = this.pathOf(key, id);
+    mkdirSync(dirname(file), { recursive: true });
+    writeAtomic(file, toJson(value));
+  }
+  remove(key, id) {
+    const file = this.pathOf(key, id);
+    if (!existsSync(file))
+      return false;
+    rmSync(file);
+    return true;
+  }
+  pathOf(key, id) {
+    return join2(this.root, FORWARD_DIR, COLLECTIONS[key], `${fileNameForId(id)}.json`);
+  }
+};
+function changesOf(snapshot) {
+  const out = [];
+  if (snapshot.elements.length)
+    out.push({ layer: "DESIGN", n: snapshot.elements.length });
+  const infra = snapshot.infraNodes.length + snapshot.infraEdges.length;
+  if (infra)
+    out.push({ layer: "INFRA", n: infra });
+  if (snapshot.infraFlows.length)
+    out.push({ layer: "FLOW", n: snapshot.infraFlows.length });
+  return out;
+}
+function toJson(value) {
+  return `${JSON.stringify(value, null, 2)}
+`;
+}
+function writeAtomic(file, content) {
+  const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+  writeFileSync(tmp, content, "utf8");
+  renameSync(tmp, file);
+}
+function readJson(file) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+function listJson(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile() && d.name.endsWith(".json")).map((d) => d.name).sort();
+  } catch {
+    return [];
+  }
+}
+function listDirs(dir) {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort();
+  } catch {
+    return [];
+  }
+}
+
+// ../../packages/shared/dist/repo/git.js
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync as mkdirSync2, mkdtempSync, readFileSync as readFileSync2, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { tmpdir, userInfo } from "node:os";
+import { dirname as dirname2, join as join3 } from "node:path";
+function git(root, args, input) {
+  const res = spawnSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    input,
+    maxBuffer: 256 * 1024 * 1024,
+    stdio: ["pipe", "pipe", "ignore"]
+  });
+  return res.status === 0 ? res.stdout : void 0;
+}
+function isGitRepo(root) {
+  return git(root, ["rev-parse", "--is-inside-work-tree"])?.trim() === "true";
+}
+function resolveAuthor(root) {
+  const env = process.env.FORWARD_AUTHOR?.trim();
+  if (env)
+    return env;
+  const name = git(root, ["config", "user.name"])?.trim();
+  if (name)
+    return name;
+  try {
+    return userInfo().username || "local";
+  } catch {
+    return "local";
+  }
+}
+function contributors(root, self) {
+  const out = /* @__PURE__ */ new Map();
+  const log = git(root, ["log", "--reverse", "--format=%an%x1f%ae%x1f%at", "--", FORWARD_DIR]);
+  for (const line of (log ?? "").split("\n")) {
+    const [name, email, at] = line.split("");
+    if (!name || out.has(name))
+      continue;
+    out.set(name, { name, email: email ?? "", first: Number(at) * 1e3 });
+  }
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const rows = [...out.values()].map((c) => ({
+    userId: c.name,
+    email: c.email || null,
+    name: c.name,
+    imageUrl: null,
+    role: c.name === self ? "owner" : "editor",
+    addedAt: new Date(c.first).toISOString()
+  }));
+  if (!out.has(self)) {
+    rows.unshift({ userId: self, email: null, name: self, imageUrl: null, role: "owner", addedAt: now });
+  }
+  return rows;
+}
+var DOMAIN = {
+  elements: "design",
+  history: "api",
+  infraNodes: "infra",
+  infraEdges: "infra",
+  infraFlows: "flow",
+  // The server files ER changes under "flow"; repo mode matches it.
+  entities: "flow",
+  relations: "flow",
+  agents: "agent",
+  servers: "agent"
+};
+function projectTimeline(root, limit = 500) {
+  if (!isGitRepo(root))
+    return [];
+  const commits = [];
+  const log = git(root, [
+    "log",
+    `-n${limit}`,
+    "--no-renames",
+    "--format=%x1e%an%x1f%at%x1f%s",
+    "--name-status",
+    "--",
+    FORWARD_DIR
+  ]);
+  for (const record of (log ?? "").split("")) {
+    const [header, ...lines] = record.split("\n");
+    if (!header)
+      continue;
+    const [author = "", at = "0", subject = ""] = header.split("");
+    const files = [];
+    for (const line of lines) {
+      const [status2, path] = line.split("	");
+      const rel = relOf(path);
+      if (!rel || status2 !== "A" && status2 !== "M" && status2 !== "D")
+        continue;
+      files.push({ status: status2, rel });
+    }
+    commits.push({ author, at: Number(at) * 1e3, subject, files });
+  }
+  commits.reverse();
+  const events = [];
+  let seq = 0;
+  for (const c of commits) {
+    for (const e of eventsFor(root, c.files, c.author, () => c.at, c.subject)) {
+      events.push({ ...e, seq: ++seq });
+    }
+  }
+  const status = git(root, ["status", "--porcelain=v1", "-uall", "-z", "--", FORWARD_DIR]);
+  const pending = [];
+  for (const entry of (status ?? "").split("\0")) {
+    if (entry.length < 4)
+      continue;
+    const code = entry.slice(0, 2);
+    const rel = relOf(entry.slice(3));
+    if (!rel)
+      continue;
+    const s = code.includes("D") ? "D" : code === "??" || code.includes("A") ? "A" : "M";
+    pending.push({ status: s, rel });
+  }
+  const self = resolveAuthor(root);
+  const mtime = (rel) => {
+    try {
+      return Math.floor(statSync(join3(root, FORWARD_DIR, rel)).mtimeMs);
+    } catch {
+      return Date.now();
+    }
+  };
+  for (const e of eventsFor(root, pending, self, mtime, "Uncommitted")) {
+    events.push({ ...e, seq: ++seq });
+  }
+  return events.sort((a, b) => b.timestamp - a.timestamp || b.seq - a.seq);
+}
+function relOf(path) {
+  const prefix = `${FORWARD_DIR}/`;
+  if (!path || !path.startsWith(prefix) || !path.endsWith(".json"))
+    return void 0;
+  return path.slice(prefix.length);
+}
+function eventsFor(root, files, author, when, subject) {
+  const documented = new Set(files.filter((f) => collectionOf(f.rel) === "history").map((f) => f.rel.split("/")[1]));
+  const out = [];
+  for (const f of files) {
+    const key = collectionOf(f.rel);
+    const domain = key ? DOMAIN[key] : void 0;
+    if (!key || !domain)
+      continue;
+    const parts = f.rel.split("/");
+    const fileId = (parts[parts.length - 1] ?? "").replace(/\.json$/, "");
+    const current = f.status === "D" ? void 0 : readJsonAt(root, f.rel);
+    if (key === "history") {
+      const elementId = parts[1] ?? fileId;
+      const entry = current;
+      out.push({
+        domain,
+        action: entry?.action ?? "modified",
+        targetId: elementId,
+        title: entry?.endpoint?.title ?? elementId,
+        detail: entry?.changeLog || subject,
+        author,
+        timestamp: when(f.rel)
+      });
+      continue;
+    }
+    if (key === "elements" && f.status === "M" && documented.has(fileId))
+      continue;
+    const rec = current ?? {};
+    const id = rec.id ?? fileId;
+    const title = rec.name || rec.label || id;
+    const action = f.status === "A" ? "created" : f.status === "D" ? "deleted" : "modified";
+    const verb = action === "created" ? "Added" : action === "deleted" ? "Removed" : "Updated";
+    out.push({
+      domain,
+      action,
+      targetId: id,
+      title,
+      detail: `${verb} ${noun(key)} "${title}" \u2014 ${subject}`,
+      author,
+      timestamp: when(f.rel)
+    });
+  }
+  return out;
+}
+function noun(key) {
+  switch (key) {
+    case "elements":
+      return "element";
+    case "infraNodes":
+      return "infra node";
+    case "infraEdges":
+      return "edge";
+    case "infraFlows":
+      return "flow";
+    case "entities":
+      return "entity";
+    case "relations":
+      return "relation";
+    case "agents":
+      return "agent";
+    case "servers":
+      return "MCP server";
+    default:
+      return "record";
+  }
+}
+function readJsonAt(root, rel) {
+  try {
+    return JSON.parse(readFileSync2(join3(root, FORWARD_DIR, rel), "utf8"));
+  } catch {
+    return void 0;
+  }
+}
+
+// ../../packages/shared/dist/repo/router.js
+var SEG = "([^/]+)";
+function createRepoRouter(store) {
+  const routes = [];
+  const on = (method, path, handler) => {
+    routes.push({ method, pattern: new RegExp(`^${path.replace(/:\w+/g, SEG)}$`), handler });
+  };
+  on("GET", "/elements", () => store.listElements());
+  on("PUT", "/elements/:id", (_p, body) => store.saveElement(body));
+  on("PATCH", "/elements/:id", ([id], body) => store.patchElement(id, body));
+  on("DELETE", "/elements/:id", ([id], _b, q) => ({
+    deleted: store.deleteElement(id, q.get("cascade") !== "false")
+  }));
+  on("PUT", "/elements/:id/binding", ([id], body) => {
+    store.bind(id, body ?? {});
+  });
+  on("DELETE", "/elements/:id/binding", ([id], body) => {
+    store.unbind(id, body ?? {});
+  });
+  on("GET", "/timelines", () => store.timelines());
+  on("GET", "/timeline", () => projectTimeline(store.root));
+  on("GET", "/infra", () => store.infra());
+  on("PUT", "/infra/nodes/:id", (_p, body) => store.saveInfraNode(body));
+  on("DELETE", "/infra/nodes/:id", ([id]) => store.deleteInfraNode(id));
+  on("PUT", "/infra/edges/:id", (_p, body) => store.saveInfraEdge(body));
+  on("DELETE", "/infra/edges/:id", ([id]) => store.deleteInfraEdge(id));
+  on("PUT", "/infra/flows/:id", (_p, body) => store.saveInfraFlow(body));
+  on("DELETE", "/infra/flows/:id", ([id]) => store.deleteInfraFlow(id));
+  on("PUT", "/infra/entities/:id", (_p, body) => store.saveEntity(body));
+  on("DELETE", "/infra/entities/:id", ([id]) => store.deleteEntity(id));
+  on("PUT", "/infra/relations/:id", (_p, body) => store.saveRelation(body));
+  on("DELETE", "/infra/relations/:id", ([id]) => store.deleteRelation(id));
+  on("GET", "/agents", () => store.agents());
+  on("PUT", "/agents/nodes/:id", (_p, body) => store.saveAgent(body));
+  on("DELETE", "/agents/nodes/:id", ([id]) => store.deleteAgent(id));
+  on("PUT", "/agents/servers/:id", (_p, body) => store.saveServer(body));
+  on("DELETE", "/agents/servers/:id", ([id]) => store.deleteServer(id));
+  on("GET", "/tasks", () => store.listTasks());
+  on("PUT", "/tasks/:id", (_p, body) => store.saveTask(body));
+  on("DELETE", "/tasks/:id", ([id]) => store.deleteTask(id));
+  on("GET", "/checkpoints", () => store.listCheckpoints());
+  on("POST", "/checkpoints", (_p, body) => store.createCheckpoint(body));
+  on("DELETE", "/checkpoints/:id", ([id]) => store.deleteCheckpoint(id));
+  on("POST", "/checkpoints/:id/restore", ([id]) => {
+    store.restoreCheckpoint(id);
+  });
+  on("GET", "/members", () => contributors(store.root, store.author));
+  return async function handle(req) {
+    const url = new URL(req.path, "http://repo.local");
+    const method = req.method.toUpperCase();
+    let pathMatched = false;
+    for (const route of routes) {
+      const m = route.pattern.exec(url.pathname);
+      if (!m)
+        continue;
+      pathMatched = true;
+      if (route.method !== method)
+        continue;
+      try {
+        const params = m.slice(1).map((s) => decodeURIComponent(s));
+        const result = await route.handler(params, req.body, url.searchParams);
+        return result === void 0 ? { status: 204 } : { status: 200, body: result };
+      } catch (err) {
+        if (err instanceof RepoError)
+          return { status: err.status, body: { message: err.message } };
+        const message = err instanceof Error ? err.message : String(err);
+        return { status: 500, body: { message } };
+      }
+    }
+    return pathMatched ? { status: 405, body: { message: `${method} not allowed on ${url.pathname}` } } : { status: 404, body: { message: `No route ${method} ${url.pathname}` } };
+  };
+}
+
+// ../../packages/shared/dist/repo/transport.js
+import { existsSync as existsSync2 } from "node:fs";
+import { dirname as dirname3, join as join4, resolve } from "node:path";
+function findRepoRoot(start = process.cwd()) {
+  const forced = process.env.FORWARD_REPO?.trim();
+  if (forced) {
+    const root = resolve(forced);
+    return existsSync2(join4(root, FORWARD_DIR, MANIFEST_FILE)) ? root : void 0;
+  }
+  let dir = resolve(start);
+  for (; ; ) {
+    if (existsSync2(join4(dir, FORWARD_DIR, MANIFEST_FILE)))
+      return dir;
+    const parent = dirname3(dir);
+    if (parent === dir)
+      return void 0;
+    dir = parent;
+  }
+}
+function repoConfig(root, opts = {}) {
+  const store = new RepoStore(root, { author: opts.author ?? resolveAuthor(root) });
+  return {
+    baseUrl: `file://${root}`,
+    projectId: store.manifest().id,
+    token: "repo",
+    transport: createRepoRouter(store)
+  };
+}
+
 // src/config.ts
 function short(sha) {
   return sha.slice(0, 7);
 }
 function loadConfig() {
-  const baseUrl = process.env.FORWARD_API_BASE_URL ?? "";
-  const projectId = process.env.FORWARD_PROJECT_ID ?? "";
-  const token = process.env.FORWARD_API_TOKEN ?? "";
-  const missing = [
-    ["FORWARD_API_BASE_URL", baseUrl],
-    ["FORWARD_PROJECT_ID", projectId],
-    ["FORWARD_API_TOKEN", token]
-  ].filter(([, v]) => !v).map(([k]) => k);
-  if (missing.length) {
+  const commit = short(process.env.FORWARD_COMMIT ?? process.env.GITHUB_SHA ?? "");
+  const commitMessage = (process.env.FORWARD_COMMIT_MESSAGE ?? "").split("\n")[0] ?? "";
+  const root = findRepoRoot(process.cwd());
+  if (!root) {
     throw new Error(
-      `Missing required environment variable(s): ${missing.join(", ")}. Set the FORWARD_API_TOKEN secret and the FORWARD_API_BASE_URL / FORWARD_PROJECT_ID values in your workflow.`
+      "No Forward project found. Run this in a repository that has .forward/ (create it with `npx -y -p forward-mcp forward init`), or set FORWARD_REPO."
     );
   }
-  return {
-    api: { baseUrl, projectId, token },
-    commit: short(process.env.FORWARD_COMMIT ?? process.env.GITHUB_SHA ?? ""),
-    commitMessage: (process.env.FORWARD_COMMIT_MESSAGE ?? "").split("\n")[0] ?? ""
-  };
+  const author = process.env.FORWARD_AUTHOR || "forward-docs";
+  return { api: repoConfig(root, { author }), repo: root, commit, commitMessage };
 }
 
 // src/layout.ts
@@ -4655,8 +5468,6 @@ var AgentInput = AgentNode.omit({ updatedAt: true }).partial(geometry);
 var Plan = external_exports.object({
   /** Contract version; bump if the shape changes. */
   version: external_exports.literal(1).default(1),
-  /** Optional override for the safety checkpoint `apply` takes before writing. */
-  checkpoint: external_exports.object({ title: external_exports.string().optional(), note: external_exports.string().optional() }).optional(),
   bindings: external_exports.array(BindingInput).default([]),
   entities: external_exports.array(EntityInput).default([]),
   entityRelations: external_exports.array(EntityRelationInput).default([]),
@@ -4702,14 +5513,7 @@ async function apply(planPath) {
     console.error("forward-docs: plan is empty \u2014 nothing to document. Skipping.");
     return 0;
   }
-  const checkpoint = await createCheckpoint(cfg.api, {
-    title: plan.checkpoint?.title ?? `Pre-CI docs ${cfg.commit || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}`,
-    description: plan.checkpoint?.note ?? "Automatic snapshot taken by forward-docs before applying CI-generated documentation.",
-    tag: "checkpoint"
-  });
-  console.error(
-    `forward-docs: checkpoint ${checkpoint.id} created (restores design + infra).`
-  );
+  console.error(`forward-docs: writing into ${cfg.repo}/.forward (git is the undo).`);
   const wantEntities = plan.entities.length > 0 || plan.entityRelations.length > 0;
   const wantInfra = plan.infraNodes.length > 0;
   const wantAgents = plan.mcpServers.length > 0 || plan.agents.length > 0;
@@ -4726,23 +5530,6 @@ async function apply(planPath) {
   const nodeGeom = geomMap(exNodes);
   const agentGeom = geomMap(exAgents);
   const serverGeom = geomMap(exServers);
-  const touchesUncovered = plan.entities.length + plan.entityRelations.length + plan.mcpServers.length + plan.agents.length;
-  if (touchesUncovered > 0) {
-    const rollbackPath = process.env.FORWARD_ROLLBACK_PATH ?? "forward-docs.rollback.json";
-    const rollback = {
-      version: 1,
-      note: `Prior state of the ER + Agents/MCP layers before applying to project ${cfg.api.projectId} at ${cfg.commit || "unknown commit"}. Re-apply with: forward-docs apply ${rollbackPath}`,
-      entities: exEntities,
-      entityRelations: exRelations,
-      mcpServers: exServers,
-      agents: exAgents
-    };
-    await writeFile(rollbackPath, `${JSON.stringify(rollback, null, 2)}
-`).catch(
-      (e) => console.error(`forward-docs: could not write rollback file: ${msg(e)}`)
-    );
-    console.error(`forward-docs: wrote ${rollbackPath} (re-appliable rollback for ER + Agents/MCP).`);
-  }
   const entityPlacer = new GridPlacer(entityGeom.values());
   const nodePlacer = new GridPlacer(nodeGeom.values());
   const agentPlacer = new GridPlacer([...serverGeom.values(), ...agentGeom.values()]);
@@ -4826,24 +5613,24 @@ async function apply(planPath) {
       );
     }
   }
-  await writeSummary(cfg, checkpoint.id, report);
+  await writeSummary(cfg, report);
   const skippedNote = report.skipped.length ? `, ${report.skipped.length} skipped` : "";
   if (report.failed.length) {
     console.error(
-      `forward-docs: ${report.failed.length}/${total} write(s) failed${skippedNote}. Restore checkpoint ${checkpoint.id} (design + infra)` + (touchesUncovered > 0 ? " and re-apply the rollback file (ER + Agents/MCP)" : "") + ` if the canvas is inconsistent.`
+      `forward-docs: ${report.failed.length}/${total} write(s) failed${skippedNote}. Discard the partial write with \`git checkout -- .forward\` if needed.`
     );
     return 1;
   }
   console.error(`forward-docs: done \u2014 applied ${report.ok.length} item(s)${skippedNote}.`);
   return 0;
 }
-async function writeSummary(cfg, checkpointId, report) {
+async function writeSummary(cfg, report) {
   const file = process.env.GITHUB_STEP_SUMMARY;
   if (!file) return;
   const lines = [
     `### Forward docs updated`,
     ``,
-    `Project \`${cfg.api.projectId}\` \xB7 checkpoint \`${checkpointId}\` (restores design + infra)`,
+    `Project \`${cfg.api.projectId}\` \xB7 written to \`.forward/\` in the repository`,
     ``,
     `- \u2705 applied: **${report.ok.length}**`,
     `- \u23ED\uFE0F skipped (already up to date): **${report.skipped.length}**`,
@@ -4866,12 +5653,13 @@ function usage() {
       "Usage: forward-docs apply [path]",
       "",
       "  apply [path]   Validate a forward-docs.json (default: ./forward-docs.json)",
-      "                 and write it to the Forward project.",
+      "                 and write it into .forward/.",
+      "",
+      "Run it in a repository that has a .forward/ project.",
       "",
       "Environment:",
-      "  FORWARD_API_BASE_URL   Forward backend base URL (e.g. https://api.forward.dev)",
-      "  FORWARD_PROJECT_ID     Target project (tenancy) id",
-      "  FORWARD_API_TOKEN      Project API token (secret)"
+      "  FORWARD_REPO           Repository root (default: search up from the cwd)",
+      "  FORWARD_AUTHOR         Author stamped on writes (default: forward-docs)"
     ].join("\n")
   );
 }

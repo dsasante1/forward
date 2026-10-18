@@ -4,9 +4,9 @@ import { apply } from "./apply.js";
 /**
  * `forward-docs` — the tiny, deterministic write step of the Forward CI docs
  * pipeline. The customer's own AI does all the reasoning and emits a
- * `forward-docs.json`; this command validates it, snapshots a checkpoint, and
- * writes it to the Forward project. It holds the credentials so the AI never
- * has to. See FORWARD_DOCS.md for the instructions handed to the AI.
+ * `forward-docs.json`; this command validates it and writes it into the
+ * repository's `.forward/` project. See FORWARD_DOCS.md for the instructions
+ * handed to the AI.
  */
 function usage(): void {
   console.error(
@@ -14,12 +14,13 @@ function usage(): void {
       "Usage: forward-docs apply [path]",
       "",
       "  apply [path]   Validate a forward-docs.json (default: ./forward-docs.json)",
-      "                 and write it to the Forward project.",
+      "                 and write it into .forward/.",
+      "",
+      "Run it in a repository that has a .forward/ project.",
       "",
       "Environment:",
-      "  FORWARD_API_BASE_URL   Forward backend base URL (e.g. https://api.forward.dev)",
-      "  FORWARD_PROJECT_ID     Target project (tenancy) id",
-      "  FORWARD_API_TOKEN      Project API token (secret)",
+      "  FORWARD_REPO           Repository root (default: search up from the cwd)",
+      "  FORWARD_AUTHOR         Author stamped on writes (default: forward-docs)",
     ].join("\n"),
   );
 }

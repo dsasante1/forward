@@ -62,7 +62,7 @@ flow) → **`add_flow_step`** (append a step) → **`remove_flow`**.
 
 Tasks are the project's work items; they optionally link into the other layers
 (`elementId` / `flowId` / `endpointId`). Every change you make is recorded in the task's
-activity feed attributed to the agent, exactly as the dashboard records human changes — so
+activity feed attributed to the agent, exactly as the canvas records human changes — so
 prefer these tools over guessing state.
 
 1. **`list_tasks`** to survey work — filter by `status`, `type`, `priority`, `label`,
@@ -102,9 +102,10 @@ explicit.
 ## Troubleshooting
 
 - **Tool calls fail / "server not connected".** Cause: the forward MCP server isn't
-  running or configured. Solution: confirm it's connected in your client's MCP settings; the
-  server holds the API credentials, so a config/credential problem there blocks every
-  tool.
+  running or can't find the project. Solution: confirm it's connected in your client's MCP
+  settings and started inside the repository (or `FORWARD_REPO` points at it), and that
+  `.forward/forward.json` exists (`forward init`). Without MCP, run the same tool with the
+  `forward` CLI.
 - **`resolve_anchors` reports an anchor whose `exists` is false.** Cause: a typo or stale
   `@adc` id in the source. Solution: fix the id in code (or pick the right element via
   `find_element`) before writing docs.

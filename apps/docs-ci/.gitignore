@@ -1,7 +1,9 @@
 # The rest of dist/ is build output (ignored by the root .gitignore), but the
 # bundled composite Action MUST be committed so a customer's
 # `uses: dsasante1/forward/apps/docs-ci@<ref>` finds it at that ref. Re-include
-# just that one file. Rebuild it with `npm run build -w apps/docs-ci`.
+# just that file and the licenses of what it inlines. Rebuild both with
+# `npm run build -w apps/docs-ci`.
 !dist/
 dist/*
 !dist/action.mjs
+!dist/THIRD_PARTY_NOTICES.txt

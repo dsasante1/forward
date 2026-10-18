@@ -1,6 +1,6 @@
 // --------------------------------------------------------------------------
 // Task helpers — the ONE place task work-items are created, mutated and
-// commented on. Every surface (dashboard, canvas, extension and MCP, all via the
+// commented on. Every surface (canvas, extension, MCP and CLI, all via the
 // server) calls these so a task's history is built identically no
 // matter who touched it. Pure functions: they take the prior task + a change +
 // the acting uid and return the next task with the right `activity` appended and

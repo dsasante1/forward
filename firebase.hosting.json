@@ -1,9 +1,0 @@
-{
-  "//": "Hosting-only config for the dashboard SPA. Kept separate from the RTDB-rules firebase.json that `npm run setup` generates, so the two never collide. Deployed by .github/workflows/deploy-frontend.yml with: firebase deploy --only hosting --config firebase.hosting.json",
-  "hosting": {
-    "site": "forward-dashboard",
-    "public": "apps/dashboard/dist",
-    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }]
-  }
-}

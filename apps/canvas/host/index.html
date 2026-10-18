@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Forward</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #0f1115; color: #e6e6e6;
+        font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+      #app { position: fixed; inset: 0; }
+      #banner { position: fixed; right: 16px; bottom: 16px; max-width: calc(100vw - 32px);
+        z-index: 10; padding: 6px 12px; border-radius: 999px; background: #1c2230;
+        border: 1px solid #2c3445; font-size: 12px; color: #b9c2d3; display: none; }
+      #error { padding: 24px; max-width: 640px; margin: 10vh auto; display: none; }
+      #error code { background: #1c2230; padding: 2px 6px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <!--forward:config-->
+    <div id="app"></div>
+    <div id="banner"></div>
+    <div id="error"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

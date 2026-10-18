@@ -3,15 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "CI write step: validate an AI-produced forward-docs.json and push it to a Forward project (checkpoint-safe, idempotent). The AI is bring-your-own; this only does the credentialed write.",
-  "license": "UNLICENSED",
+  "description": "CI write step: validate an AI-produced forward-docs.json and write it into the repository's .forward/ project. The AI is bring-your-own; this step runs no AI and needs no credentials.",
+  "license": "Apache-2.0",
   "bin": {
     "forward-docs": "./dist/cli.js"
   },
   "main": "./dist/cli.js",
   "scripts": {
     "build": "tsc -p tsconfig.json && npm run bundle",
-    "bundle": "esbuild src/cli.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/action.mjs",
+    "bundle": "node scripts/bundle.mjs",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"

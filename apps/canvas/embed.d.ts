@@ -1,6 +1,6 @@
 /**
- * Public types for `forward-canvas/embed`, hand-written so host apps (the
- * dashboard) get types without their tsc parsing the canvas app source — which
+ * Public types for `forward-canvas/embed`, hand-written so host apps (the VS
+ * Code extension webview) get types without their tsc parsing the canvas app source — which
  * uses Vite-only imports (`*.css?inline`) and pulls in mermaid.
  *
  * Keep in sync with src/embed.ts. The runtime ("import" condition) resolves to
@@ -85,10 +85,7 @@ export interface CanvasSource {
   deleteAgentNode?(agentId: string): Promise<void>;
   saveMcpServer?(server: McpServerNode): Promise<void>;
   deleteMcpServer?(serverId: string): Promise<void>;
-  addMember?(uid: string, role?: ProjectRole): Promise<void>;
   listMembers?(): Promise<RosterMember[]>;
-  updateMemberRole?(uid: string, role: ProjectRole): Promise<void>;
-  removeMember?(uid: string): Promise<void>;
   subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
   saveTask?(task: Task): Promise<void>;
   deleteTask?(taskId: string): Promise<void>;
@@ -102,8 +99,8 @@ export interface CanvasSource {
   deleteCheckpoint?(checkpointId: string): Promise<void>;
 }
 
-/** A CanvasSource backed by the Forward backend REST API; the host builds one
- * with its own token provider and hands it to mountCanvas. */
+/** A CanvasSource backed by Forward's REST API (`forward serve`); the host
+ * builds one with its token provider and hands it to mountCanvas. */
 export declare class ServerSource implements CanvasSource {
   constructor(
     baseUrl: string,
@@ -115,9 +112,18 @@ export declare class ServerSource implements CanvasSource {
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
   saveElement(element: DesignElement): Promise<void>;
   deleteElement(elementId: string): Promise<void>;
-  /** Push path: forward a realtime ChangeEvent's resource to re-fetch that
-   * layer immediately (the poll loops remain the reconciliation fallback). */
+  /** Re-fetch one layer immediately (the poll loops remain the fallback). */
   notifyChange(resource: RealtimeResource): void;
+}
+
+/** A read-only CanvasSource over a project bundle written by `forward export`
+ * (the GitHub Pages viewer). Mirrors src/static-source.ts. */
+export declare class StaticSource implements CanvasSource {
+  constructor(bundle: import("forward-core/repo").ProjectBundle);
+  subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
+  subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
+  saveElement(element: DesignElement): Promise<DesignElement>;
+  deleteElement(elementId: string): Promise<void>;
 }
 
 export interface MountOptions {

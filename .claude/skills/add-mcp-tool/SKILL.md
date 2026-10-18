@@ -1,16 +1,17 @@
 ---
 name: add-mcp-tool
-description: Adds or edits a tool in the Forward MCP server (apps/mcp/src/server.ts) following the existing registerTool + Zod-shape pattern, keeping AI-agent capabilities at parity with the canvas and extension. Use when exposing a new capability to agents — e.g. "add an MCP tool", "expose X to the agent", "new registerTool", "the MCP server should be able to...". Do NOT use for editing the data contract itself (use schema-change) or for canvas/extension UI work.
+description: Adds or edits a tool in the Forward MCP server (apps/mcp/src/tools.ts) following the existing registerTool + Zod-shape pattern, keeping AI-agent capabilities at parity with the canvas and extension. Use when exposing a new capability to agents — e.g. "add an MCP tool", "expose X to the agent", "new registerTool", "the MCP server should be able to...". Do NOT use for editing the data contract itself (use schema-change) or for canvas/extension UI work.
 metadata:
   version: 1.0.0
 ---
 
 # Adding an MCP tool
 
-The MCP server ([apps/mcp/src/server.ts](../../../apps/mcp/src/server.ts)) is the AI-native
-surface: it must stay at **parity** with the canvas and extension — any data pillar a human
-can touch (design elements, API bindings, infra graph, flows, timeline, project members) an
-agent can too. New canvas/extension capabilities usually need a matching tool here.
+The agent tools ([apps/mcp/src/tools.ts](../../../apps/mcp/src/tools.ts)) are the AI-native
+surface: served over MCP stdio by `src/server.ts` and from the shell by the `forward` CLI
+(`src/cli.ts`), so a tool registered once is available to both. They must stay at **parity**
+with the canvas and extension — any data pillar a human can touch (design elements, API
+bindings, infra graph, flows, timeline, tasks) an agent can too. New canvas/extension capabilities usually need a matching tool here.
 
 ## Pattern (follow the existing tools exactly)
 

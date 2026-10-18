@@ -27,7 +27,6 @@ import type {
   AgentSnapshot,
   CanvasSource,
   ElementSnapshot,
-  ProjectRole,
   RosterMember,
 } from "./source.js";
 import { descendants, findParent, snap, type Rect } from "./geometry.js";
@@ -53,7 +52,7 @@ const XHTML_NS = "http://www.w3.org/1999/xhtml";
 
 /** The static DOM the editor renders into. Injected into the canvas Shadow DOM so
  * its styles (and generic selectors like `code`/`table`/`.row`) stay isolated
- * from any host page (e.g. the dashboard). */
+ * from any host page (e.g. the VS Code webview). */
 const SKELETON = `
 <div class="fwd-canvas-root layers-open" data-view="design">
   <nav id="toolbar"></nav>
@@ -186,7 +185,7 @@ function on<K extends keyof WindowEventMap>(
 /**
  * Mount the Forward canvas editor into `container`. Sets up the Shadow DOM,
  * resolves the DOM refs, attaches the source, and runs the bootstrap. Returns a
- * handle whose `destroy()` tears the instance down — used by the dashboard route
+ * handle whose `destroy()` tears the instance down — used by a host that remounts it
  * on unmount; the standalone entry just calls mountCanvas and never destroys.
  */
 export function mountCanvas(opts: MountOptions): CanvasHandle {
@@ -770,7 +769,7 @@ function scheduleRetry(): void {
 
 // ---- subscriptions ------------------------------------------------------
 /** Open the data subscriptions (called by mountCanvas). Each unsubscribe is
- * tracked in `disposers` so the dashboard route can unmount cleanly. */
+ * tracked in `disposers` so a host can unmount cleanly. */
 function subscribeAll(): void {
   disposers.push(
     source.subscribe((snaps) => {
@@ -986,9 +985,9 @@ function buildToolbar(): void {
   themeBtn.dataset.toggle = "theme";
   themeBtn.classList.toggle("active", showTheme);
   toolbar.append(themeBtn);
-  // Membership management only applies to the live (auth-gated) source; a
-  // read-only source omits addMember and the tool simply doesn't appear.
-  if (source.addMember) {
+  // The contributor roster needs a source that can list it (the live repo
+  // source); a static snapshot omits listMembers and the tool doesn't appear.
+  if (source.listMembers) {
     const memberBtn = iconButton(memberIcon(), "Member", toggleMember);
     memberBtn.dataset.toggle = "member";
     toolbar.append(memberBtn);
@@ -3767,49 +3766,12 @@ function renderMemberPanel(): void {
       members,
       loading: membersLoading,
       error: membersError,
-      canManage: Boolean(source.addMember),
     },
     {
       onClose: () => setView("design"),
       onReload: () => void loadMembers(),
-      onAdd: (uid, role) => void addMemberUid(uid, role),
-      onChangeRole: (uid, role) => void changeMemberRole(uid, role),
-      onRemove: (uid) => void removeMemberUid(uid),
     },
   );
-}
-
-/** Enrol a collaborator by uid; they get their uid from the locked-out banner. */
-async function addMemberUid(uid: string, role: ProjectRole): Promise<void> {
-  if (!source.addMember) return;
-  try {
-    await source.addMember(uid, role);
-    notify(`Added ${uid} to this project.`);
-    await loadMembers();
-  } catch (err) {
-    notify(`Couldn't add member: ${(err as Error).message}`);
-  }
-}
-
-async function changeMemberRole(uid: string, role: ProjectRole): Promise<void> {
-  if (!source.updateMemberRole) return;
-  try {
-    await source.updateMemberRole(uid, role);
-    await loadMembers();
-  } catch (err) {
-    notify(`Couldn't update role: ${(err as Error).message}`);
-  }
-}
-
-async function removeMemberUid(uid: string): Promise<void> {
-  if (!source.removeMember) return;
-  try {
-    await source.removeMember(uid);
-    notify(`Removed ${uid} from this project.`);
-    await loadMembers();
-  } catch (err) {
-    notify(`Couldn't remove member: ${(err as Error).message}`);
-  }
 }
 
 // ========================================================================
@@ -4059,7 +4021,7 @@ const TAG_OPTS: Array<{ key: CheckpointTag; label: string }> = [
 // synchronous modal can't work in any case. These render a small modal into
 // #dialog (in the Shadow DOM, reusing the .fwd-modal styles) and resolve a
 // Promise on OK / Cancel / Escape / backdrop — so the canvas authors infra,
-// entities and flows the same way whether it's embedded in the dashboard or in
+// entities and flows the same way whether it's served by `forward serve`, exported for Pages, or in
 // the VS Code extension.
 // ------------------------------------------------------------------------
 

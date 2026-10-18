@@ -19,7 +19,6 @@ import type {
   InfraFlow,
   InfraNode,
   McpServerNode,
-  ProjectRole,
   ProjectTimelineEvent,
   Task,
 } from "forward-core";
@@ -29,7 +28,7 @@ import type { RosterMember } from "forward-core/api";
  * The VS Code canvas webview. Rather than re-implement the editor, this mounts
  * the *real* `forward-canvas` library — so the toolbar (Layers / Data / Flows /
  * Tasks / Infra / checkpoints) and every authoring affordance are identical to
- * the dashboard's canvas, and stay in sync automatically.
+ * the canvas `forward serve` opens, and stay in sync automatically.
  *
  * The canvas drives a `CanvasSource`; here that source is a thin RPC bridge over
  * `postMessage`. The extension host runs the actual backend client (a
@@ -188,18 +187,10 @@ class BridgeSource implements CanvasSource {
   deleteMcpServer(serverId: string): Promise<void> {
     return rpc("deleteMcpServer", [serverId]);
   }
-  addMember(uid: string, role?: ProjectRole): Promise<void> {
-    return rpc("addMember", [uid, role]);
-  }
   listMembers(): Promise<RosterMember[]> {
     return rpc("listMembers", []);
   }
-  updateMemberRole(uid: string, role: ProjectRole): Promise<void> {
-    return rpc("updateMemberRole", [uid, role]);
-  }
-  removeMember(uid: string): Promise<void> {
-    return rpc("removeMember", [uid]);
-  }
+
   saveTask(task: Task): Promise<void> {
     return rpc("saveTask", [task]);
   }

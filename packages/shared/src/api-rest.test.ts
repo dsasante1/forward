@@ -1,15 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  addMember,
   bindApiToElement,
-  createApiToken,
   deleteElement,
   fetchElements,
   fetchInfra,
-  listApiTokens,
-  listProjects,
-  revokeApiToken,
-  rotateApiToken,
   saveInfraNode,
   unbindApiFromElement,
   type ApiConfig,
@@ -17,9 +11,9 @@ import {
 import type { DesignElement } from "./schema.js";
 
 const cfg: ApiConfig = {
-  baseUrl: "https://api.forward.test",
+  baseUrl: "http://127.0.0.1:4747",
   projectId: "proj",
-  token: "clerk_session_token",
+  token: "session_token",
 };
 
 interface Call {
@@ -40,7 +34,7 @@ function mockFetch(routes: Record<string, unknown> = {}) {
       headers: (init?.headers as Record<string, string>) ?? {},
       body: init?.body ? JSON.parse(init.body as string) : undefined,
     });
-    const path = url.replace("https://api.forward.test", "");
+    const path = url.replace("http://127.0.0.1:4747", "");
     const payload = routes[path] ?? null;
     return {
       ok: true,
@@ -84,10 +78,10 @@ describe("api-rest client", () => {
       updatedAt: "2026-01-01T00:00:00.000Z",
     });
     const [call] = calls;
-    expect(call?.headers["authorization"]).toBe("Bearer clerk_session_token");
+    expect(call?.headers["authorization"]).toBe("Bearer session_token");
     expect(call?.url).not.toContain("auth=");
     expect(call?.url).toBe(
-      "https://api.forward.test/projects/proj/infra/nodes/n1",
+      "http://127.0.0.1:4747/projects/proj/infra/nodes/n1",
     );
     expect(call?.method).toBe("PUT");
   });
@@ -112,7 +106,7 @@ describe("api-rest client", () => {
     const [call] = calls;
     expect(call?.method).toBe("PUT");
     expect(call?.url).toBe(
-      "https://api.forward.test/projects/proj/elements/el1/binding",
+      "http://127.0.0.1:4747/projects/proj/elements/el1/binding",
     );
     expect(call?.body).toMatchObject({
       version: "v1.0.0",
@@ -147,13 +141,6 @@ describe("api-rest client", () => {
     expect(calls[0]?.url).toContain("cascade=true");
   });
 
-  it("addMember POSTs { userId, role } to the roster", async () => {
-    const calls = mockFetch();
-    await addMember(cfg, "user_123", "editor");
-    expect(calls[0]?.url).toBe("https://api.forward.test/projects/proj/members");
-    expect(calls[0]?.body).toEqual({ userId: "user_123", role: "editor" });
-  });
-
   it("fetchInfra splits nodes and edges from the combined response", async () => {
     mockFetch({
       "/projects/proj/infra": {
@@ -186,72 +173,5 @@ describe("api-rest client", () => {
       vi.fn(async () => ({ ok: false, status: 403 }) as unknown as Response),
     );
     await expect(fetchElements(cfg)).rejects.toThrow(/403/);
-  });
-});
-
-describe("api-rest account-level helpers", () => {
-  const base = "https://api.forward.test";
-  const tok = "fwd_pat_secret";
-
-  it("listProjects GETs /projects with the bearer token and maps id/name/role", async () => {
-    const calls = mockFetch({
-      "/projects": [
-        { id: "p1", name: "Alpha", role: "owner", extra: "ignored" },
-        { id: "p2", name: "Beta", role: "viewer" },
-      ],
-    });
-    const projects = await listProjects(base, tok);
-    expect(projects).toEqual([
-      { id: "p1", name: "Alpha", role: "owner" },
-      { id: "p2", name: "Beta", role: "viewer" },
-    ]);
-    expect(calls[0]?.url).toBe("https://api.forward.test/projects");
-    expect(calls[0]?.headers["authorization"]).toBe("Bearer fwd_pat_secret");
-    expect(calls[0]?.url).not.toContain("auth=");
-  });
-
-  it("createApiToken POSTs the name and returns the one-time plaintext", async () => {
-    const calls = mockFetch({
-      "/tokens": {
-        id: "t1",
-        name: "Laptop",
-        prefix: "fwd_pat_abcd",
-        createdAt: "2026-06-27T00:00:00.000Z",
-        token: "fwd_pat_abcd1234",
-      },
-    });
-    const created = await createApiToken(base, tok, "Laptop");
-    expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.url).toBe("https://api.forward.test/tokens");
-    expect(calls[0]?.body).toEqual({ name: "Laptop" });
-    expect(created.token).toBe("fwd_pat_abcd1234");
-  });
-
-  it("createApiToken forwards a chosen expiry, and omits it to take the default", async () => {
-    const calls = mockFetch({ "/tokens": { token: "fwd_pat_x" } });
-    await createApiToken(base, tok, "CI", 30);
-    await createApiToken(base, tok, "Default");
-    expect(calls[0]?.body).toEqual({ name: "CI", expiresInDays: 30 });
-    expect(calls[1]?.body).toEqual({ name: "Default" });
-  });
-
-  it("rotateApiToken POSTs to /tokens/:id/rotate with the expiry", async () => {
-    const calls = mockFetch({
-      "/tokens/t1/rotate": { token: "fwd_pat_new" },
-    });
-    const rotated = await rotateApiToken(base, tok, "t1", 90);
-    expect(calls[0]?.method).toBe("POST");
-    expect(calls[0]?.url).toBe("https://api.forward.test/tokens/t1/rotate");
-    expect(calls[0]?.body).toEqual({ expiresInDays: 90 });
-    expect(rotated.token).toBe("fwd_pat_new");
-  });
-
-  it("listApiTokens GETs /tokens and revokeApiToken DELETEs by id", async () => {
-    const calls = mockFetch({ "/tokens": [] });
-    await listApiTokens(base, tok);
-    await revokeApiToken(base, tok, "t 1");
-    expect(calls[0]?.url).toBe("https://api.forward.test/tokens");
-    expect(calls[1]?.method).toBe("DELETE");
-    expect(calls[1]?.url).toBe("https://api.forward.test/tokens/t%201");
   });
 });

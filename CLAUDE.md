@@ -4,27 +4,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Forward is a developer-first tool. Designers draw UI on an independent visual canvas; backend developers (from VS Code or an AI agent) annotate those design elements with API, infrastructure, data-model and UML documentation, plus a historical (timeline) view of how development has changed over time — keeping frontend and backend in sync. Organizations and users sign up, manage members, and track tasks against the design.
+Forward is a developer-first tool. Designers draw UI on an independent visual canvas; backend developers (from VS Code or an AI agent) annotate those design elements with API, infrastructure, data-model and UML documentation, plus a historical (timeline) view of how development has changed over time — keeping frontend and backend in sync. Teams also track tasks against the design.
 
-Forward runs on a **centrally-hosted backend** (`apps/server` — NestJS/Prisma/Supabase Postgres/Clerk) that owns auth, sign-up, the database, tenancy, RBAC, and the realtime sync bus. The dashboard, canvas, VS Code extension **and the MCP server** all talk to the server through `forward-core/api`.
+Forward is open source (Apache-2.0) and **git-native**: a project is plain JSON in `.forward/` inside the team's own repository (one file per record; see `packages/shared/src/repo/layout.ts`). There is no central server, database, account or token. `forward-core/repo` serves the one REST contract, `forward-core/api`, from those files: in-process for the MCP server, CLI, extension and docs-ci (via `ApiConfig.transport`), and over a local HTTP server (`forward serve`) for the canvas. Git is the sync, the history (`git log` → project timeline) and the access control.
+
+The product is **AI-agent first**: every capability is an MCP tool registered once in `apps/mcp/src/tools.ts`, served over stdio (`forward-mcp`) and callable from the shell (`forward <tool>`), so Claude, Codex, Cursor or a script all get the same behaviour.
 
 ## Commands
 
 Run from the repo root (npm workspaces; Node >= 20, `.nvmrc` pins 22).
 
 - `npm install` — install all workspaces
-- `npm run build` — build every workspace (`packages/shared` must build before the apps that import it)
+- `npm run build` — build every workspace (`packages/shared` must build before the apps that import it; `apps/canvas` before `apps/mcp`, which copies the canvas UI)
 - `npm test` — run all Vitest suites across workspaces
 - `npm run typecheck` — typecheck all workspaces
-- The web canvas is no longer a standalone app — it is embedded by the dashboard (`apps/dashboard`, route `/app/projects/:projectId/canvas`). Run it via `npm run dev -w apps/dashboard`.
 - `npm run bootstrap` — `install` → `build`
 
-Backend server (`apps/server` — NestJS/Prisma/Supabase/Clerk; needs `apps/server/.env`, copy from `.env.example`):
-- `npm run dev -w apps/server` — run the API in watch mode (listens on :8080); `npm run start -w apps/server` runs the built server
-- `npm run prisma:migrate -w apps/server` — apply migrations, or create one after editing `schema.prisma` with `-- --name <change>`; `prisma:deploy` applies committed migrations in CI/prod; `prisma:generate` regenerates the typed client only
-- Migrations are committed under `apps/server/prisma/migrations/`; the dashboard and admin SPA reach the server via `VITE_API_BASE_URL` (e.g. `http://localhost:8080`)
-
-Front-ends: `npm run dev -w apps/dashboard` (dashboard + embedded canvas) and `npm run dev -w apps/admin` (platform-admin console). Both are Vite + Clerk.
+The `forward` CLI (after `npm run build`, `node apps/mcp/dist/cli.js` is the binary):
+- `forward init` — create `.forward/` plus AGENTS.md/CLAUDE.md, `.mcp.json`, `.cursor/mcp.json` and `.github/workflows/forward.yml` in a repo
+- `forward serve` — the canvas editor on `.forward/` (127.0.0.1:4747, per-session token, Host check)
+- `forward validate` / `forward diff <ref>` / `forward export --out _site` — CI check, PR catch-up digest, static GitHub Pages site
+- `forward tools`, `forward <tool> --arg v`, `forward call <tool> '<json>'`, `forward mcp` — the agent tools from the shell
+- `npm run pack -w apps/mcp` — the self-contained npm package (`apps/mcp/pkg`, bundles forward-core + the canvas UI)
+- The standalone canvas host is `apps/canvas/host/` (built by `npm run build -w apps/canvas` into `dist-host/`; `npm run dev:host -w apps/canvas` for Vite dev)
 
 Per-workspace (use `-w <workspace>`, e.g. `npm test -w packages/shared`):
 - A single test file: `npm test -w packages/shared -- src/schema.test.ts`
@@ -39,8 +41,9 @@ The extension is bundled with **esbuild** (`apps/extension/esbuild.mjs`), not ts
 
 Everything depends on this package; the apps depend on each other only through it. It is the **single source of truth** for every data shape — change it here once and all surfaces follow. Key modules:
 
-- `schema.ts` — Zod schemas + TS types for all seven data layers. The same schemas validate the JSON columns the server stores in Postgres, so the client and the backend speak the identical contract.
-- `api-rest.ts` — the **central-server client**, exported as `forward-core/api`. Every function takes an `ApiConfig` (`baseUrl` + `projectId` + Clerk/PAT `token`), sends a `Bearer` token, never touches the DB directly, and lets the server own identity + timestamps. Used by every surface — the **canvas** (`ServerSource`), the **extension**, the **MCP server**, and docs CI.
+- `schema.ts` — Zod schemas + TS types for all seven data layers. The same schemas validate every `.forward/` file on read and write.
+- `api-rest.ts` — the **client every surface uses**, exported as `forward-core/api`. Every function takes an `ApiConfig` (`projectId`, plus either an in-process `transport` or a `baseUrl` + session `token` for `forward serve`), never touches storage directly, and lets the backend own identity + timestamps.
+- `repo/` — the backend, exported as `forward-core/repo` (node-only; never import it from browser code except as types). `RepoStore` owns the semantics over `.forward/` files (binding owned by bind/unbind, delete cascades, stamped `updatedAt`, append-only history files); `createRepoRouter` maps the REST routes onto it; `repoConfig()`/`findRepoRoot()` build an `ApiConfig`; `git.ts` derives the project timeline and contributor roster from git and materializes `.forward/` at a ref; `validate.ts` is the CI check; `bundle.ts` exports a whole project and diffs two states into the PR digest. Behaviour is pinned by `repo/repo.test.ts`.
 - `api-diff.ts` — the "git-diff for API docs": diffs two `apiBinding`s (title change + line-level Markdown diff) into the structured `VersionDiff` the History timeline expands.
 - `timeline.ts` — pure helpers that flatten per-element `version_timeline` histories into one chronological event stream, lay it out as git-graph lanes, and collapse it into a catch-up digest (to-integrate / to-modify / to-remove since a baseline).
 - `infra-flow.ts` — the infrastructure graph + narrated flows logic; serializes flows to a Mermaid `sequenceDiagram` and the graph to a component diagram.
@@ -49,7 +52,7 @@ Everything depends on this package; the apps depend on each other only through i
 
 ### Seven intentionally-separate data layers
 
-The **design** layer is primary and stands alone; every other layer is optional and either *attaches to* a design element or *links* to one by id (soft references resolved on read, never enforced foreign keys).
+The **design** layer is primary and stands alone; every other layer is optional and either *attaches to* a design element or *links* to one by id (soft references resolved on read, never enforced foreign keys; `forward validate` reports dangling ones as warnings).
 
 1. **Design** — `DesignElement`s a designer draws (frame, rectangle, ellipse, text, component, instance) with absolute geometry and `parentId` hierarchy. The primary artefact; exists on its own.
 2. **API binding** — an *optional* `apiBinding` (`{ title, description }`) a backend dev attaches to a design element. Most elements never get one; an endpoint is never a first-class canvas object. Docs-first and framework-agnostic (Markdown `description` carries the meaning).
@@ -59,30 +62,33 @@ The **design** layer is primary and stands alone; every other layer is optional 
 6. **Tasks** — an *optional*, project-scoped tracker (`Task`: status/priority/type, assignees, `dependsOn`, activity feed). Stands apart but each task optionally *links* into the other layers (`elementId` / `flowId` / `endpointId`).
 7. **Checkpoints** — *optional*, named, restorable snapshots of the whole canvas (design + infra), each with a note and per-layer change counts.
 
-On top sit the **timelines**: the per-element append-only `version_timeline` (API-doc history) and a unified project event feed (`ProjectTimelineEvent`, domain-tagged design/api/infra/uml), driving the History git-graph, doc diffs and catch-up digest.
+On top sit the **timelines**: the per-element append-only `version_timeline` (API-doc history, one file per entry under `.forward/history/`) and a unified project event feed (`ProjectTimelineEvent`, domain-tagged design/api/infra/flow/agent, built from `git log` plus uncommitted changes), driving the History git-graph, doc diffs and catch-up digest.
 
-A "project id" is a **tenancy namespace** (e.g. `project_xyz`), **not** a GCP project id. The canvas's `VITE_CANVAS_PROJECT_ID` and the extension's `forward.projectId` must match for the two sides to share elements.
+A "project id" is the `id` in `.forward/forward.json`.
 
 ### The surfaces (`apps/*`)
 
-- **`apps/server`** — the central NestJS API and trust boundary. Feature modules mirror the layers/tiers: `projects` (tenancy + roster), `invites`, `tokens` (extension API tokens), `elements`, `infra`, `tasks`, `checkpoints`, `timeline`, `orgs` (Clerk-mirrored), `webhooks` (Svix-verified Clerk sync), `admin` (platform tier), plus `auth` (global Clerk guard), `common` (guards, realtime bus, email, sanitize) and `prisma`. Boots with helmet, a fail-closed CORS allow-list, and a global validation pipe. Data lives in Postgres as validated JSON columns (see `prisma/schema.prisma`).
-- **`apps/dashboard`** (`forward-dashboard`) — React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members, the org-admin portal, and the host that embeds the canvas.
-- **`apps/canvas`** (`forward-canvas`) — vanilla-TS design editor, consumed **only as an embedded library** (no standalone app). Exports `mountCanvas` + `ServerSource` via `forward-canvas/embed` (`src/embed.ts`); the dashboard's `CanvasPage` mounts it into a Shadow DOM with a Clerk-token-backed `ServerSource` (the backend REST API via `forward-core/api`). The `CanvasSource` interface lives in `src/source.ts`; styles are injected from `src/canvas.css` (`?inline`); diagrams render via `mermaid`.
-- **`apps/extension`** (`forward-vscode`) — VS Code extension. Talks to the **central server** via `forward-core/api`, authenticating with a Personal Access Token (a `fwd_pat_…` PAT pasted via `forward.signIn` and kept in VS Code SecretStorage) — the long-lived, user-scoped stand-in for a Clerk session JWT that headless surfaces use; configured by `forward.apiBaseUrl` + `forward.projectId` (the project chosen interactively via `forward.selectProject`). Contributes the `forward.*` commands (connect endpoint, edit infra/flows, file/update tasks, select project) and settings.
-- **`apps/mcp`** (`forward-mcp`) — Model Context Protocol server giving any AI agent full parity with the canvas/extension (~30 scoped tools). Talks to the **central server** via `forward-core/api`, authenticating with the same `fwd_pat_…` PAT model as the extension (a user-scoped credential the server resolves to its owner's access): the process holds `FORWARD_API_BASE_URL`, `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN`; the difference is only delivery — ambient env vars here vs. interactive paste + SecretStorage in the extension, since no human is present. The agent only ever sees the scoped tools. `match.ts` (fuzzy feature→element matching) and `anchor.ts` (deterministic `@adc <id>` source markers) power element resolution.
-- **`apps/admin`** (`forward-admin`) — the platform-admin SPA (Vite + Clerk): a cross-tenant staff console (overview, orgs, users, projects, billing, audit) served by the server's `admin` module behind `PlatformAdminGuard`.
+- **`apps/canvas`** (`forward-canvas`) — vanilla-TS design editor. Exports `mountCanvas`, `ServerSource` and `StaticSource` via `forward-canvas/embed` (`src/embed.ts`, types in `embed.d.ts`). Hosts: the standalone page in `host/` that the CLI ships (`forward serve` → `ServerSource` against the local server; `forward export` → read-only `StaticSource` over a project bundle, for GitHub Pages) and the VS Code extension webview (a postMessage-bridged `CanvasSource`). The `CanvasSource` interface lives in `src/source.ts`; styles are injected from `src/canvas.css` (`?inline`); diagrams render via `mermaid`. The Member view is a read-only list of git contributors.
+- **`apps/extension`** (`forward-vscode`) — VS Code extension. Uses the workspace's `.forward/` in-process (found via `findRepoRoot`); no settings, sign-in or project picker. `forward.initRepo` creates `.forward/`; `forward.setupMcp` copies the `claude mcp add` line. Contributes the `forward.*` commands (connect endpoint, insert anchor, edit infra/flows/agents, file/update tasks, history, catch-up).
+- **`apps/mcp`** (`forward-mcp`) — the agent surface. `src/tools.ts` registers ~38 scoped tools on one `McpServer` (full parity with canvas/extension, plus `project_info`, `validate_project`, `get_changes_since_ref`); `src/server.ts` serves them over stdio; `src/cli.ts` is the `forward` CLI, which calls the same tools through an in-memory MCP client (`src/cli/call.ts`) and adds `init`/`serve`/`validate`/`diff`/`export`/`agents`/`github` (`src/cli/`). The project is the nearest `.forward/` above the cwd (or `FORWARD_REPO`); `FORWARD_AGENT` tags the author. `match.ts` (fuzzy feature→element matching) and `anchor.ts` (deterministic `@adc <id>` source markers) power element resolution. Published to npm as one esbuild bundle by `scripts/pack.mjs` (forward-core is not published).
+- **`apps/docs-ci`** (`forward-docs-ci`) — bring-your-own-AI CI step: an agent writes `forward-docs.json`, `forward-docs apply` validates it and writes it into `.forward/` (git is the undo), and the workflow template commits the result back to the PR. `dist/action.mjs` is committed — rebuild it with `npm run build -w apps/docs-ci` after changing `src/`.
 
-### Access control & tenancy
+### Access control
 
-The **server enforces access** (the primary path). **Organizations** (mirrored from Clerk) are the top tenancy tier; **projects** are the unit of isolation, each with a member roster and per-project `ProjectRole` — `viewer` (read), `editor` (read/write data layers), `owner` (also manages roster + invites). Ownership is claimed on create; the "can't remove/demote the last owner" rule is guarded by a `FOR UPDATE` row lock. Membership/role is checked by `MembershipGuard`/`@RequireOwner`; the platform-admin tier bypasses tenancy and writes every mutation to an audit trail. The realtime bus (Supabase) broadcasts change events on a per-project channel whose name is an HMAC of the project id — a capability handed only to members via a guarded route.
+Access is whatever the git host grants: who can push to the repository can change the project. The roster (`GET /members`, `list_members`) is derived from git contributors and is read-only. `forward serve` has no accounts, so it binds to loopback, requires a random per-session token on every API call, and rejects unexpected `Host` headers.
 
 ## Conventions
 
 - ESM throughout (`"type": "module"`); strict TS with `noUncheckedIndexedAccess`.
-- **Change any data layer in `packages/shared` first** (the schema), then propagate to the `api-rest` client, the server module that persists it, and the consuming apps. Never duplicate a shape in an app.
-- The server owns identity + timestamps: an `author` passed by a client is ignored — the session decides who wrote it.
-- Local config (base URLs, tokens, `.env`/`.env.local`, `.vscode/settings.json`) is read from local settings/env and is **never committed**.
+- **Change any data layer in `packages/shared` first** (the schema), then propagate to the `api-rest` client, the store/router in `packages/shared/src/repo/` (with a test in `repo.test.ts`), and the consuming apps. Never duplicate a shape in an app. Keep the `.forward/` file format stable; a breaking layout change bumps `FORMAT_VERSION`.
+- The backend owns identity + timestamps: an `author` passed by a client is ignored — git `user.name` (`FORWARD_AUTHOR` overrides, `FORWARD_AGENT` appends `via <agent>`) decides who wrote it.
+- Local config (`.env`/`.env.local`, `.vscode/settings.json`) is **never committed**.
 
 ## Publishing
 
-Pushing a `v*` tag triggers `.github/workflows/release.yml` to build, test, package the `.vsix`, and publish to the VS Code Marketplace + Open VSX (each skipped if its `VSCE_PAT`/`OVSX_PAT` secret is absent). Bump via `npm version patch -w apps/extension && git push --follow-tags`.
+Releases are tags; [docs/releasing.md](docs/releasing.md) has the details and one-time setup.
+- `mcp-v<version>` → `.github/workflows/release-mcp.yml`: verifies (build, typecheck, tests, `npm run pack -w apps/mcp`, `npm run smoke:package -w apps/mcp`), then publishes `apps/mcp/pkg` to npm as `forward-mcp` via **trusted publishing** (OIDC, no `NPM_TOKEN`, provenance automatic), then a GitHub Release. The tag must equal `apps/mcp/package.json`'s version. The very first publish is manual (`npm publish ./apps/mcp/pkg --access public`) because npm's trusted-publisher setting needs the package to exist.
+- `v<version>` → `.github/workflows/release.yml`: the VS Code extension to the Marketplace + Open VSX (skipped when `VSCE_PAT`/`OVSX_PAT` is absent).
+- The CLI reads its version from `package.json` (`apps/mcp/src/version.ts`), so `forward --version` always matches what npm installed.
+
+The root `action.yml` is the GitHub Action teams use (validate + PR digest comment + Pages export); `.github/workflows/ci.yml` dogfoods it and runs the package smoke test.

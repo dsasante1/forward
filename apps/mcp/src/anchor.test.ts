@@ -1,5 +1,8 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { findAnchorsInSource, resolveAnchors } from "./anchor.js";
+import { findAnchorsInSource, resolveAnchors, scanPath } from "./anchor.js";
 import type { AnchorElement } from "./anchor.js";
 
 describe("findAnchorsInSource", () => {
@@ -112,5 +115,26 @@ describe("resolveAnchors", () => {
     const [resolved] = resolveAnchors(anchors, byId, false);
     expect(resolved).not.toHaveProperty("labelDrifted");
     expect(resolved).toMatchObject({ exists: null });
+  });
+});
+
+describe("scanPath", () => {
+  it("scans files in any language, including extensionless ones, and skips binaries", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "adc-scan-"));
+    try {
+      await writeFile(join(dir, "index.html"), '<!-- @adc el_html "Hero" -->\n<div></div>');
+      await writeFile(join(dir, "handler.lua"), "-- @adc el_lua\nreturn {}");
+      await writeFile(join(dir, "Dockerfile"), "# @adc el_docker\nFROM node:22");
+      await writeFile(join(dir, "logo.png"), Buffer.from([0x89, 0x50, 0x00, 0x40, ...Buffer.from("@adc el_bin")]));
+      await mkdir(join(dir, "node_modules"));
+      await writeFile(join(dir, "node_modules", "dep.js"), "// @adc el_vendored");
+      await mkdir(join(dir, ".forward"));
+      await writeFile(join(dir, ".forward", "el.json"), '{"description":"// @adc el_quoted"}');
+
+      const ids = (await scanPath(dir)).map((a) => a.elementId).sort();
+      expect(ids).toEqual(["el_docker", "el_html", "el_lua"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

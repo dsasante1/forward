@@ -1,5 +1,5 @@
 import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { join } from "node:path";
 
 /**
  * Deterministic linking via in-code anchors.
@@ -114,23 +114,22 @@ export function resolveAnchors(
   });
 }
 
-// Directories never worth scanning, and the text/code extensions we do scan.
+// Directories never worth scanning (vendored deps, build output, and `.forward/`
+// itself, whose docs may quote an anchor without being one). Files are not
+// filtered by extension — any language can carry an anchor — only binaries are
+// skipped, detected by a NUL byte near the start (the same heuristic git uses).
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", "out", "coverage", ".next",
-  ".turbo", "vendor", ".venv", "__pycache__",
-]);
-const TEXT_EXT = new Set([
-  ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rb", ".java",
-  ".kt", ".kts", ".rs", ".php", ".cs", ".c", ".h", ".hpp", ".cpp", ".cc",
-  ".swift", ".scala", ".ex", ".exs", ".vue", ".svelte", ".graphql", ".gql",
-  ".sql", ".sh", ".yaml", ".yml", ".md", ".txt",
+  ".turbo", "vendor", ".venv", "__pycache__", "target", ".gradle",
+  ".dart_tool", ".terraform", "Pods", ".forward",
 ]);
 const MAX_BYTES = 1_000_000; // skip anything bigger than ~1 MB
+const SNIFF_BYTES = 8000;
 
 /**
  * Scan a file or directory for anchors. A single file is read regardless of
  * extension (the caller named it explicitly); a directory is walked, skipping
- * vendored/build folders and non-text files. Unreadable files are skipped, not
+ * vendored/build folders and binary files. Unreadable files are skipped, not
  * fatal, so one bad file never sinks the whole scan.
  */
 export async function scanPath(path: string): Promise<Anchor[]> {
@@ -152,7 +151,7 @@ async function walk(dir: string, out: Anchor[]): Promise<void> {
     const full = join(dir, e.name);
     if (e.isDirectory()) {
       if (!SKIP_DIRS.has(e.name)) await walk(full, out);
-    } else if (e.isFile() && TEXT_EXT.has(extname(e.name).toLowerCase())) {
+    } else if (e.isFile()) {
       out.push(...(await scanFile(full)));
     }
   }
@@ -162,7 +161,9 @@ async function scanFile(file: string): Promise<Anchor[]> {
   try {
     const info = await stat(file);
     if (info.size > MAX_BYTES) return [];
-    return findAnchorsInSource(await readFile(file, "utf8"), file);
+    const buf = await readFile(file);
+    if (buf.subarray(0, SNIFF_BYTES).includes(0)) return []; // binary
+    return findAnchorsInSource(buf.toString("utf8"), file);
   } catch {
     return [];
   }

@@ -1,6 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { build, context } from "esbuild";
+import { thirdPartyNotices } from "../../scripts/third-party-notices.mjs";
 
 /**
  * Two bundles:
@@ -8,7 +9,7 @@ import { build, context } from "esbuild";
  *      host at runtime so it stays external; the shared workspace package IS
  *      bundled in so there's nothing to resolve at runtime.
  *   2. The canvas webview -> a browser IIFE. It mounts the real `forward-canvas`
- *      editor (so the toolbar + authoring match the dashboard) driven by a
+ *      editor (so the toolbar + authoring match `forward serve`) driven by a
  *      postMessage bridge to the host. Mermaid and the canvas CSS are bundled
  *      in, so the webview loads no external resources.
  */
@@ -67,5 +68,10 @@ if (watch) {
   await Promise.all(ctxs.map((c) => c.watch()));
   console.log("esbuild: watching…");
 } else {
-  await Promise.all([build(host), build(webview)]);
+  const results = await Promise.all([build({ ...host, metafile: true }), build({ ...webview, metafile: true })]);
+  // Both bundles inline their dependencies (mermaid, zod, ...): ship their
+  // licenses and the project NOTICE inside dist/, which the .vsix includes.
+  const inputs = results.flatMap((r) => Object.keys(r.metafile.inputs));
+  await writeFile("dist/THIRD_PARTY_NOTICES.txt", thirdPartyNotices(inputs, process.cwd(), "The Forward VS Code extension"));
+  await copyFile("../../NOTICE", "dist/NOTICE");
 }

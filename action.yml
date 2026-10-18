@@ -1,0 +1,133 @@
+name: Forward
+description: >-
+  Validate a repository's .forward/ project, post a catch-up digest of design, API-doc and
+  architecture changes on pull requests, and optionally build the read-only canvas for GitHub Pages.
+author: dsasante1
+branding:
+  icon: layers
+  color: orange
+
+inputs:
+  path:
+    description: Repository root that contains .forward/ (defaults to the workspace).
+    default: ""
+  validate:
+    description: Run `forward validate` and fail on schema errors.
+    default: "true"
+  strict:
+    description: Also fail on warnings (dangling cross-layer links).
+    default: "false"
+  comment:
+    description: On pull requests, post or update one comment with the catch-up digest.
+    default: "true"
+  base:
+    description: Git ref to diff against. Defaults to the pull request's base commit.
+    default: ""
+  export:
+    description: Directory to write the static canvas site into (for GitHub Pages). Empty skips it.
+    default: ""
+  cli-version:
+    description: >-
+      forward-mcp version to run from npm (e.g. "latest"). Empty builds the CLI from this action's
+      own source, which works before the package is published but takes longer.
+    default: ""
+  github-token:
+    description: Token used to post the PR comment.
+    default: ${{ github.token }}
+
+outputs:
+  digest:
+    description: Path of the Markdown digest (pull requests only).
+    value: ${{ steps.diff.outputs.digest }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Set up the forward CLI
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+        ACTION_PATH: ${{ github.action_path }}
+        NEEDS_UI: ${{ inputs.export != '' }}
+      run: |
+        set -euo pipefail
+        if [ -n "$CLI_VERSION" ]; then
+          echo "FORWARD_CLI=npx -y -p forward-mcp@$CLI_VERSION forward" >> "$GITHUB_ENV"
+          exit 0
+        fi
+        cd "$ACTION_PATH"
+        npm ci --ignore-scripts --no-audit --no-fund
+        npm run build -w packages/shared
+        if [ "$NEEDS_UI" = "true" ]; then npm run build -w apps/canvas; fi
+        npm run build -w apps/mcp
+        echo "FORWARD_CLI=node $ACTION_PATH/apps/mcp/dist/cli.js" >> "$GITHUB_ENV"
+
+    - name: Locate the project
+      shell: bash
+      env:
+        INPUT_PATH: ${{ inputs.path }}
+      run: |
+        root="${INPUT_PATH:-$GITHUB_WORKSPACE}"
+        echo "FORWARD_REPO=$(cd "$root" && pwd)" >> "$GITHUB_ENV"
+
+    - name: Validate .forward/
+      if: inputs.validate == 'true'
+      shell: bash
+      env:
+        STRICT: ${{ inputs.strict }}
+      run: |
+        set -euo pipefail
+        flags="--format github"
+        if [ "$STRICT" = "true" ]; then flags="$flags --strict"; fi
+        $FORWARD_CLI validate $flags
+
+    - name: Catch-up digest
+      id: diff
+      if: github.event_name == 'pull_request' || inputs.base != ''
+      shell: bash
+      env:
+        BASE: ${{ inputs.base || github.event.pull_request.base.sha }}
+      run: |
+        set -euo pipefail
+        out="$RUNNER_TEMP/forward-digest.md"
+        cd "$FORWARD_REPO"
+        if ! git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null; then
+          git fetch --no-tags --depth=1 origin "$BASE" || true
+        fi
+        $FORWARD_CLI diff "$BASE" --title "Forward catch-up" --out "$out"
+        cat "$out" >> "$GITHUB_STEP_SUMMARY"
+        echo "digest=$out" >> "$GITHUB_OUTPUT"
+
+    - name: Comment on the pull request
+      if: github.event_name == 'pull_request' && inputs.comment == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPO: ${{ github.repository }}
+        DIGEST: ${{ steps.diff.outputs.digest }}
+      run: |
+        set -uo pipefail
+        id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq '.[] | select(.body | startswith("<!-- forward-digest -->")) | .id' | head -n1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@"$DIGEST" >/dev/null
+        else
+          gh api "repos/$REPO/issues/$PR/comments" -F body=@"$DIGEST" >/dev/null
+        fi || echo "::warning::Could not comment on the pull request (forks get a read-only token). The digest is in the job summary."
+
+    - name: Build the static canvas
+      if: inputs.export != ''
+      shell: bash
+      env:
+        OUT: ${{ inputs.export }}
+      run: |
+        set -euo pipefail
+        target="$OUT"
+        case "$target" in /*) ;; *) target="$GITHUB_WORKSPACE/$target" ;; esac
+        cd "$FORWARD_REPO"
+        $FORWARD_CLI export --out "$target"

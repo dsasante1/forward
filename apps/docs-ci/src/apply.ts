@@ -1,4 +1,4 @@
-import { readFile, appendFile, writeFile } from "node:fs/promises";
+import { readFile, appendFile } from "node:fs/promises";
 import {
   AgentNode,
   Entity,
@@ -10,7 +10,6 @@ import {
 } from "forward-core";
 import {
   bindApiToElement,
-  createCheckpoint,
   fetchAgents,
   fetchElements,
   fetchEntities,
@@ -68,22 +67,19 @@ async function run(
 }
 
 /**
- * Apply an AI-produced `forward-docs.json` to a Forward project. This is the one
- * deterministic, credentialed step in the pipeline — the AI never touches the
- * token or the API. It:
+ * Apply an AI-produced `forward-docs.json` to the repository's `.forward/`
+ * project. This is the one deterministic step in the pipeline — the AI only
+ * writes a plan. It:
  *
- *   1. no-ops cleanly when the plan is empty (a merge with nothing to document);
- *   2. captures recovery state first — a **checkpoint** (which the server scopes
- *      to design elements + the infra graph) plus, for the layers the checkpoint
- *      does NOT snapshot (ER entities/relations and the Agents/MCP layer), a
- *      `forward-docs.rollback.json` of their prior state that can be re-applied;
- *   3. hydrates each content object with stable geometry + timestamps and
+ *   1. no-ops cleanly when the plan is empty (a change with nothing to document);
+ *   2. hydrates each content object with stable geometry + timestamps and
  *      re-validates it through the canonical schema before writing;
- *   4. writes nodes before the edges/flows/relations that reference them, and
+ *   3. writes nodes before the edges/flows/relations that reference them, and
  *      skips API bindings whose documentation is already up to date.
  *
- * Returns a process exit code (0 = everything applied, 1 = at least one write
- * failed — the recovery pointers are printed so the operator can restore).
+ * Every write is a file change, so git is the undo: `git checkout -- .forward`
+ * discards a partial or unwanted run. Returns a process exit code (0 =
+ * everything applied, 1 = at least one write failed).
  */
 export async function apply(planPath: string): Promise<number> {
   const cfg = loadConfig();
@@ -111,24 +107,10 @@ export async function apply(planPath: string): Promise<number> {
     return 0;
   }
 
-  // 1. Recovery state BEFORE any write. The server-side checkpoint only
-  // snapshots design elements + the infra graph, so it is the restore path for
-  // those layers (and API bindings, which live on elements).
-  const checkpoint = await createCheckpoint(cfg.api, {
-    title: plan.checkpoint?.title ?? `Pre-CI docs ${cfg.commit || new Date().toISOString().slice(0, 10)}`,
-    description:
-      plan.checkpoint?.note ??
-      "Automatic snapshot taken by forward-docs before applying CI-generated documentation.",
-    tag: "checkpoint",
-  });
-  console.error(
-    `forward-docs: checkpoint ${checkpoint.id} created (restores design + infra).`,
-  );
+  console.error(`forward-docs: writing into ${cfg.repo}/.forward (git is the undo).`);
 
-  // 2. Existing state: geometry (so we update nodes in place and only grid-place
-  // new ones) and — for the ER + Agents/MCP layers the checkpoint does NOT cover
-  // — a prior-state snapshot we can write out as a re-appliable rollback. Fetch
-  // ONLY the layers this plan touches: a bindings-only merge (the common case)
+  // Existing state: geometry, so we update nodes in place and only grid-place
+  // new ones. Fetch ONLY the layers this plan touches: a bindings-only merge (the common case)
   // reads nothing here and goes straight to the element read in step 6.
   const wantEntities = plan.entities.length > 0 || plan.entityRelations.length > 0;
   const wantInfra = plan.infraNodes.length > 0;
@@ -147,27 +129,6 @@ export async function apply(planPath: string): Promise<number> {
   const agentGeom = geomMap(exAgents);
   const serverGeom = geomMap(exServers);
 
-  // The layers the checkpoint can't restore. If this run touches any of them,
-  // write their prior state so an operator can `forward-docs apply` it to revert
-  // overwritten content. (Re-applying restores changed content; it does not
-  // delete nodes this run newly created — remove those by hand if needed.)
-  const touchesUncovered =
-    plan.entities.length + plan.entityRelations.length + plan.mcpServers.length + plan.agents.length;
-  if (touchesUncovered > 0) {
-    const rollbackPath = process.env.FORWARD_ROLLBACK_PATH ?? "forward-docs.rollback.json";
-    const rollback = {
-      version: 1,
-      note: `Prior state of the ER + Agents/MCP layers before applying to project ${cfg.api.projectId} at ${cfg.commit || "unknown commit"}. Re-apply with: forward-docs apply ${rollbackPath}`,
-      entities: exEntities,
-      entityRelations: exRelations,
-      mcpServers: exServers,
-      agents: exAgents,
-    };
-    await writeFile(rollbackPath, `${JSON.stringify(rollback, null, 2)}\n`).catch((e) =>
-      console.error(`forward-docs: could not write rollback file: ${msg(e)}`),
-    );
-    console.error(`forward-docs: wrote ${rollbackPath} (re-appliable rollback for ER + Agents/MCP).`);
-  }
   const entityPlacer = new GridPlacer(entityGeom.values());
   const nodePlacer = new GridPlacer(nodeGeom.values());
   // Agents + MCP servers share one overlay, so one placer seeded with both keeps
@@ -274,15 +235,13 @@ export async function apply(planPath: string): Promise<number> {
     }
   }
 
-  await writeSummary(cfg, checkpoint.id, report);
+  await writeSummary(cfg, report);
 
   const skippedNote = report.skipped.length ? `, ${report.skipped.length} skipped` : "";
   if (report.failed.length) {
     console.error(
       `forward-docs: ${report.failed.length}/${total} write(s) failed${skippedNote}. ` +
-        `Restore checkpoint ${checkpoint.id} (design + infra)` +
-        (touchesUncovered > 0 ? " and re-apply the rollback file (ER + Agents/MCP)" : "") +
-        ` if the canvas is inconsistent.`,
+        "Discard the partial write with `git checkout -- .forward` if needed.",
     );
     return 1;
   }
@@ -291,13 +250,13 @@ export async function apply(planPath: string): Promise<number> {
 }
 
 /** Append a Markdown summary to the GitHub Actions run, when running in one. */
-async function writeSummary(cfg: CliConfig, checkpointId: string, report: Report): Promise<void> {
+async function writeSummary(cfg: CliConfig, report: Report): Promise<void> {
   const file = process.env.GITHUB_STEP_SUMMARY;
   if (!file) return;
   const lines = [
     `### Forward docs updated`,
     ``,
-    `Project \`${cfg.api.projectId}\` · checkpoint \`${checkpointId}\` (restores design + infra)`,
+    `Project \`${cfg.api.projectId}\` · written to \`.forward/\` in the repository`,
     ``,
     `- ✅ applied: **${report.ok.length}**`,
     `- ⏭️ skipped (already up to date): **${report.skipped.length}**`,
