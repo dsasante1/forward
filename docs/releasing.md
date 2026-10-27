@@ -122,9 +122,8 @@ One time, in this order:
    (GitHub then detects the license).
 2. **History.** Every past commit becomes public. It holds no credentials, but the
    retired hosted deployment's identifiers are in the old `infra/` files (GCP
-   project, Supabase project ref, Firebase sites). Either confirm those projects
-   and the Clerk application are deleted, or publish a fresh, squashed history
-   instead.
+   project, Supabase project ref, Firebase sites). To keep them out, publish a
+   fresh, squashed history instead.
 3. **Claim the names** before announcing: publish `forward-mcp` (above), and
    confirm the `forward` Marketplace publisher in `apps/extension/package.json`
    is yours (`npx vsce ls-publishers`).
