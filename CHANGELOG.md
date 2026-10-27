@@ -5,6 +5,20 @@ tag (see [docs/releasing.md](docs/releasing.md)): `forward-mcp` from `mcp-v*`, t
 extension from `v*`, the docs-ci Action from `docs-ci-v*`. The Forward GitHub Action is
 released with `forward-mcp` and shares its tag.
 
+## forward-mcp 0.3.0 — 2026-10-27
+
+### Changed
+
+- **Requires Node 22 or newer** (was 20; Node 20 reached end of life in April 2026). The bundle
+  now targets Node 22. `forward-docs` (docs-ci) still runs on Node 20.
+- The canvas UI is built with Vite 8 and bundles mermaid 11.17.
+
+### Security
+
+- Bundled dependencies updated: dompurify 3.4.17 (cross-site scripting in sanitized mermaid
+  diagrams), `@modelcontextprotocol/sdk` 1.32 and its HTTP stack (express, body-parser,
+  proxy-addr, qs, hono).
+
 ## Unreleased
 
 The first open-source release. Forward is now git-native: there is no hosted server.
