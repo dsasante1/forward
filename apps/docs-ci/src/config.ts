@@ -1,16 +1,19 @@
 import type { ApiConfig } from "forward-core/api";
+import { findRepoRoot, repoConfig } from "forward-core/repo";
 
 /**
- * Everything `apply` needs, read from the environment. The three FORWARD_* vars
- * are the only secrets/config a customer wires up; the commit fields are filled
- * automatically by the GitHub Action from the merge context and are used to
- * default a binding's version + change log (so the AI never has to guess them).
+ * Everything `apply` needs. The project is the `.forward/` directory of the
+ * repository the command runs in; the commit fields are filled by the GitHub
+ * Action from the PR context and default a binding's version + change log (so
+ * the AI never has to guess them).
  */
 export interface CliConfig {
   api: ApiConfig;
-  /** Short commit sha of the merge, used as the default version label. */
+  /** The repository root whose `.forward/` the plan is written into. */
+  repo: string;
+  /** Short commit sha, used as the default version label. */
   commit: string;
-  /** Merge commit message, used as the default change log. */
+  /** Commit message or PR title, used as the default change log. */
   commitMessage: string;
 }
 
@@ -19,29 +22,15 @@ function short(sha: string): string {
 }
 
 export function loadConfig(): CliConfig {
-  const baseUrl = process.env.FORWARD_API_BASE_URL ?? "";
-  const projectId = process.env.FORWARD_PROJECT_ID ?? "";
-  const token = process.env.FORWARD_API_TOKEN ?? "";
-
-  const missing = [
-    ["FORWARD_API_BASE_URL", baseUrl],
-    ["FORWARD_PROJECT_ID", projectId],
-    ["FORWARD_API_TOKEN", token],
-  ]
-    .filter(([, v]) => !v)
-    .map(([k]) => k);
-
-  if (missing.length) {
+  const commit = short(process.env.FORWARD_COMMIT ?? process.env.GITHUB_SHA ?? "");
+  const commitMessage = (process.env.FORWARD_COMMIT_MESSAGE ?? "").split("\n")[0] ?? "";
+  const root = findRepoRoot(process.cwd());
+  if (!root) {
     throw new Error(
-      `Missing required environment variable(s): ${missing.join(", ")}. ` +
-        `Set the FORWARD_API_TOKEN secret and the FORWARD_API_BASE_URL / ` +
-        `FORWARD_PROJECT_ID values in your workflow.`,
+      "No Forward project found. Run this in a repository that has .forward/ " +
+        "(create it with `npx -y -p forward-mcp forward init`), or set FORWARD_REPO.",
     );
   }
-
-  return {
-    api: { baseUrl, projectId, token },
-    commit: short(process.env.FORWARD_COMMIT ?? process.env.GITHUB_SHA ?? ""),
-    commitMessage: (process.env.FORWARD_COMMIT_MESSAGE ?? "").split("\n")[0] ?? "",
-  };
+  const author = process.env.FORWARD_AUTHOR || "forward-docs";
+  return { api: repoConfig(root, { author }), repo: root, commit, commitMessage };
 }

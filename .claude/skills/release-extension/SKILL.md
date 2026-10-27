@@ -1,6 +1,6 @@
 ---
 name: release-extension
-description: Cuts a release of the Forward VS Code extension (apps/extension) — version bump + tag push that triggers CI to build, test, package the .vsix, and publish to the VS Code Marketplace and Open VSX. Use when asked to "release the extension", "publish a new version", "cut a vsix", "bump the extension version", or "ship to the marketplace". Not for releasing the canvas or MCP server, which are not published this way.
+description: Cuts a release of the Forward VS Code extension (apps/extension) — version bump + tag push that triggers CI to build, test, package the .vsix, and publish to the VS Code Marketplace and Open VSX. Use when asked to "release the extension", "publish a new version", "cut a vsix", "bump the extension version", or "ship to the marketplace". Not for forward-mcp, which releases to npm from its own `mcp-v*` tags (see docs/releasing.md).
 metadata:
   version: 1.0.0
 ---

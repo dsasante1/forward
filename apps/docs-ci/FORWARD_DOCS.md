@@ -1,11 +1,12 @@
 # Forward docs — instructions for your AI
 
-You are updating the project's **Forward** documentation to match code that was
-just merged. Read the diff, work out what changed, and write a single file,
+You are updating the project's **Forward** documentation to match the code
+changed in this pull request. Read the diff, work out what changed, and write a single file,
 **`forward-docs.json`**, describing the documentation updates. That's your whole
 job — you do **not** call any API, you do **not** need any credentials, and you
-do **not** touch the Forward project directly. A separate deterministic step
-(`forward-docs apply`) takes the file you write and does the credentialed write.
+do **not** edit `.forward/` directly. A separate deterministic step
+(`forward-docs apply`) takes the file you write and turns it into `.forward/`
+file changes.
 
 This file is model-agnostic on purpose: hand it to whatever agent you use
 (Claude, GPT, Gemini, a local model — anything that can read a repo and write a
@@ -13,10 +14,10 @@ file). Nothing here is Forward- or vendor-specific beyond the JSON shape below.
 
 ## 1. Find what changed
 
-The merge range is provided in the environment:
+The change range is provided in the environment:
 
-- `FORWARD_DIFF_BASE` — the commit before the merge
-- `FORWARD_DIFF_HEAD` — the merge commit
+- `FORWARD_DIFF_BASE` — the pull request's base commit
+- `FORWARD_DIFF_HEAD` — the pull request's head commit
 
 Get the changed files and their contents:
 
@@ -47,14 +48,11 @@ add entities/infra for it; those are not anchored.
 Emit **only** semantic content. Do **not** include coordinates, sizes, or
 timestamps — the apply step positions new nodes and stamps times for you, and
 preserves the position of anything that already exists. Every field is optional
-except the ids/names noted; include only the layers this merge actually affected.
+except the ids/names noted; include only the layers this change actually affected.
 
 ```jsonc
 {
   "version": 1,
-
-  // Optional. Overrides the safety checkpoint apply takes before writing.
-  "checkpoint": { "title": "Docs for #123", "note": "auth refactor" },
 
   // API docs — one per changed endpoint that has an @adc anchor.
   "bindings": [
@@ -63,7 +61,7 @@ except the ids/names noted; include only the layers this merge actually affected
       "title": "POST /auth/login",         // required — method + path or a name
       "description": "Markdown. Params, request/response, auth, errors.",
       "action": "created"                  // "created" | "modified" | "deleted"
-      // Use "deleted" ONLY when the endpoint was removed in this merge: apply
+      // Use "deleted" ONLY when the endpoint was removed in this change: apply
       // then REMOVES the element's binding (still set title so the history entry
       // is labelled). "created"/"modified" attach or update the docs.
       // "version" / "changeLog" are auto-filled from the commit if omitted
@@ -155,7 +153,7 @@ except the ids/names noted; include only the layers this merge actually affected
 ## 4. Done
 
 Write the file to the repo root as `forward-docs.json`. The workflow runs
-`forward-docs apply forward-docs.json` next, which validates it, takes a
-checkpoint, and writes it to the Forward project. If your file is malformed the
+`forward-docs apply forward-docs.json` next, which validates it and writes it
+into `.forward/`, where it is committed with the change. If your file is malformed the
 apply step fails loudly and writes nothing — so prefer omitting a layer you're
 unsure about over guessing.

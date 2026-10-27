@@ -845,69 +845,15 @@ export const ProjectTimelineEvent = z.object({
 });
 export type ProjectTimelineEvent = z.infer<typeof ProjectTimelineEvent>;
 
-export const UserConfig = z.object({
-  repositoryUrl: z.string().url().optional(),
-  projectName: z.string().min(1),
-});
-export type UserConfig = z.infer<typeof UserConfig>;
-
 // --------------------------------------------------------------------------
-// Access control (per-project membership)
+// Contributor roster
 // --------------------------------------------------------------------------
 
 /**
- * Role of a uid within a project, in increasing privilege:
- *   - `viewer` — read-only: may read every layer, may not mutate anything.
- *   - `editor` — read + write design/binding/infra/tasks; may not manage members.
- *   - `owner`  — everything an editor can do, plus managing the roster + invites.
- * The first authenticated user to create a project claims it as `owner`. Write
- * vs read is enforced server-side (the centralized backend), not by convention.
+ * A contributor's role, shown on the canvas Member view. In repo mode access is
+ * whatever the git host grants; the roster is derived from git history (the
+ * current author is `owner`, other contributors `editor`), so this is a label,
+ * not an enforcement mechanism.
  */
 export const ProjectRole = z.enum(["viewer", "editor", "owner"]);
 export type ProjectRole = z.infer<typeof ProjectRole>;
-
-/** Roles that may write (mutate) project data — everything above read-only. */
-export const WRITE_ROLES: readonly ProjectRole[] = ["editor", "owner"];
-
-/**
- * Role of a user *within an organization* (the tenancy tier above the project).
- * Distinct from {@link ProjectRole}: an org `admin` administers the org (its
- * projects, members, tokens, billing) but is not automatically an owner of every
- * project; a `member` simply belongs. Mirrored from Clerk Organizations, which is
- * the source of truth for org membership (the `org_role` session claim, e.g.
- * `org:admin`). Used by the Org Admin portal.
- */
-export const OrgRole = z.enum(["admin", "member"]);
-export type OrgRole = z.infer<typeof OrgRole>;
-
-/** One entry in a project's member roster: `project_members/$projectId/$uid`. */
-export const ProjectMember = z.object({
-  role: ProjectRole.default("editor"),
-  /** ISO-8601 timestamp the membership was granted. */
-  addedAt: z.string(),
-});
-export type ProjectMember = z.infer<typeof ProjectMember>;
-
-/** Lifecycle of an email invitation to a project. */
-export const InviteStatus = z.enum(["pending", "accepted", "revoked", "expired"]);
-export type InviteStatus = z.infer<typeof InviteStatus>;
-
-/**
- * An email invitation granting a person `role` on a project once they accept.
- * The owner creates it (the backend emails a tokenized link); the invitee signs
- * in and accepts, at which point a `ProjectMember` row is created. The opaque
- * `token` is the capability carried in the link and is never shown in listings.
- */
-export const ProjectInvite = z.object({
-  id: z.string().min(1).max(SHORT_TEXT_MAX),
-  projectId: z.string().min(1),
-  email: z.string().email(),
-  role: ProjectRole.default("editor"),
-  status: InviteStatus.default("pending"),
-  /** Clerk uid of the owner who sent it. */
-  invitedBy: z.string().min(1),
-  createdAt: z.string().datetime(),
-  expiresAt: z.string().datetime(),
-  acceptedAt: z.string().datetime().optional(),
-});
-export type ProjectInvite = z.infer<typeof ProjectInvite>;

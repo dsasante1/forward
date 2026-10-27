@@ -85,10 +85,6 @@ export type AgentInput = z.infer<typeof AgentInput>;
 export const Plan = z.object({
   /** Contract version; bump if the shape changes. */
   version: z.literal(1).default(1),
-  /** Optional override for the safety checkpoint `apply` takes before writing. */
-  checkpoint: z
-    .object({ title: z.string().optional(), note: z.string().optional() })
-    .optional(),
   bindings: z.array(BindingInput).default([]),
   entities: z.array(EntityInput).default([]),
   entityRelations: z.array(EntityRelationInput).default([]),

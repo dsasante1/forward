@@ -25,32 +25,20 @@ interface Group {
 
 const GROUPS: readonly Group[] = [
   {
-    label: "Account",
-    icon: "account",
+    label: "Project",
+    icon: "repo",
     actions: [
       {
-        label: "Sign In",
-        command: "forward.signIn",
-        icon: "sign-in",
-        tooltip: "Paste a Personal Access Token generated in the dashboard.",
-      },
-      {
-        label: "Select Project",
-        command: "forward.selectProject",
-        icon: "folder-opened",
-        tooltip: "Choose which Forward project to annotate.",
+        label: "Initialize Project in This Repository",
+        command: "forward.initRepo",
+        icon: "add",
+        tooltip: "Create .forward/ here. The project is versioned with your code.",
       },
       {
         label: "Set Up MCP for AI Agents",
         command: "forward.setupMcp",
         icon: "copy",
-        tooltip: "Copy a claude mcp add command that reuses your existing access token.",
-      },
-      {
-        label: "Sign Out",
-        command: "forward.signOut",
-        icon: "sign-out",
-        tooltip: "Forget the stored access token.",
+        tooltip: "Copy a claude mcp add command for this repository.",
       },
     ],
   },

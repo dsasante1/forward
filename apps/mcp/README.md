@@ -1,22 +1,50 @@
-# Forward — MCP server
+# forward-mcp — Forward for AI agents
 
-The **AI-native** surface of Forward. It exposes the same central-server
-client the VS Code extension uses (`forward-core/api`) as a small set of
-[Model Context Protocol](https://modelcontextprotocol.io) tools, so **any**
-MCP-capable agent (Claude Code, Cursor, …) can document a design element for you.
+The **AI-native** surface of [Forward](https://github.com/dsasante1/forward): an
+[MCP](https://modelcontextprotocol.io) server and the `forward` CLI over a project of design
+elements, API docs, infrastructure, flows, data model and tasks.
+
+The project lives in **`.forward/` in your git repository**, so there is no server, account or
+token. Run the server from the repository root and it finds the project:
+
+```bash
+npx -y -p forward-mcp forward init     # once: .forward/, AGENTS.md, .mcp.json, CI workflow
+claude mcp add forward -- npx -y forward-mcp
+```
 
 A backend dev who just finished a feature can say:
 
 > "Document the login endpoint I just built on the canvas."
 
-…and the agent finds the matching design element and writes the docs — no
-quick-pick, no form. The read-only canvases (web + VS Code) pick up the change
-live.
+…and the agent finds the matching design element and writes the docs as a file change, committed
+with the code. Agents without MCP call the same tools through the CLI:
+
+```bash
+forward tools                          # every tool, one line each
+forward tools write_documentation      # arguments for one tool
+forward write_documentation --element-id el_1 --title "POST /login" --description "…"
+forward call get_changes_since_ref '{"ref":"origin/main"}'
+```
+
+The CLI also runs the project: `forward serve` (canvas editor on `.forward/`), `forward validate`
+(CI check), `forward diff <ref>` (PR catch-up digest), `forward export` (static GitHub Pages site)
+and `forward agents` (agent configs for Claude Code, Cursor, VS Code and Codex).
+
+### Configuration
+
+| Variable | Meaning |
+|---|---|
+| `FORWARD_REPO` | Use this repository instead of searching up from the working directory |
+| `FORWARD_AGENT` | Agent name appended to the author on writes, e.g. `Ada via claude` |
+| `FORWARD_AUTHOR` | Author name for writes (default: git `user.name`) |
 
 ## Tools
 
 | Tool | What it does |
 |---|---|
+| `project_info` | Start here: which project and repository, and counts per layer |
+| `validate_project` | Check `.forward/` against the schema, ids and cross-layer links |
+| `get_changes_since_ref` | New / changed / removed endpoints and per-layer changes since a git ref |
 | `list_design_elements` | List the canvas elements (id, name, type, text, whether documented) |
 | `find_element` | Rank elements against a feature description — solves "which element is the login one?" |
 | `resolve_anchors` | Resolve `@adc <elementId>` markers in source to design elements — deterministic linking |
@@ -36,9 +64,7 @@ live.
 | `create_element` | Draw a new design element (frame / rectangle / text / component / instance) |
 | `update_element` | Move / resize / rename / restyle / re-parent an element (partial update) |
 | `delete_element` | Remove an element (cascades to nested descendants by default) |
-| `list_members` | Read the project's access roster (uid + role) |
-| `add_member` | Enrol a uid into the roster (REST-side of the canvas' 👤 +Member) |
-| `remove_member` | Revoke a uid's access |
+| `list_members` | Read who has contributed to `.forward/`, from git history (access is your git host's) |
 
 These tools give an agent **parity with the canvas and extension** — every data
 pillar is reachable: the **design** layer (read + author), the **API
@@ -46,8 +72,8 @@ documentation** layer (read/write + history), the **infrastructure** graph and
 its narrated **flows** (read/write, plus a component diagram from `list_infra`
 and a sequence diagram per flow from `list_flows`, both as Mermaid — the same
 diagrams the canvas renders), the project **timeline** (read via `get_history` /
-`get_catchup_digest`; writes flow through the documentation tools), and **access
-control** (the member roster). Designers still normally own the design layer on
+`get_catchup_digest`; writes flow through the documentation tools), and the
+**contributor** roster. Designers still normally own the design layer on
 the canvas, so prefer documenting existing elements over drawing new ones —
 `create_element` is there for when the design is genuinely missing what you built.
 
@@ -55,65 +81,43 @@ The `write_documentation` input schema is derived from the shared `ApiBinding`
 contract, so the structured fields (`method`, `endpoint`, `parameters`, …) stay
 in lock-step with [packages/shared](../../packages/shared).
 
-## Configuration
-
-The server talks to the centrally-hosted Forward backend and holds the API
-token; the agent never sees it. Set:
-
-| Env var | Required | Meaning |
-|---|---|---|
-| `FORWARD_API_BASE_URL` | yes | Base URL of the Forward backend, e.g. `https://api.forward.dev` |
-| `FORWARD_PROJECT_ID` | yes | Project id (must match the extension / canvas; `ADC_PROJECT_ID` still works) |
-| `FORWARD_API_TOKEN` | yes | A Forward Personal Access Token (`fwd_pat_…`). Reuse the one you already pasted into the VS Code extension — it's user-scoped, so the same token works here; you don't need to mint a second one. Only mint a separate token when you want independent revocation (e.g. unattended CI). |
-| `FORWARD_AGENT` | no | Author label for local logging (the server records the token's owner as the author) |
-
 ## Build & run
 
 ```bash
 npm run build -w apps/mcp     # compile to dist/
-npm test -w apps/mcp          # unit tests (the matcher)
+npm test -w apps/mcp          # unit tests (matcher, anchors, CLI + tools in repo mode)
+npm run pack -w apps/mcp      # self-contained npm package in pkg/ (needs the canvas host built)
 npm start -w apps/mcp         # run over stdio (normally launched by the agent)
 ```
 
 ## Register with an agent
 
-> **Shortcut:** if you use the VS Code extension, run **Forward: Set Up MCP for
-> AI Agents** — it copies a ready `claude mcp add forward …` line pre-filled with
-> your base URL, project id, and existing token (no new token needed). Then jump
-> to the reload note below.
-
-Point your MCP client at the built server. For example, Claude Code:
+`forward agents` (or `forward init`) writes the configs for Claude Code, Cursor and VS Code into
+the repository. To register by hand, run the server from the repository root:
 
 ```bash
-claude mcp add forward \
-  --env FORWARD_API_BASE_URL=https://api.forward.dev \
-  --env FORWARD_PROJECT_ID=your-project \
-  --env FORWARD_API_TOKEN=fwd_pat_yourtoken \
-  -- node /absolute/path/to/apps/mcp/dist/server.js
+claude mcp add forward -- npx -y forward-mcp
 ```
 
 **After adding the server, restart your agent session.** A session that was
 already running when you registered the server won't load its tools until it
 reconnects — this is MCP-client behaviour, not a Forward setting.
 
-Or the equivalent JSON in any MCP client (Cursor `mcp.json`, Claude Desktop
-`claude_desktop_config.json`, …):
+The equivalent JSON for any MCP client (Cursor `mcp.json`, Claude Desktop, …):
 
 ```json
 {
   "mcpServers": {
     "forward": {
-      "command": "node",
-      "args": ["/absolute/path/to/apps/mcp/dist/server.js"],
-      "env": {
-        "FORWARD_API_BASE_URL": "https://api.forward.dev",
-        "FORWARD_PROJECT_ID": "your-project",
-        "FORWARD_API_TOKEN": "fwd_pat_yourtoken"
-      }
+      "command": "npx",
+      "args": ["-y", "forward-mcp"],
+      "env": { "FORWARD_AGENT": "claude", "FORWARD_REPO": "/absolute/path/to/your/repo" }
     }
   }
 }
 ```
+
+`FORWARD_REPO` is only needed when the client doesn't start the server inside the repository.
 
 ## Linking: fuzzy or deterministic
 

@@ -1,19 +1,22 @@
 {
   "name": "forward-mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "MCP server: let any AI agent document API endpoints onto the design canvas.",
-  "license": "UNLICENSED",
+  "description": "Forward for AI agents: an MCP server and the `forward` CLI over a design + API-docs project stored in your git repo.",
+  "license": "Apache-2.0",
   "bin": {
-    "forward-mcp": "./dist/server.js"
+    "forward-mcp": "dist/server.js",
+    "forward": "dist/cli.js"
   },
   "main": "./dist/server.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-ui.mjs",
     "start": "node dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "pack": "node scripts/pack.mjs",
+    "smoke:package": "node scripts/smoke-package.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -24,6 +27,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0"
+    "@types/node": "^20.14.0",
+    "esbuild": "^0.21.5"
   }
 }

@@ -4,8 +4,8 @@
   "version": "0.4.0",
   "type": "module",
   "publisher": "forward",
-  "description": "Annotate a shared design canvas from VS Code — document any API (any language/framework), draw infrastructure & sequence-flow diagrams, track tasks, and browse endpoint history. Synced to your team through the Forward server — or automate it from CI via @adc anchors and the Forward MCP server.",
-  "license": "UNLICENSED",
+  "description": "Annotate a shared design canvas from VS Code \u2014 document any API (any language/framework), draw infrastructure & sequence-flow diagrams, track tasks, and browse endpoint history. Everything lives as plain JSON in your repository's .forward/ folder, so git is the sync and the history \u2014 and AI agents get the same tools through the Forward MCP server.",
+  "license": "Apache-2.0",
   "icon": "resources/icon.png",
   "repository": {
     "type": "git",
@@ -43,6 +43,7 @@
   ],
   "main": "./dist/extension.cjs",
   "activationEvents": [
+    "workspaceContains:.forward/forward.json",
     "onStartupFinished"
   ],
   "contributes": {
@@ -139,24 +140,13 @@
         "category": "Forward"
       },
       {
-        "command": "forward.signIn",
-        "title": "Sign In (paste access token)",
-        "category": "Forward"
-      },
-      {
-        "command": "forward.signOut",
-        "title": "Sign Out",
-        "category": "Forward"
-      },
-      {
-        "command": "forward.selectProject",
-        "title": "Select Project",
-        "category": "Forward"
-      },
-      {
         "command": "forward.setupMcp",
         "title": "Set Up MCP for AI Agents",
         "category": "Forward"
+      },
+      {
+        "command": "forward.initRepo",
+        "title": "Forward: Initialize Project in This Repository"
       }
     ],
     "viewsContainers": {
@@ -201,20 +191,10 @@
     "configuration": {
       "title": "Forward",
       "properties": {
-        "forward.apiBaseUrl": {
-          "type": "string",
-          "default": "https://forward-server-1094036898590.europe-west3.run.app",
-          "description": "Forward server URL. Only change this for self-hosted or local development servers (e.g. http://localhost:8080)."
-        },
-        "forward.projectId": {
-          "type": "string",
-          "default": "",
-          "description": "Project to annotate elements under. Use the “Forward: Select Project” command to pick one (it must match the canvas VITE_CANVAS_PROJECT_ID)."
-        },
         "forward.openCanvasOnStartup": {
           "type": "boolean",
           "default": false,
-          "description": "Open the read-only Design Canvas automatically when VS Code starts (only if the server URL and project id are set)."
+          "description": "Open the Design Canvas automatically when VS Code starts (only when the workspace has a .forward/ project)."
         }
       }
     }
@@ -230,11 +210,12 @@
     "publish:ovsx": "ovsx publish --no-dependencies"
   },
   "devDependencies": {
-    "forward-canvas": "*",
-    "forward-core": "*",
+    "@types/node": "^20.14.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.21.5",
+    "forward-canvas": "*",
+    "forward-core": "*",
     "ovsx": "^0.10.0"
   }
 }

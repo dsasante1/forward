@@ -1,25 +1,125 @@
 # Forward
 
-A developer-first tool that keeps **design and backend documentation in sync**. Designers draw UI
-on an independent visual canvas; backend developers then annotate those design elements — straight
-from VS Code or an AI agent — with API, infrastructure, data-model and UML documentation, alongside
-a historical (timeline) view of how the work has changed over time. Organizations and users sign up,
-manage members, and track tasks against the design, so the UI, its documentation and the work all
-live in one place.
+Keep **UI design and backend documentation in sync**, inside your repository.
 
-Forward runs on a **centrally-hosted backend** ([apps/server](apps/server) — NestJS · Prisma ·
-Supabase Postgres · Clerk) that owns authentication, sign-up, the database, tenancy and the realtime
-sync bus. The dashboard, canvas, VS Code extension and MCP server all talk to that server through the
-shared `forward-core` contract.
+Designers draw UI on a visual canvas. Backend developers, and the AI agents working with them,
+attach API docs, infrastructure, data-model and flow documentation to those design elements. A
+history timeline and a catch-up digest show frontend developers exactly which endpoints to
+integrate, change or remove.
+
+- **Lives in git.** The whole project is plain JSON in `.forward/`, one file per record. It is
+  versioned, reviewed and merged with the code it describes. No server and no account are needed.
+- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 38 tools with full
+  parity with the canvas. Agents without MCP use the same tools through the `forward` CLI.
+- **GitHub native.** One workflow validates `.forward/` on pull requests, posts a catch-up digest
+  as a PR comment, and publishes a read-only canvas to GitHub Pages.
+- **Open source** under the [Apache 2.0 license](LICENSE).
+
+## Quick start
+
+Run this in the root of your repository. Node 20 or newer is required.
+
+```bash
+npx -y -p forward-mcp forward init     # creates .forward/, agent configs and the GitHub workflow
+npx -y -p forward-mcp forward serve    # opens the canvas editor on .forward/ at http://127.0.0.1:4747
+git add .forward AGENTS.md CLAUDE.md .mcp.json .cursor .github && git commit -m "Add Forward"
+```
+
+`forward serve` writes straight to `.forward/`. An agent editing through MCP at the same time
+shows up on the canvas within a couple of seconds, and the History view reads your git log.
+
+> **Not on npm yet?** Until `forward-mcp` is published, build from source and use
+> `node <path-to-forward>/apps/mcp/dist/cli.js` wherever this README says `forward`:
+> `git clone https://github.com/dsasante1/forward && cd forward && npm install && npm run build`.
+
+## AI agents
+
+`forward init` (or `forward agents` later) writes the agent wiring into your repository:
+
+| File | For |
+|---|---|
+| `AGENTS.md` | Instructions every agent reads: when and how to document endpoints, infra and schema |
+| `CLAUDE.md` | Imports `AGENTS.md` for Claude Code |
+| `.mcp.json` | Registers the `forward` MCP server for Claude Code |
+| `.cursor/mcp.json` | Registers it for Cursor |
+| `.vscode/mcp.json` | Registers it for VS Code / Copilot (`forward agents --vscode`) |
+
+Codex reads `AGENTS.md`. Register the server in `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.forward]
+command = "npx"
+args = ["-y", "forward-mcp"]
+env = { FORWARD_AGENT = "codex" }
+```
+
+Any other MCP client runs `npx -y forward-mcp` over stdio from the repository root. No
+configuration is needed: the server finds the nearest `.forward/` and works on those files.
+
+**Without MCP**, the CLI calls the very same tool code in-process:
+
+```bash
+forward tools                                   # list all 38 tools
+forward tools write_documentation               # one tool's arguments
+forward find_element --query "login button"
+forward write_documentation --element-id el_123 --title "POST /login" --description "Body: email, password"
+forward call write_infra_node '{"kind":"cache","label":"Redis"}'
+forward diff origin/main                        # what this branch changed, as Markdown
+```
+
+Good first calls for an agent are `project_info`, `find_element`, `write_documentation`,
+`validate_project` and `get_changes_since_ref`. Writes are stamped with your git `user.name`, plus
+`via <agent>` when `FORWARD_AGENT` is set.
+
+## GitHub
+
+`forward init` adds [`.github/workflows/forward.yml`](apps/mcp/src/cli/scaffold.ts), which uses
+this repository's [composite action](action.yml):
+
+- **On pull requests** it runs `forward validate`, annotating schema errors inline. It then posts
+  one comment, updated on every push, listing new, changed and removed endpoints with doc diffs and
+  a per-layer summary of everything else.
+- **On the default branch** it builds a static, read-only canvas with `forward export` and deploys
+  it to GitHub Pages. Turn Pages on with *Source: GitHub Actions*.
+
+Teams that want an AI to write the docs on every pull request can add the bring-your-own-AI
+pipeline in [apps/docs-ci](apps/docs-ci). Its repo-mode template commits the generated `.forward/`
+changes back to the PR branch.
+
+## How it works
 
 ```
-   designers                backend devs                AI agents
-      │                          │                          │
- [ web canvas ]           [ VS Code extension ]        [ MCP server ]
-      │                          │                          │
-      └──────────► apps/server (REST + Realtime) ◄──────────┘
-                   Postgres · Clerk · Supabase
+  designers              backend devs                 AI agents                 GitHub
+      │                       │                           │                        │
+ [ canvas ]        [ VS Code extension ]        [ MCP server · CLI ]      [ Action · Pages ]
+      │                       │                           │                        │
+      └───────────────────────┴──────── forward-core/api ─┴────────────────────────┘
+                                             │
+                               .forward/ files in your git repo
 ```
+
+Every surface speaks one REST contract, `forward-core/api`. A router in `forward-core/repo`
+serves that contract from the files in `.forward/`: in-process for the MCP server, CLI, extension
+and CI, and over a local HTTP server that `forward serve` runs for the canvas. There is no central
+server, database or account. Git is the sync, the history and the access control.
+
+### The `.forward/` directory
+
+| Path | Holds |
+|---|---|
+| `forward.json` | Project manifest: id, name, format version |
+| `design/<id>.json` | Design elements, each with its optional `apiBinding` docs |
+| `history/<elementId>/<ts>-<n>.json` | Append-only API-doc history, one file per version |
+| `infra/nodes`, `infra/edges`, `infra/flows` | Infrastructure graph and narrated flows |
+| `data/entities`, `data/relations` | ER data model |
+| `agents/agents`, `agents/servers` | Agents and the MCP servers they call |
+| `tasks/<id>.json` | Task tracker |
+| `checkpoints/<id>.json` | Named, restorable snapshots of design and infra |
+
+One file per record keeps merges clean and PR diffs readable. History entries are separate files,
+so two branches that both document endpoints merge without conflicts. The project activity feed is
+built from `git log`, so commit messages show up in the History timeline. `forward validate` checks
+schemas, ids and cross-layer links.
 
 ## Seven data layers, one contract
 
@@ -49,96 +149,37 @@ npm workspaces (Node >= 20; `.nvmrc` pins 22).
 
 | Path | Package | What it is |
 |---|---|---|
-| [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types, the timeline/diff/infra/entity helpers, and the `api-rest` data client for the central server (exported as `forward-core/api`) |
-| [apps/server](apps/server) | — | Central backend API (NestJS · Prisma · Supabase Postgres · Clerk): auth, sign-up, tenancy, RBAC, invites, tokens, the realtime bus, and CRUD for every data layer |
-| [apps/dashboard](apps/dashboard) | `forward-dashboard` | React SPA (Vite + Clerk) for orgs/projects/tasks/docs/members — and the host that embeds the canvas. Includes the org-admin portal |
-| [apps/canvas](apps/canvas) | `forward-canvas` | design editor, consumed **only as an embedded library** (`forward-canvas/embed`). Renders timeline/infra/ER diagrams via Mermaid |
-| [apps/extension](apps/extension) | `forward-vscode` | VS Code extension: pick a design element → write API/infra/flow/task docs onto it. Talks to the central server with a Clerk session token |
-| [apps/mcp](apps/mcp) | `forward-mcp` | MCP server giving any AI agent full parity with the canvas (~30 tools). Talks to the central server via `forward-core/api` |
-| [apps/admin](apps/admin) | `forward-admin` | Platform-admin SPA — cross-tenant staff console (overview, orgs, users, projects, billing, audit) |
-| [infra](infra) | — | Terraform for the GCP deployment (Cloud Run, Firebase Hosting, Artifact Registry, Secret Manager, Workload Identity) |
+| [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types, timeline/diff/infra/entity helpers, the `api-rest` client (`forward-core/api`) and the repo-mode store, router and git helpers (`forward-core/repo`) |
+| [apps/mcp](apps/mcp) | `forward-mcp` | The agent surface: the MCP server (`forward-mcp`) and the `forward` CLI (init, serve, validate, diff, export, agents, every tool) |
+| [apps/canvas](apps/canvas) | `forward-canvas` | The design editor, shipped standalone with the CLI (`host/`) and embedded in the VS Code extension |
+| [apps/extension](apps/extension) | `forward-vscode` | VS Code extension. Works on the workspace's `.forward/` automatically |
+| [apps/docs-ci](apps/docs-ci) | `forward-docs-ci` | Bring-your-own-AI CI step that applies an agent-written plan to a project |
 
-## Commands
-
-Run from the repo root:
+## Development
 
 ```bash
-npm install          # install all workspaces
-npm run build        # build every workspace (packages/shared builds before the apps)
-npm test             # run all Vitest suites
-npm run typecheck    # typecheck all workspaces
-npm run bootstrap    # install → build
+npm install && npm run build    # build packages/shared first, then every app
+npm test                        # all Vitest suites
+npm run typecheck
+npm run dev:host -w apps/canvas # hack on the standalone canvas host with Vite
+node apps/mcp/dist/cli.js serve # run your local build of the CLI against a repo with .forward/
 ```
 
-Per-workspace with `-w`, e.g. a single test file or test name:
-
-```bash
-npm test -w packages/shared -- src/schema.test.ts
-npm test -w packages/shared -- -t "name fragment"
-```
-
-### Backend server ([apps/server](apps/server))
-
-Needs `apps/server/.env` (copy from `.env.example`): `DATABASE_URL` / `DIRECT_URL` (Supabase
-Postgres), `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` + `REALTIME_CHANNEL_SECRET` (the realtime
-bus), `CLERK_SECRET_KEY` + `CLERK_AUTHORIZED_PARTIES` + `CLERK_WEBHOOK_SIGNING_SECRET`, and
-`CORS_ORIGINS` (an explicit allow-list — the server refuses to boot in production without one).
-
-```bash
-npm run dev -w apps/server             # watch mode, listens on :8080
-npm run prisma:migrate -w apps/server  # apply/create a migration after editing schema.prisma
-npm run prisma:deploy -w apps/server   # apply committed migrations (CI/prod)
-```
-
-### Front-ends
-
-```bash
-npm run dev -w apps/dashboard   # dashboard + embedded canvas (needs VITE_API_BASE_URL, VITE_CLERK_PUBLISHABLE_KEY, VITE_SUPABASE_URL/ANON_KEY)
-npm run dev -w apps/admin       # platform-admin console (needs VITE_API_BASE_URL, VITE_CLERK_PUBLISHABLE_KEY)
-npm run package -w apps/extension   # build the VS Code .vsix locally
-```
-
-The canvas is **not** a standalone app — open it in the dashboard at
-`/app/projects/:projectId/canvas` (a project's Documentation tab → "Open project in canvas").
-
-## Using the surfaces
-
-- **Canvas** — Toolbar (Move, Frame, Rect, Ellipse, Text, Comp, Inst, Del); drag to draw, drag a
-  handle to resize, drop inside a frame to nest. The right panel edits geometry/style, shows the API
-  binding the backend attached, and the endpoint's version history. The **History** toggle opens the
-  git-graph timeline + catch-up digest; the **Infra** overlay draws the architecture graph and flows.
-- **VS Code extension** — Sign in (`forward.signIn`) against your Forward server, then use the
-  `forward.*` commands to connect an endpoint's docs to a design element, edit the infra graph and
-  flows, and file/update tasks. Configure `forward.apiBaseUrl` and `forward.projectId` in Settings.
-- **MCP server** — Point any MCP-capable agent at it (env: `FORWARD_API_BASE_URL`,
-  `FORWARD_PROJECT_ID`, `FORWARD_API_TOKEN` — a `fwd_pat_…` PAT). Already using the extension? Run
-  **Forward: Set Up MCP for AI Agents** (`forward.setupMcp`) to copy a ready `claude mcp add …` line
-  that reuses your existing token — a PAT is user-scoped, so no second token is needed. Restart the
-  agent session afterwards to load the tools. The agent gets scoped tools with full parity: author
-  and document elements, edit the infra/ER graphs and flows, read the timeline/catch-up digest, and
-  manage members.
-
-A **project id** is a tenancy namespace (e.g. `project_xyz`), **not** a GCP project id. The
-extension's `forward.projectId` and the canvas's project must match to share elements.
-
-## Access control & tenancy
-
-The server is the trust boundary. **Organizations** (mirrored from Clerk) are the top tenancy tier;
-**projects** are the unit of isolation, each with a member roster and per-project roles —
-`viewer` (read), `editor` (read/write the data layers), `owner` (also manages the roster + invites).
-Ownership is claimed on create and enforced server-side (a `FOR UPDATE` lock guards the
-"can't remove the last owner" rule). Owners invite by email (a tokenized link); the extension
-authenticates with either a Clerk session token or a project **API token**. A separate
-**platform-admin** tier ([apps/admin](apps/admin)) sees across all tenants and writes every mutation
-to an audit trail.
-
-The realtime bus is Supabase Realtime: after each write the server broadcasts a compact change event
-on a per-project channel whose name is an HMAC of the project id (a capability handed only to
-members), so clients re-fetch without touching the database directly.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, conventions and governance, and
+[CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ## Publishing
 
-Pushing a `v*` tag triggers [.github/workflows/release.yml](.github/workflows/release.yml) to build,
-test, package the extension `.vsix`, and publish to the VS Code Marketplace + Open VSX (each skipped
-if its `VSCE_PAT` / `OVSX_PAT` secret is absent). Bump with
-`npm version patch -w apps/extension && git push --follow-tags`.
+Releases are tags. `mcp-v*` publishes `forward-mcp` to npm with trusted publishing, so no npm token
+is stored anywhere. `v*` publishes the VS Code extension. Both re-run the full verification first,
+and `forward-mcp` is smoke-tested as the installed tarball. See [docs/releasing.md](docs/releasing.md),
+including the one-time manual first publish.
+
+```bash
+npm version 0.3.0 -w apps/mcp --no-git-tag-version   # land it through a PR, then:
+git tag mcp-v0.3.0 && git push origin mcp-v0.3.0
+```
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

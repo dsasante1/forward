@@ -1,9 +1,0 @@
-<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-  <!-- Staff-console colorway of the Forward mark: cream glyph on an ink tile,
-       so admin tabs read differently from the terracotta product tabs. -->
-  <rect width="24" height="24" rx="5" fill="#1c1a15"/>
-  <g fill="#efe8da" transform="translate(12 12) scale(0.72) translate(-12 -12)">
-    <path d="M4.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9z"/>
-    <path d="M13.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9z"/>
-  </g>
-</svg>

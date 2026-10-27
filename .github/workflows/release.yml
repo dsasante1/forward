@@ -3,6 +3,7 @@ name: Release extension
 # Push a version tag to publish the VS Code extension:
 #   npm version patch -w apps/extension   # bump + commit
 #   git tag v0.1.1 && git push --tags
+# forward-mcp (npm) releases separately from `mcp-v*` tags: see release-mcp.yml.
 on:
   push:
     tags:
@@ -22,7 +23,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install
@@ -54,6 +55,6 @@ jobs:
         run: npm run publish:ovsx -- --pat "$OVSX_PAT"
 
       - name: Attach .vsix to the GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           files: apps/extension/*.vsix

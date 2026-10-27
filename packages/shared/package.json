@@ -13,6 +13,10 @@
     "./api": {
       "types": "./dist/api-rest.d.ts",
       "import": "./dist/api-rest.js"
+    },
+    "./repo": {
+      "types": "./dist/repo/index.d.ts",
+      "import": "./dist/repo/index.js"
     }
   },
   "scripts": {
@@ -22,5 +26,9 @@
   },
   "dependencies": {
     "zod": "^3.23.8"
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/node": "^20.14.0"
   }
 }

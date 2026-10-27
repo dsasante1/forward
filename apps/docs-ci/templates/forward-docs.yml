@@ -1,105 +1,82 @@
-# Forward docs — generate on every change that lands on the default branch.
+# Forward docs (repo mode) — your AI documents every pull request, in the PR.
 #
 # Copy this file into YOUR repository at .github/workflows/forward-docs.yml.
-# On each push to the default branch (a merged PR — fork or not — and direct
-# pushes both produce one), it hands your own AI the diff + the Forward
-# instructions to produce forward-docs.json, then runs the deterministic
-# `forward-docs apply` step to write it to your project.
-#
-# Why `push` and not `pull_request`: a `pull_request` run from a FORK gets no
-# repository secrets, so FORWARD_API_TOKEN would be empty and the write would
-# fail. A push to the default branch always runs in your repo with secrets.
+# The project lives in .forward/ (create it with `npx -y -p forward-mcp forward init`),
+# so there is no Forward server and no Forward token: on each pull request your
+# own AI reads the diff + FORWARD_DOCS.md and writes forward-docs.json, the
+# deterministic `forward-docs apply` step turns that into .forward/ file changes,
+# and they are committed back to the PR branch — reviewed and merged with the code.
 #
 # Prerequisites (one-time):
-#   1. In the Forward dashboard, mint a project API token and add it as the repo
-#      secret FORWARD_API_TOKEN.
-#   2. Set FORWARD_API_BASE_URL and FORWARD_PROJECT_ID below (or as repo vars).
-#   3. Add the secret your AI needs (e.g. ANTHROPIC_API_KEY / OPENAI_API_KEY).
-#   4. Keep `@adc <id>` anchors next to the endpoints you want documented
-#      (the Forward VS Code extension writes these for you).
+#   1. Copy FORWARD_DOCS.md into your repo; your AI step reads it as its prompt.
+#   2. Add the secret your AI needs (e.g. ANTHROPIC_API_KEY / OPENAI_API_KEY).
+#   3. Keep `@adc <id>` anchors next to the endpoints you want documented.
+#
+# Fork PRs get no secrets, so the AI step can't run for them; the job skips them.
+# Commits pushed with GITHUB_TOKEN don't trigger new workflow runs, so this can't loop.
 
 name: Forward docs
 
 on:
-  push:
-  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: write
 
 jobs:
   forward-docs:
-    # Default branch only — whatever it's named (main/master/…). Non-default
-    # branch pushes and tag pushes fall through this guard and are skipped.
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     concurrency:
-      group: forward-docs-${{ github.repository }}
-      cancel-in-progress: false
+      group: forward-docs-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # need history so the diff base exists locally
-
-      # The change range — passed to your AI as FORWARD_DIFF_BASE / _HEAD.
-      - id: range
-        run: |
-          base="${{ github.event.before }}"
-          head="${{ github.sha }}"
-          # First push to a branch (all-zero base) or a force-push (base not an
-          # ancestor) leaves no usable base — fall back to the head's first parent
-          # so the diff is still bounded to this change.
-          if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            base="$(git rev-parse "${head}~1" 2>/dev/null || echo "${head}")"
-          fi
-          echo "base=${base}" >> "$GITHUB_OUTPUT"
-          echo "head=${head}" >> "$GITHUB_OUTPUT"
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
 
       # ── STEP 1: YOUR AI (bring your own). ───────────────────────────────────
-      # Replace this block with however you run your agent. Its ONLY job is to
-      # read FORWARD_DOCS.md (the instructions) and the diff, then write
-      # forward-docs.json to the repo root. It never needs the Forward token.
-      #
-      # Example with Claude Code (swap for any agent / provider you use):
+      # Its ONLY job: read FORWARD_DOCS.md and the diff between the two refs
+      # below, then write forward-docs.json to the repo root. Example:
       #
       #   - run: npm i -g @anthropic-ai/claude-code
-      #   - run: |
-      #       claude -p "$(cat FORWARD_DOCS.md)" \
-      #         --allowedTools "Bash,Read,Write"
+      #   - run: claude -p "$(cat FORWARD_DOCS.md)" --allowedTools "Bash,Read,Write"
       #     env:
       #       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      #       FORWARD_DIFF_BASE: ${{ steps.range.outputs.base }}
-      #       FORWARD_DIFF_HEAD: ${{ steps.range.outputs.head }}
+      #       FORWARD_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
+      #       FORWARD_DIFF_HEAD: ${{ github.event.pull_request.head.sha }}
+      #
+      # An agent with the forward MCP server connected can instead edit .forward/
+      # directly through its tools; then skip STEP 2 and just commit.
+      #
+      # Security: the agent reads the PR's own content, so treat that as untrusted
+      # input (prompt injection). This job holds `contents: write` and your AI key.
+      # Grant the narrowest tools that work (prefer Read/Write over Bash), and only
+      # run it for PRs from people you trust; fork PRs are already skipped above.
       - name: Generate forward-docs.json with your AI
-        run: echo "TODO: run your agent here to write forward-docs.json"
+        run: 'echo "TODO: run your agent here to write forward-docs.json"'
         env:
-          FORWARD_DIFF_BASE: ${{ steps.range.outputs.base }}
-          FORWARD_DIFF_HEAD: ${{ steps.range.outputs.head }}
+          FORWARD_DIFF_BASE: ${{ github.event.pull_request.base.sha }}
+          FORWARD_DIFF_HEAD: ${{ github.event.pull_request.head.sha }}
 
-      # Surface a broken AI step: an empty diff legitimately produces no file, but
-      # so does an agent that errored yet exited 0 — warn (don't fail) so the
-      # no-op is visible in the run instead of silently green.
-      - name: Note when no plan was produced
-        if: hashFiles('forward-docs.json') == ''
-        run: echo "::warning::No forward-docs.json was produced — skipping the Forward update. If this change touched documented code, check the AI step above."
-
-      # ── STEP 2: the deterministic write (Forward-provided, no AI). ──────────
-      # A bundled composite action — nothing to install, no npm registry.
-      # Pin @docs-ci-v1 to a tag/sha you trust.
-      - name: Apply to Forward
+      # ── STEP 2: the deterministic write into .forward/ (no AI, no token). ───
+      - name: Apply to .forward/
         if: hashFiles('forward-docs.json') != ''
-        uses: dsasante1/forward/apps/docs-ci@docs-ci-v1
+        uses: dsasante1/forward/apps/docs-ci@docs-ci-v2
         with:
-          api-base-url: https://api.forward.dev # ← your Forward backend
-          project-id: project_xxx # ← your Forward project id
-          api-token: ${{ secrets.FORWARD_API_TOKEN }}
-          commit: ${{ github.sha }}
-          commit-message: ${{ github.event.head_commit.message }}
+          commit: ${{ github.event.pull_request.head.sha }}
+          commit-message: ${{ github.event.pull_request.title }}
 
-      # Keep the rollback snapshot (prior ER + Agents/MCP state) recoverable —
-      # the server checkpoint only covers design + infra. Re-apply it with
-      # `forward-docs apply forward-docs.rollback.json` to revert those layers.
-      - name: Upload rollback snapshot
-        if: always() && hashFiles('forward-docs.rollback.json') != ''
-        uses: actions/upload-artifact@v4
-        with:
-          name: forward-docs-rollback
-          path: forward-docs.rollback.json
-          retention-days: 30
+      - name: Commit the documentation to the PR
+        if: hashFiles('forward-docs.json') != ''
+        run: |
+          rm -f forward-docs.json
+          git add .forward
+          if git diff --cached --quiet; then
+            echo "Documentation already up to date."
+            exit 0
+          fi
+          git -c user.name="forward-docs[bot]" -c user.email="forward-docs@users.noreply.github.com" \
+            commit -m "docs(forward): document ${{ github.event.pull_request.head.sha }}"
+          git push

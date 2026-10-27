@@ -1,7 +1,7 @@
 # Code owners — GitHub requests a review from these owners on any PR that touches
 # the matched paths. The point is to put a human who understands a CROSS-SERVICE
 # CONTRACT on every change to it, so one side can't silently change an assumption
-# the other relies on (how the docs feature broke: the server's save() stopped
+# the other relies on (how the docs feature broke: the backend's save() stopped
 # persisting apiBinding while the canvas still sent it through saveElement).
 #
 # Order matters — the LAST matching pattern wins.
@@ -10,13 +10,13 @@
 *                                   @dsasante1
 
 # The shared data contract every surface depends on. A change here ripples to the
-# canvas, extension, MCP, and server at once — review it as a contract, not a file.
+# canvas, extension, MCP and CLI at once — review it as a contract, not a file.
 /packages/shared/                   @dsasante1
 
-# The API client and the server module that persists what it sends. The
+# The API client and the repo store/router that persist what it sends. The
 # apiBinding-through-saveElement regression lived precisely in the gap between these.
 /packages/shared/src/api-rest.ts    @dsasante1
-/apps/server/src/elements/          @dsasante1
+/packages/shared/src/repo/          @dsasante1
 
 # The canvas data-source boundary (interface + the server-backed implementation)
 # — the client half of the same contract.

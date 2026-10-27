@@ -10,7 +10,6 @@ import {
   InfraFlow,
   InfraNode,
   McpServerNode,
-  ProjectInvite,
   ProjectRole,
   ProjectTimelineEvent,
   type SaveableElement,
@@ -57,27 +56,50 @@ export interface EntityPollState {
 
 /**
  * The Forward API client used by every surface (canvas, VS Code extension, MCP
- * server, docs CI). It talks to the Forward backend (apps/server) over its REST
- * API: build an `ApiConfig` (`baseUrl` + `projectId` + token) and call the
- * exported functions.
+ * server, CLI, docs CI). Build an `ApiConfig` and call the exported functions.
  *
- *   - talks to the Forward backend, never the database directly;
- *   - sends a per-user token in the `Authorization: Bearer` header;
- *   - the server owns identity + timestamps, so the `author` a caller passes is
- *     ignored — the session decides who wrote it.
+ *   - With a `transport` (the usual case: `repoConfig()` from
+ *     `forward-core/repo`), calls are served in-process from the `.forward/`
+ *     directory of a git repository.
+ *   - Without one, calls go over HTTP to `baseUrl` — the local server that
+ *     `forward serve` runs for the canvas — with `token` as a `Bearer` header.
  *
- * The ETag/conditional pollers always return data (the server has no 304 path
- * yet). Subscribe to the project's Supabase Realtime channel for push updates
- * instead of tight polling.
+ * Either way the backend owns identity + timestamps, so an `author` a caller
+ * passes is ignored.
  */
 export interface ApiConfig {
-  /** Base URL of the Forward backend, e.g. https://api.forward.dev */
+  /** Base URL of a `forward serve` instance, e.g. http://127.0.0.1:4747 (unused with a transport). */
   baseUrl: string;
   /** The project (tenancy) id this client operates within. */
   projectId: string;
-  /** A Clerk session token (sent as `Authorization: Bearer`). */
+  /** The `forward serve` session token (sent as `Authorization: Bearer`). */
   token: string;
+  /**
+   * Optional in-process transport. When set, every project-scoped request is
+   * handed to it instead of `fetch` — this is how repo mode works: the
+   * `forward-core/repo` transport serves the same routes from the `.forward/`
+   * directory in a git repository, so the MCP server, extension and CLI run
+   * unchanged against files with no server, no token and no network.
+   */
+  transport?: ApiTransport;
 }
+
+/** One project-scoped request, as the REST client would send it. */
+export interface ApiRequest {
+  method: string;
+  /** Path below `/projects/:projectId`, including any query string. */
+  path: string;
+  body?: unknown;
+}
+
+/** What a transport hands back: an HTTP-like status and a parsed JSON body. */
+export interface ApiResponse {
+  status: number;
+  body?: unknown;
+}
+
+/** Serves project-scoped requests without HTTP (see {@link ApiConfig.transport}). */
+export type ApiTransport = (req: ApiRequest) => Promise<ApiResponse>;
 
 // --------------------------------------------------------------------------
 // low-level request helpers
@@ -93,6 +115,18 @@ async function request<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  if (cfg.transport) {
+    const res = await cfg.transport({ method, path, body });
+    if (res.status >= 400) {
+      const msg = (res.body as { message?: unknown } | undefined)?.message;
+      throw new Error(
+        typeof msg === "string" && msg
+          ? msg
+          : `Forward API ${method} ${path} failed: ${res.status}`,
+      );
+    }
+    return res.body as T;
+  }
   const res = await fetch(`${base(cfg)}${path}`, {
     method,
     headers: {
@@ -102,29 +136,36 @@ async function request<T>(
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) {
-    throw new Error(`Forward API ${method} ${path} failed: ${res.status}`);
+    throw new Error(await errorMessage(res, `${method} ${path}`));
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text ? (JSON.parse(text) as T) : (undefined as T));
 }
 
-const get = <T>(cfg: ApiConfig, path: string) => request<T>(cfg, "GET", path);
-
-// --------------------------------------------------------------------------
-// realtime
-// --------------------------------------------------------------------------
-
 /**
- * The project's realtime channel name — the unguessable, member-only capability
- * a client passes to Supabase Realtime to receive the server's ChangeEvent
- * broadcasts (see forward-core realtime.ts). Server-issued: the client never
- * derives it from the project id.
+ * Build an error message from a failed response, preferring the server's typed
+ * `message` (e.g. "Cannot demote the last owner of a project", "Read-only
+ * access…") over a bare status — those messages are actionable and meant for the
+ * user. Falls back to the status when there is no usable body.
  */
-export async function fetchRealtimeChannel(cfg: ApiConfig): Promise<string> {
-  const { channel } = await get<{ channel: string }>(cfg, "/realtime");
-  return channel;
+async function errorMessage(res: Response, ctx: string): Promise<string> {
+  try {
+    const text = await res.text();
+    if (text) {
+      const body = JSON.parse(text) as { message?: string | string[] };
+      const msg = Array.isArray(body.message)
+        ? body.message.join(", ")
+        : body.message;
+      if (msg) return msg;
+    }
+  } catch {
+    // Non-JSON or unreadable body — fall through to the status.
+  }
+  return `Forward API ${ctx} failed: ${res.status}`;
 }
+
+const get = <T>(cfg: ApiConfig, path: string) => request<T>(cfg, "GET", path);
 
 // --------------------------------------------------------------------------
 // design elements + API binding + timeline
@@ -224,15 +265,15 @@ export async function unbindApiFromElement(
 }
 
 // --------------------------------------------------------------------------
-// membership roster
+// contributor roster (read-only: derived from git history in repo mode)
 // --------------------------------------------------------------------------
 
 export interface RosterMember {
   uid: string;
   email: string | null;
-  /** Display name mirrored from Clerk; null until the user's profile is synced. */
+  /** Display name (the git author name). */
   name: string | null;
-  /** Avatar URL mirrored from Clerk; null if unavailable. */
+  /** Avatar URL, when known. */
   imageUrl: string | null;
   role: ProjectRole;
   addedAt: string;
@@ -257,198 +298,6 @@ export async function listMembers(cfg: ApiConfig): Promise<RosterMember[]> {
     role: m.role,
     addedAt: m.addedAt,
   }));
-}
-
-export async function addMember(
-  cfg: ApiConfig,
-  uid: string,
-  role: ProjectRole = "editor",
-): Promise<void> {
-  await request(cfg, "POST", "/members", { userId: uid, role });
-}
-
-export async function updateMemberRole(
-  cfg: ApiConfig,
-  uid: string,
-  role: ProjectRole,
-): Promise<void> {
-  await request(cfg, "PATCH", `/members/${encodeURIComponent(uid)}`, { role });
-}
-
-export async function removeMember(cfg: ApiConfig, uid: string): Promise<void> {
-  await request(cfg, "DELETE", `/members/${encodeURIComponent(uid)}`);
-}
-
-// --------------------------------------------------------------------------
-// email invitations
-// --------------------------------------------------------------------------
-
-/** A pending invitation as returned by the API (the opaque token is never listed). */
-export type InviteSummary = Pick<
-  ProjectInvite,
-  "id" | "email" | "role" | "status" | "createdAt" | "expiresAt"
->;
-
-export async function listInvites(cfg: ApiConfig): Promise<InviteSummary[]> {
-  return (await get<InviteSummary[]>(cfg, "/invites")) ?? [];
-}
-
-export async function createInvite(
-  cfg: ApiConfig,
-  email: string,
-  role: ProjectRole = "editor",
-): Promise<InviteSummary & { emailSent: boolean }> {
-  return request(cfg, "POST", "/invites", { email, role });
-}
-
-export async function revokeInvite(
-  cfg: ApiConfig,
-  inviteId: string,
-): Promise<void> {
-  await request(cfg, "DELETE", `/invites/${encodeURIComponent(inviteId)}`);
-}
-
-/**
- * Redeem an invitation token. Account-level (not project-scoped) — the caller is
- * not yet a member — so it bypasses the project base path.
- */
-export async function acceptInvite(
-  cfg: ApiConfig,
-  inviteToken: string,
-): Promise<{ projectId: string; role: ProjectRole }> {
-  const res = await fetch(
-    `${cfg.baseUrl.replace(/\/$/, "")}/invites/${encodeURIComponent(inviteToken)}/accept`,
-    { method: "POST", headers: { authorization: `Bearer ${cfg.token}` } },
-  );
-  if (!res.ok) {
-    throw new Error(`Forward API accept invite failed: ${res.status}`);
-  }
-  const text = await res.text();
-  return text ? JSON.parse(text) : { projectId: "", role: "editor" };
-}
-
-// --------------------------------------------------------------------------
-// account-level (above project scope)
-//
-// These take a raw baseUrl + token rather than a project-scoped ApiConfig: they
-// list the projects a user belongs to, and manage the Personal Access Tokens a
-// headless surface (the VS Code extension) authenticates with. Shared here so the
-// dashboard and extension don't each hand-build these paths.
-// --------------------------------------------------------------------------
-
-async function accountRequest<T>(
-  baseUrl: string,
-  token: string,
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
-  const res = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${token}`,
-      ...(body !== undefined ? { "content-type": "application/json" } : {}),
-    },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) {
-    throw new Error(`Forward API ${method} ${path} failed: ${res.status}`);
-  }
-  if (res.status === 204) return undefined as T;
-  const text = await res.text();
-  return (text ? (JSON.parse(text) as T) : (undefined as T));
-}
-
-/** A project the caller belongs to, with their role in it. */
-export interface ProjectSummary {
-  id: string;
-  name: string;
-  role: ProjectRole;
-}
-
-/** The projects the authenticated user is a member of (account-level). */
-export async function listProjects(
-  baseUrl: string,
-  token: string,
-): Promise<ProjectSummary[]> {
-  const rows = await accountRequest<
-    Array<{ id: string; name: string; role: ProjectRole }>
-  >(baseUrl, token, "GET", "/projects");
-  return (rows ?? []).map((p) => ({ id: p.id, name: p.name, role: p.role }));
-}
-
-/** A Personal Access Token as listed — never includes the secret. */
-export interface ApiTokenSummary {
-  id: string;
-  name: string;
-  prefix: string;
-  lastUsedAt: string | null;
-  expiresAt: string | null;
-  createdAt: string;
-}
-
-export async function listApiTokens(
-  baseUrl: string,
-  token: string,
-): Promise<ApiTokenSummary[]> {
-  return (
-    (await accountRequest<ApiTokenSummary[]>(baseUrl, token, "GET", "/tokens")) ??
-    []
-  );
-}
-
-/** A freshly minted PAT — the only response that carries the plaintext `token`. */
-export interface NewApiToken {
-  id: string;
-  name: string;
-  prefix: string;
-  expiresAt: string | null;
-  createdAt: string;
-  token: string;
-}
-
-/**
- * Mint a PAT. The returned `token` is the plaintext, available only here — show
- * it once, then it is unrecoverable. `expiresInDays` defaults to 90 server-side
- * when omitted; every token expires (there is no never-expires option).
- */
-export async function createApiToken(
-  baseUrl: string,
-  token: string,
-  name: string,
-  expiresInDays?: number,
-): Promise<NewApiToken> {
-  return accountRequest(baseUrl, token, "POST", "/tokens", {
-    name,
-    ...(expiresInDays !== undefined ? { expiresInDays } : {}),
-  });
-}
-
-/**
- * Rotate a PAT: revoke `id` and mint a replacement under the same name. Returns
- * the new plaintext (shown once); the old token stops working immediately.
- */
-export async function rotateApiToken(
-  baseUrl: string,
-  token: string,
-  id: string,
-  expiresInDays?: number,
-): Promise<NewApiToken> {
-  return accountRequest(
-    baseUrl,
-    token,
-    "POST",
-    `/tokens/${encodeURIComponent(id)}/rotate`,
-    expiresInDays !== undefined ? { expiresInDays } : {},
-  );
-}
-
-export async function revokeApiToken(
-  baseUrl: string,
-  token: string,
-  id: string,
-): Promise<void> {
-  await accountRequest(baseUrl, token, "DELETE", `/tokens/${encodeURIComponent(id)}`);
 }
 
 // --------------------------------------------------------------------------
@@ -738,10 +587,9 @@ export async function restoreCheckpoint(
 // --------------------------------------------------------------------------
 // poller-facing reads (ETag-based conditional pollers)
 //
-// The backend has no 304 path yet, so these always return fresh data rather than
-// `null`. They exist so the extension's existing poll loop runs unchanged; the
-// real upgrade is to subscribe to the project's Supabase Realtime channel and
-// re-fetch only on a change event.
+// There is no 304 path, so these always return fresh data rather than `null`.
+// They exist so the extension's poll loop keeps a stable shape; in repo mode a
+// read is a few local file reads, so polling is cheap.
 // --------------------------------------------------------------------------
 
 export async function fetchElementsConditional(

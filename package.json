@@ -2,8 +2,8 @@
   "name": "forward",
   "version": "0.1.0",
   "private": true,
-  "description": "A developer-first tool: map API docs to an independent design canvas.",
-  "license": "UNLICENSED",
+  "description": "Keep UI design and backend docs in sync \u2014 versioned in your git repo, editable by humans and AI agents.",
+  "license": "Apache-2.0",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -15,11 +15,14 @@
     "bootstrap": "npm install && npm run build"
   },
   "devDependencies": {
-    "firebase-tools": "^15.19.0",
     "typescript": "^5.4.5",
     "vitest": "^1.6.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dsasante1/forward.git"
   }
 }

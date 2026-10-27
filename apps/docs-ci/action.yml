@@ -1,5 +1,5 @@
 name: "Forward docs apply"
-description: "Validate an AI-produced forward-docs.json and write it to a Forward project (checkpoint-safe, idempotent). No AI runs here — this is the deterministic write step."
+description: "Validate an AI-produced forward-docs.json and write it into the repository's .forward/ project. No AI and no credentials run here; this is the deterministic write step."
 author: "Forward"
 branding:
   icon: "upload-cloud"
@@ -10,15 +10,6 @@ inputs:
     description: "Path to the forward-docs.json your AI produced."
     required: false
     default: "forward-docs.json"
-  api-base-url:
-    description: "Forward backend base URL, e.g. https://api.forward.dev"
-    required: true
-  project-id:
-    description: "Target Forward project (tenancy) id."
-    required: true
-  api-token:
-    description: "Forward project API token (pass a secret)."
-    required: true
   commit:
     description: "Commit sha, used as the default version label on bindings."
     required: false
@@ -35,10 +26,8 @@ runs:
   using: "composite"
   steps:
     - shell: bash
-      run: node "$GITHUB_ACTION_PATH/dist/action.mjs" apply "${{ inputs.plan }}"
+      run: node "$GITHUB_ACTION_PATH/dist/action.mjs" apply "$PLAN"
       env:
-        FORWARD_API_BASE_URL: ${{ inputs.api-base-url }}
-        FORWARD_PROJECT_ID: ${{ inputs.project-id }}
-        FORWARD_API_TOKEN: ${{ inputs.api-token }}
+        PLAN: ${{ inputs.plan }}
         FORWARD_COMMIT: ${{ inputs.commit }}
         FORWARD_COMMIT_MESSAGE: ${{ inputs.commit-message }}

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # repo-mode tests read git history
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+        env:
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.com
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.com
+
+      # The published artifact, not the source tree: pack forward-mcp as npm
+      # would, install it into an empty project and drive its binaries.
+      - name: Package smoke test
+        run: |
+          npm run pack -w apps/mcp
+          npm run smoke:package -w apps/mcp
+
+  # Dogfood the GitHub Action against a scratch project.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create a scratch Forward project
+        run: |
+          mkdir -p "$RUNNER_TEMP/demo/.forward"
+          printf '{\n  "format": 1,\n  "id": "demo",\n  "name": "Demo"\n}\n' > "$RUNNER_TEMP/demo/.forward/forward.json"
+          # The digest step diffs inside the project's own repo, so make it one.
+          cd "$RUNNER_TEMP/demo"
+          git init -q
+          git add -A
+          git -c user.name=ci -c user.email=ci@example.com commit -qm "demo project"
+      - uses: ./
+        with:
+          path: ${{ runner.temp }}/demo
+          base: HEAD
+          comment: false
+          export: ${{ runner.temp }}/site
+      - name: Check the export
+        run: test -f "$RUNNER_TEMP/site/index.html" && test -f "$RUNNER_TEMP/site/forward.json"

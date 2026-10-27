@@ -10,6 +10,9 @@ out/
 .env.*
 !.env.example
 .vscode-test/
+.claude/settings.local.json
 
-# Firebase deploy cache (per-machine, regenerated on every deploy)
-.firebase/
+
+# Built canvas host shipped with the forward CLI
+apps/canvas/dist-host/
+apps/mcp/pkg/

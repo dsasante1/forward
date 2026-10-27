@@ -22,9 +22,9 @@ import type { RosterMember } from "forward-core/api";
 export type { ProjectRole, RosterMember };
 
 /**
- * The data contract the canvas editor renders against. The only implementation
- * is `ServerSource` (the Forward backend over REST); the canvas is always
- * embedded by a host (the dashboard) that builds the source with its own auth.
+ * The data contract the canvas editor renders against. `ServerSource` talks to
+ * the local `forward serve` REST API over the repository's `.forward/`;
+ * `StaticSource` renders an exported snapshot read-only (GitHub Pages).
  */
 export interface ElementSnapshot {
   element: DesignElement;
@@ -145,14 +145,8 @@ export interface CanvasSource {
   saveMcpServer?(server: McpServerNode): Promise<void>;
   /** Remove one MCP server, dropping it from any agent's `mcpServerIds`. */
   deleteMcpServer?(serverId: string): Promise<void>;
-  /** Enrol another uid into the project's member roster (membership-gated hosts). */
-  addMember?(uid: string, role?: ProjectRole): Promise<void>;
-  /** The project's member roster (membership-gated hosts); drives the Member view. */
+  /** The contributor roster (from git history); drives the read-only Member view. */
   listMembers?(): Promise<RosterMember[]>;
-  /** Change a member's role. */
-  updateMemberRole?(uid: string, role: ProjectRole): Promise<void>;
-  /** Remove a member from the roster. */
-  removeMember?(uid: string): Promise<void>;
   /** Subscribe to the project's tasks (pillar 4); fires on every change. */
   subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
   /** Create or update one task. */

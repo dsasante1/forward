@@ -5,7 +5,7 @@ import type { CanvasSource, ElementSnapshot, InfraSnapshot } from "./source.js";
 
 /**
  * A faithful in-memory `CanvasSource` that mirrors the CENTRAL SERVER's binding
- * rules (apps/server/src/elements): `saveElement` persists geometry/style but
+ * rules (and the repo store, packages/shared/src/repo/store.ts): `saveElement` persists geometry/style but
  * NEVER a client-supplied binding (bind/unbind own it); `documentElement`
  * attaches the binding + appends a versioned diff; `undocumentElement` removes it
  * + records a "deleted" entry.

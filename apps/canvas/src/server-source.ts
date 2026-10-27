@@ -10,7 +10,6 @@ import type {
   InfraFlow,
   InfraNode,
   McpServerNode,
-  ProjectRole,
   ProjectTimelineEvent,
   RealtimeResource,
   SaveableElement,
@@ -26,9 +25,8 @@ import type {
   InfraSnapshot,
 } from "./source.js";
 
-/** Resolves a fresh auth token for each request. Returns null/undefined when the
- * caller isn't signed in. Embedded in the dashboard this is Clerk's `getToken`;
- * standalone it's a constant wrapped in a promise. */
+/** Resolves the auth token for each request — for `forward serve`, the
+ * per-session token injected into the page, wrapped in a promise. */
 export type TokenProvider = () => Promise<string | null | undefined>;
 
 /** Split a heartbeat failure into "can't reach the backend" vs "the backend
@@ -43,23 +41,17 @@ function classifyPollError(err: unknown): ConnectionStatus {
 }
 
 /**
- * A CanvasSource backed by the Forward backend (`apps/server`) over its REST API
- * — the same contract the dashboard, extension and MCP speak via `forward-core/api`.
- * This is the migration target: it lets the canvas resolve the *same* elements
- * (by the same project id and element ids) that the dashboard documents, so the
- * canvas can be embedded as a dashboard route or deep-linked to an element.
- *
- * A token is resolved *per request* (`TokenProvider`) rather than captured once,
- * because tokens are short-lived (~60s) and an embedded canvas outlives any single
- * token.
+ * A CanvasSource backed by Forward's REST API — in practice the local server
+ * `forward serve` runs over the repository's `.forward/` directory. It speaks
+ * the same `forward-core/api` contract the extension, MCP server and CLI use,
+ * so an agent writing through MCP and a person editing here see each other's
+ * changes.
  *
  * Freshness comes from two cooperating paths:
- *   - push: the host subscribes to the project's realtime channel and calls
- *     {@link notifyChange} per ChangeEvent, which re-runs the affected loop's
- *     fetch immediately; and
- *   - poll: every loop still ticks on `pollMs` as the reconciliation fallback
- *     (missed broadcast, realtime not configured). Hosts with realtime attached
- *     should pass a long `pollMs` — the push path carries the latency.
+ *   - push: after its own write the canvas calls {@link notifyChange}, which
+ *     re-runs the affected loop's fetch immediately; and
+ *   - poll: every loop ticks on `pollMs`, which picks up changes made by other
+ *     writers (an agent, `git pull`, a checkout).
  * Either way a loop only emits when the data actually changed, to avoid
  * clobbering an in-progress edit.
  */
@@ -75,8 +67,8 @@ export class ServerSource implements CanvasSource {
    * until the first failure so the indicator doesn't flicker on mount. */
   private status: ConnectionStatus = "online";
   private statusListeners = new Set<(status: ConnectionStatus) => void>();
-  /** Live fetch loops by the realtime resource(s) they cover, so a pushed
-   * ChangeEvent can re-run exactly the affected loop (see notifyChange). */
+  /** Live fetch loops by the resource(s) they cover, so notifyChange can
+   * re-run exactly the affected loop. */
   private readonly loops = new Map<RealtimeResource, Set<() => void>>();
 
   constructor(
@@ -128,8 +120,8 @@ export class ServerSource implements CanvasSource {
   }
 
   /**
-   * Push path: the host received a ChangeEvent on the project's realtime
-   * channel — re-run the affected loop's fetch immediately instead of waiting
+   * Push path: something just changed this resource (typically the canvas's own
+   * write) — re-run the affected loop's fetch immediately instead of waiting
    * for its next poll tick. Unknown/uncovered resources are a no-op. The ticks
    * are `guarded`, so a burst of events while a fetch is in flight collapses.
    */
@@ -449,19 +441,9 @@ export class ServerSource implements CanvasSource {
     await api.deleteTask(await this.cfg(), taskId);
   }
 
-  async addMember(uid: string, role: ProjectRole = "editor"): Promise<void> {
-    await api.addMember(await this.cfg(), uid, role);
-  }
-
   async listMembers(): Promise<api.RosterMember[]> {
     return api.listMembers(await this.cfg());
   }
 
-  async updateMemberRole(uid: string, role: ProjectRole): Promise<void> {
-    await api.updateMemberRole(await this.cfg(), uid, role);
-  }
 
-  async removeMember(uid: string): Promise<void> {
-    await api.removeMember(await this.cfg(), uid);
-  }
 }

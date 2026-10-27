@@ -3,7 +3,7 @@
  *
  * Imported as a string (`?inline`) and injected into the canvas Shadow DOM by
  * mountCanvas, so none of these selectors (including generic ones like `code`,
- * `table`, `.row`) leak out to a host page (e.g. the dashboard). Document-level
+ * `table`, `.row`) leak out to a host page (e.g. the VS Code webview). Document-level
  * rules sit on `:host` / `.fwd-canvas-root` since there is no <body> in a shadow
  * root. The palette + fonts mirror the imported design; class names are kept so
  * the render code (panel/timeline/tasks views) styles without changes.
@@ -42,8 +42,8 @@
   --mono: "JetBrains Mono", ui-monospace, monospace;
   --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
   /* The Forward fast-forward mark (outline variant), as a mask so it renders
-     in whatever currentColor context it sits in. Duplicated from the dashboard
-     :root because the shadow root must work standalone too. */
+     in whatever currentColor context it sits in. Defined on the shadow :root
+     so the canvas works standalone in any host page. */
   --brand-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M4.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9zm1.5 1.5v10.9L13.5 12 6.25 6.4z'/%3E%3Cpath d='M13.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9zm1.5 1.5v10.9L22.5 12l-7.25-5.6z'/%3E%3C/svg%3E");
 }
 * { box-sizing: border-box; }
