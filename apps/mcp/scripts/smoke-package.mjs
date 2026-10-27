@@ -12,7 +12,7 @@
 // Run after `npm run pack -w apps/mcp`.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,9 +38,17 @@ try {
   const tarball = path.join(work, packed.filename);
   // `npm install <tarball>` is lenient, but `npm publish` normalizes package.json
   // and silently drops fields it rejects (a `./`-prefixed bin vanished this
-  // way). Publish in dry-run mode and refuse any auto-correction.
+  // way). Publish in dry-run mode and refuse any auto-correction. npm refuses
+  // even a dry run over a version already on the registry, so dry-run a copy
+  // under a pre-release version that can never have been published.
   step("npm publish --dry-run");
-  const dry = spawnSyncText("npm", ["publish", pkgDir, "--dry-run", "--access", "public"]);
+  const publishCheck = path.join(work, "publish-check");
+  cpSync(pkgDir, publishCheck, { recursive: true });
+  writeFileSync(
+    path.join(publishCheck, "package.json"),
+    `${JSON.stringify({ ...manifest, version: `${manifest.version}-smoke.${Date.now()}` }, null, 2)}\n`,
+  );
+  const dry = spawnSyncText("npm", ["publish", publishCheck, "--dry-run", "--access", "public", "--tag", "smoke"]);
   if (/errors corrected|was invalid and removed/.test(dry)) {
     throw new Error(`npm would rewrite package.json on publish:\n${dry}`);
   }

@@ -12,7 +12,7 @@ The product is **AI-agent first**: every capability is an MCP tool registered on
 
 ## Commands
 
-Run from the repo root (npm workspaces; Node >= 22.12 to develop, `.nvmrc` pins 22; the published CLI still supports Node >= 20).
+Run from the repo root (npm workspaces; Node >= 22.12 to develop, `.nvmrc` pins 22; the published `forward-mcp` needs Node >= 22; `forward-docs` still runs on Node >= 20).
 
 - `npm install` — install all workspaces
 - `npm run build` — build every workspace (`packages/shared` must build before the apps that import it; `apps/canvas` before `apps/mcp`, which copies the canvas UI)

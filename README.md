@@ -17,7 +17,7 @@ integrate, change or remove.
 
 ## Quick start
 
-Run this in the root of your repository. Node 20 or newer is required.
+Run this in the root of your repository. Node 22 or newer is required.
 
 ```bash
 npx -y -p forward-mcp forward init     # creates .forward/, agent configs and the GitHub workflow
