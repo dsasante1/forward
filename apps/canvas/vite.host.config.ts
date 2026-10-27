@@ -7,10 +7,10 @@ import { thirdPartyNotices } from "../../scripts/third-party-notices.mjs";
 // to a project bundle for GitHub Pages. `base: "./"` keeps every asset URL
 // relative so the site works under any Pages sub-path (/<repo>/).
 export default defineConfig({
-  root: resolve(__dirname, "host"),
+  root: resolve(import.meta.dirname, "host"),
   base: "./",
   build: {
-    outDir: resolve(__dirname, "dist-host"),
+    outDir: resolve(import.meta.dirname, "dist-host"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 4096,
   },
@@ -24,7 +24,7 @@ export default defineConfig({
         this.emitFile({
           type: "asset",
           fileName: "THIRD_PARTY_NOTICES.txt",
-          source: thirdPartyNotices(files, __dirname, "The Forward canvas UI"),
+          source: thirdPartyNotices(files, import.meta.dirname, "The Forward canvas UI"),
         });
       },
     },

@@ -145,7 +145,7 @@ modify / remove") for a returning frontend dev.
 
 ## Monorepo layout
 
-npm workspaces (Node >= 20; `.nvmrc` pins 22).
+npm workspaces (Node >= 22.12 to develop; `.nvmrc` pins 22).
 
 | Path | Package | What it is |
 |---|---|---|

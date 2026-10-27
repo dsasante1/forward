@@ -13,7 +13,7 @@ npm test
 npm run typecheck
 ```
 
-Node 20 or newer is required; `.nvmrc` pins 22. There is no server, database or account to set
+Node 22.12 or newer is required to develop (`.nvmrc` pins 22); the published CLI runs on Node 20+. There is no server, database or account to set
 up. Try your build against any repository:
 
 ```bash

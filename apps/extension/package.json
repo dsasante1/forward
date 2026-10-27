@@ -210,12 +210,12 @@
     "publish:ovsx": "ovsx publish --no-dependencies"
   },
   "devDependencies": {
-    "@types/node": "^20.14.0",
+    "@types/node": "^22.12.0",
     "@types/vscode": "^1.85.0",
-    "@vscode/vsce": "^3.2.0",
-    "esbuild": "^0.21.5",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
     "forward-canvas": "*",
     "forward-core": "*",
-    "ovsx": "^0.10.0"
+    "ovsx": "^1.3.0"
   }
 }

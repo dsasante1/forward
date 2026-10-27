@@ -3836,7 +3836,7 @@ ZodNaN.create = (params) => {
     ...processCreateParams(params)
   });
 };
-var BRAND = Symbol("zod_brand");
+var BRAND = /* @__PURE__ */ Symbol("zod_brand");
 var ZodBranded = class extends ZodType {
   _parse(input) {
     const { ctx } = this._processInputParams(input);
@@ -4038,14 +4038,14 @@ var ostring = () => stringType().optional();
 var onumber = () => numberType().optional();
 var oboolean = () => booleanType().optional();
 var coerce = {
-  string: (arg) => ZodString.create({ ...arg, coerce: true }),
-  number: (arg) => ZodNumber.create({ ...arg, coerce: true }),
-  boolean: (arg) => ZodBoolean.create({
+  string: ((arg) => ZodString.create({ ...arg, coerce: true })),
+  number: ((arg) => ZodNumber.create({ ...arg, coerce: true })),
+  boolean: ((arg) => ZodBoolean.create({
     ...arg,
     coerce: true
-  }),
-  bigint: (arg) => ZodBigInt.create({ ...arg, coerce: true }),
-  date: (arg) => ZodDate.create({ ...arg, coerce: true })
+  })),
+  bigint: ((arg) => ZodBigInt.create({ ...arg, coerce: true })),
+  date: ((arg) => ZodDate.create({ ...arg, coerce: true }))
 };
 var NEVER = INVALID;
 
@@ -4988,9 +4988,11 @@ var RepoStore = class {
     return next;
   }
   appendVersion(elementId, input) {
-    const entry = VersionEntry.parse({ ...input, timestamp: this.now().getTime() });
     const dir = join2(collectionDir(this.root, "history"), fileNameForId(elementId));
     mkdirSync(dir, { recursive: true });
+    const last = listJson(dir).reduce((max, file) => Math.max(max, Number.parseInt(file, 10) || 0), 0);
+    const timestamp = Math.max(this.now().getTime(), last + 1);
+    const entry = VersionEntry.parse({ ...input, timestamp });
     if (fileNameForId(elementId) !== elementId) {
       writeAtomic(join2(dir, ".element"), `${JSON.stringify(elementId)}
 `);
@@ -5410,6 +5412,10 @@ var GridPlacer = class {
     for (const g of existing) maxBottom = Math.max(maxBottom, g.y + g.height);
     this.startY = Number.isFinite(maxBottom) ? maxBottom + gap : 0;
   }
+  originX;
+  cellW;
+  cellH;
+  cols;
   col = 0;
   row = 0;
   startY;

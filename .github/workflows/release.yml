@@ -48,11 +48,12 @@ jobs:
         working-directory: apps/extension
         run: npm run publish:vsce
 
-      # Open VSX (Cursor / VSCodium) — requires an OVSX_PAT secret.
+      # Open VSX (Cursor / VSCodium) — requires an OVSX_PAT secret, which
+      # ovsx reads from the job env (ovsx 1.x has no `publish --pat`).
       - name: Publish to Open VSX
         if: ${{ env.OVSX_PAT != '' }}
         working-directory: apps/extension
-        run: npm run publish:ovsx -- --pat "$OVSX_PAT"
+        run: npm run publish:ovsx
 
       - name: Attach .vsix to the GitHub Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
