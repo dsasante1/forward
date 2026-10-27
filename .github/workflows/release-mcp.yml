@@ -1,6 +1,6 @@
 # Publish forward-mcp (the MCP server + `forward` CLI) to npm from a tag.
 #
-# `git push origin mcp-v0.2.0` runs this. It repeats the full verification —
+# `git push origin mcp-v0.3.0` runs this. It repeats the full verification —
 # build, typecheck, tests, the self-contained pack and the packed-tarball smoke
 # test — and only then publishes that one version:
 #
