@@ -15,6 +15,7 @@ import {
   projectTimeline,
   renderDiffMarkdown,
   repoConfig,
+  RepoStore,
   validateRepo,
 } from "./index.js";
 
@@ -27,8 +28,14 @@ const node = (id: string): InfraNode =>
 let root: string;
 let cfg: api.ApiConfig;
 
+// CI sets GIT_AUTHOR_* / GIT_COMMITTER_*, which beat the repo's user.name; drop
+// them so commits are authored by the identity each test configures.
+const gitEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([k]) => !/^GIT_(AUTHOR|COMMITTER)_/.test(k)),
+);
+
 function git(...args: string[]) {
-  execFileSync("git", args, { cwd: root, stdio: "ignore" });
+  execFileSync("git", args, { cwd: root, stdio: "ignore", env: gitEnv });
 }
 
 beforeEach(() => {
@@ -68,6 +75,20 @@ describe("repo mode through forward-core/api", () => {
     expect(entries.every((e) => e.author === "tester")).toBe(true);
     expect(readdirSync(join(root, ".forward/history/btn"))).toHaveLength(3);
     expect((await api.fetchElements(cfg))[0]?.apiBinding).toBeUndefined();
+  });
+
+  it("keeps history in write order when entries share a millisecond", () => {
+    const store = new RepoStore(root, { author: "tester", now: () => new Date(T) });
+    store.saveElement(el("btn"));
+    store.bind("btn", { binding: { title: "GET /a", description: "one" }, action: "created" });
+    store.bind("btn", { binding: { title: "GET /a", description: "two" } });
+    store.unbind("btn", {});
+    store.bind("btn", { binding: { title: "GET /a", description: "back" }, action: "created" });
+    const entries = store.timelines().btn ?? [];
+    expect(entries.map((e) => e.action)).toEqual(["created", "modified", "deleted", "created"]);
+    const stamps = entries.map((e) => e.timestamp);
+    expect(stamps).toEqual([...stamps].sort((a, b) => a - b));
+    expect(new Set(stamps).size).toBe(4);
   });
 
   it("cascades element deletes to the subtree and keeps history", async () => {

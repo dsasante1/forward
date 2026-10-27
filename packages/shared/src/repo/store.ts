@@ -415,9 +415,13 @@ export class RepoStore {
   }
 
   private appendVersion(elementId: string, input: Omit<VersionEntry, "timestamp">): void {
-    const entry = VersionEntry.parse({ ...input, timestamp: this.now().getTime() });
     const dir = join(collectionDir(this.root, "history"), fileNameForId(elementId));
     mkdirSync(dir, { recursive: true });
+    // Keep each element's timestamps strictly increasing: entries written in the
+    // same millisecond would tie, and the random file suffix would decide their order.
+    const last = listJson(dir).reduce((max, file) => Math.max(max, Number.parseInt(file, 10) || 0), 0);
+    const timestamp = Math.max(this.now().getTime(), last + 1);
+    const entry = VersionEntry.parse({ ...input, timestamp });
     if (fileNameForId(elementId) !== elementId) {
       // Encoded directory names can't be decoded reliably, so record the real id.
       writeAtomic(join(dir, ".element"), `${JSON.stringify(elementId)}\n`);

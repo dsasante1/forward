@@ -58,9 +58,15 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/demo/.forward"
           printf '{\n  "format": 1,\n  "id": "demo",\n  "name": "Demo"\n}\n' > "$RUNNER_TEMP/demo/.forward/forward.json"
+          # The digest step diffs inside the project's own repo, so make it one.
+          cd "$RUNNER_TEMP/demo"
+          git init -q
+          git add -A
+          git -c user.name=ci -c user.email=ci@example.com commit -qm "demo project"
       - uses: ./
         with:
           path: ${{ runner.temp }}/demo
+          base: HEAD
           comment: false
           export: ${{ runner.temp }}/site
       - name: Check the export
