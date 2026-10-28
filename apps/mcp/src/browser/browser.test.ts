@@ -134,8 +134,9 @@ describe("launching", () => {
           routes: ["/"],
           viewport: { width: 100, height: 100 },
           collector: COLLECTOR_SOURCE,
+          startTimeoutMs: 2_000,
         }),
-      ).rejects.toThrow(/Couldn't start hangs/);
+      ).rejects.toThrow(/Couldn't start hangs \(.*\): Browser\.getVersion timed out after 2s\. /);
       expect(readdirSync(tmpdir()).filter((f) => f.startsWith("forward-browser-")).length).toBe(before);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -169,7 +170,7 @@ describe("launching", () => {
       process.chdir(cwd);
       rmSync(dir, { recursive: true, force: true });
     }
-  }, 60_000);
+  }, 150_000);
 
   it("refuses off-origin routes before starting anything, and uses the companion when the project has no Playwright", async () => {
     await expect(

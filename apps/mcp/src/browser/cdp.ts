@@ -278,6 +278,11 @@ export interface BrowserCaptureOptions {
   waitMs?: number;
   /** Per-route page-load limit (default 30s). */
   timeoutMs?: number;
+  /**
+   * How long the browser may take to answer at all (default 60s). Every
+   * capture starts it on an empty profile, which is slow on a busy machine.
+   */
+  startTimeoutMs?: number;
 }
 
 /**
@@ -344,9 +349,9 @@ export async function captureWithBrowser(
     });
     conn = new Connection(child);
     const c = conn;
-    const { product } = await c.send<{ product: string }>("Browser.getVersion", {}, undefined, 20_000).catch((err: Error) => {
+    const { product } = await c.send<{ product: string }>("Browser.getVersion", {}, undefined, opts.startTimeoutMs ?? 60_000).catch((err: Error) => {
       throw new Error(
-        `Couldn't start ${opts.browser.name} (${opts.browser.path}): ${err.message} ` +
+        `Couldn't start ${opts.browser.name} (${opts.browser.path}): ${err.message.replace(/\.?$/, ".")} ` +
           "If it's managed by your organisation, remote debugging may be blocked; use `forward capture --script` instead.",
       );
     });
