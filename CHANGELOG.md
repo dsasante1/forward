@@ -5,6 +5,27 @@ tag (see [docs/releasing.md](docs/releasing.md)): `forward-mcp` from `mcp-v*`, t
 extension from `v*`, the docs-ci Action from `docs-ci-v*`. The Forward GitHub Action is
 released with `forward-mcp` and shares its tag.
 
+## forward-mcp 0.4.0 — 2026-10-28
+
+### Added
+
+- **Designs from frontend code.** `forward capture <url> [route ...]` (the agent tool
+  `import_design_from_code`) renders the running app and turns what the browser painted into
+  canvas drafts: a frame per route, boxes, text, and components with instances from React dev
+  builds. Re-running updates drafts in place and keeps their API docs; edited drafts are never
+  overwritten; **Adopt draft** turns a draft into an ordinary element; deleted drafts are
+  remembered in `.forward/dismissed/` (`--restore` brings them back); `--prune` removes stale
+  ones; `--anchors` adds `// @adc <id>` markers to the source. API docs never move on an
+  ambiguous match. `forward capture --script` and `--from` capture from any browser's DevTools.
+- **Live capture with the browser you already have**: Chrome, Edge, Brave, Chromium, Vivaldi or
+  Opera, headless, with a temporary profile, controlled over a pipe. `--browser` picks one,
+  `--browsers` lists them, `FORWARD_BROWSER` sets the default. The project's own Playwright is
+  used first when it declares one.
+- **`forward-capture`**, a companion package released at the same version. With no Playwright
+  and no Chromium browser, `forward capture` runs it through `npx`; it brings Playwright and
+  downloads Playwright's headless Chromium once (about 100 MB). `FORWARD_NO_DOWNLOAD=1` forbids
+  both downloads. `forward-mcp` itself still has no dependencies.
+
 ## forward-mcp 0.3.0 — 2026-10-27
 
 ### Changed
