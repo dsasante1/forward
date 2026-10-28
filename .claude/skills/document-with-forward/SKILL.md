@@ -82,8 +82,10 @@ prefer these tools over guessing state.
 
 Pattern: dry run → import → review → anchor.
 
-1. **`import_design_from_code`** with `url` + `routes` (live capture; needs Playwright in the
-   project) or `snapshotPath` (files from `forward capture --script` run in DevTools). Pass
+1. **`import_design_from_code`** with `url` + `routes` (live capture with a Chromium-based
+   browser already installed, or the project's Playwright; `browser` picks one) or
+   `snapshotPath` (files from `forward capture --script` run in DevTools, e.g. in Firefox or
+   Safari, which can't be driven live). Pass
    `dryRun: true` first and show the user the counts.
 2. Run it for real. Drafts land as one frame per route, marked "from code" on the canvas.
    Re-running updates untouched drafts. `conflicts` are drafts someone edited, and `skipped`

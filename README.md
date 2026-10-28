@@ -81,15 +81,31 @@ dropped, so the layer tree stays readable. React dev builds also report which co
 each node, so repeated components become a component plus instances.
 
 ```bash
-npm i -D playwright && npx playwright install chromium   # once, in your project
+forward capture --browsers                                  # which browsers it can use here
 forward capture http://localhost:5173 / /login /settings --dry-run
 forward capture http://localhost:5173 / /login /settings
 forward capture http://localhost:5173 /account --auth state.json --viewport 390x844
+forward capture http://localhost:5173 / --browser edge      # or chrome, brave, chromium, vivaldi, opera, a path
 ```
 
-No Playwright? `forward capture --script` prints a snippet to paste into the browser's DevTools
-console. It downloads `forward-snapshot.json`, which `forward capture --from forward-snapshot.json`
-imports. Agents call the same thing as `import_design_from_code`.
+Live capture uses the browser you already have. Any Chromium-based browser works: Chrome, Edge,
+Brave, Chromium, Vivaldi or Opera. Nothing is installed or downloaded. The browser runs headless
+with a fresh, temporary profile (it never sees your own cookies, logins or extensions). It's
+controlled over a pipe, so nothing listens on the network, and it's closed and its profile deleted
+when the capture ends. If the project has Playwright, that is used first; `--browser` picks one
+explicitly and `FORWARD_BROWSER` sets the default.
+
+No Playwright and no Chromium browser (a server, a container, some CI)? `forward capture` then runs
+its companion package, `forward-capture`, at the same version
+(`npx -y forward-capture@<version>`). It brings Playwright and downloads Playwright's headless
+Chromium once, about 100 MB, into Playwright's shared cache; `npx -y forward-capture install`
+fetches it ahead of time. `FORWARD_NO_DOWNLOAD=1` forbids both downloads. `forward-mcp` itself
+stays free of dependencies.
+
+Firefox and Safari can't be driven this way. In those (or any browser), `forward capture --script`
+prints a snippet to paste into the DevTools console. It downloads `forward-snapshot.json`, which
+`forward capture --from forward-snapshot.json` imports. Agents call the same thing as
+`import_design_from_code`.
 
 Generated elements are **drafts**, marked "from code" on the canvas:
 
@@ -198,7 +214,7 @@ npm workspaces (Node >= 22.12 to develop; `.nvmrc` pins 22).
 | Path | Package | What it is |
 |---|---|---|
 | [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types, timeline/diff/infra/entity helpers, the `api-rest` client (`forward-core/api`) and the repo-mode store, router and git helpers (`forward-core/repo`) |
-| [apps/mcp](apps/mcp) | `forward-mcp` | The agent surface: the MCP server (`forward-mcp`) and the `forward` CLI (init, serve, validate, diff, export, capture, agents, every tool) |
+| [apps/mcp](apps/mcp) | `forward-mcp` | The agent surface: the MCP server (`forward-mcp`) and the `forward` CLI (init, serve, validate, diff, export, capture, agents, every tool). Also builds the companion `forward-capture` (live capture with Playwright) |
 | [apps/canvas](apps/canvas) | `forward-canvas` | The design editor, shipped standalone with the CLI (`host/`) and embedded in the VS Code extension |
 | [apps/extension](apps/extension) | `forward-vscode` | VS Code extension. Works on the workspace's `.forward/` automatically |
 | [apps/docs-ci](apps/docs-ci) | `forward-docs-ci` | Bring-your-own-AI CI step that applies an agent-written plan to a project |

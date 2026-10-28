@@ -16,6 +16,7 @@ import {
 } from "forward-core/repo";
 import { parseArgs, str, type Args } from "./cli/args.js";
 import { callTool, close, coerceFlags, listTools, type ToolInfo } from "./cli/call.js";
+import { findBrowsers } from "./browser/find.js";
 import { captureSnippet } from "./capture.js";
 import { scaffoldAgents, scaffoldGithub, scaffoldRoot, type AgentTarget, type ScaffoldResult } from "./cli/scaffold.js";
 import { serve } from "./cli/serve.js";
@@ -36,11 +37,14 @@ Project
                              What changed since a ref: the catch-up digest for a PR
   forward export [--out _site] [--no-history]
                              Build a read-only static site for GitHub Pages
-  forward capture <url> [route ...] [--viewport 1440x900] [--auth state.json]
+  forward capture <url> [route ...] [--browser auto|playwright|chrome|edge|brave|chromium|
+                vivaldi|opera|<path>] [--viewport 1440x900] [--auth state.json]
                 [--prune] [--restore] [--anchors] [--no-components] [--dry-run]
-                             Generate design drafts from a running frontend (needs Playwright)
+                             Generate design drafts from a running frontend, with the project's
+                             Playwright or a Chromium-based browser you already have
+  forward capture --browsers List the browsers live capture can use on this device
   forward capture --script [--route /path]
-                             Print a DevTools snippet that captures the page without Playwright
+                             Print a DevTools snippet that captures the page in any browser
   forward capture --from <snapshot.json> [more.json ...] [--prune] [--restore] [--anchors] [--dry-run]
                              Import snapshots saved by that snippet
 
@@ -274,7 +278,17 @@ async function cmdCapture(a: Args): Promise<number> {
     process.stdout.write(captureSnippet(str(f.route)));
     return 0;
   }
-  const known = new Set(["from", "viewport", "auth", "wait", "prune", "anchors", "components", "dry-run", "route", "restore"]);
+  if (f.browsers) {
+    const found = findBrowsers();
+    if (!found.length) {
+      console.log("No Chromium-based browser found. Set FORWARD_BROWSER to one's path, or use `forward capture --script`.");
+      return 0;
+    }
+    console.log("Live capture can use (first is the default after the project's Playwright):");
+    for (const b of found) console.log(`  ${b.id.padEnd(9)} ${b.name.padEnd(15)} ${b.path}`);
+    return 0;
+  }
+  const known = new Set(["from", "viewport", "auth", "wait", "prune", "anchors", "components", "dry-run", "route", "restore", "browser"]);
   for (const k of Object.keys(f)) {
     if (!known.has(k)) throw new Error(`Unknown option --${k} for capture. Run \`forward help\`.`);
   }
@@ -286,13 +300,19 @@ async function cmdCapture(a: Args): Promise<number> {
     const [url, ...routes] = a.positionals;
     if (!url) {
       throw new Error(
-        "Usage: forward capture <url> [route ...] | forward capture --from <snapshot.json> | forward capture --script",
+        "Usage: forward capture <url> [route ...] | forward capture --from <snapshot.json> | forward capture --script | forward capture --browsers",
       );
     }
     input.url = url;
     const extra = str(f.route);
     input.routes = [...routes, ...(extra ? [extra] : [])];
     if (str(f.viewport)) input.viewport = str(f.viewport);
+    if (f.browser === true) throw new Error("--browser needs a value: auto, playwright, chrome, edge, chromium, brave, vivaldi, opera, or a path.");
+    const browser = str(f.browser);
+    // A path is the user's own choice, made here on the command line; it reaches
+    // the capture through FORWARD_BROWSER (the tool itself takes names only).
+    if (browser && /[\\/]/.test(browser)) process.env.FORWARD_BROWSER = resolve(process.cwd(), browser);
+    else if (browser) input.browser = browser;
     if (str(f.auth)) input.storageState = str(f.auth);
     if (str(f.wait)) input.waitMs = Number(str(f.wait));
   }

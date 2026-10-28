@@ -53,7 +53,9 @@ export interface CallResult {
 
 export async function callTool(name: string, args: Record<string, unknown>): Promise<CallResult> {
   const c = await connect();
-  const res = await c.callTool({ name, arguments: args });
+  // A live capture of many routes takes longer than the SDK's 60s default;
+  // each step has its own limit, so this is only a backstop.
+  const res = await c.callTool({ name, arguments: args }, undefined, { timeout: 30 * 60_000 });
   const content = (res.content ?? []) as Array<{ type: string; text?: string }>;
   const text = content
     .filter((p) => p.type === "text")
