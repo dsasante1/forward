@@ -1,11 +1,15 @@
-# Publish forward-mcp (the MCP server + `forward` CLI) to npm from a tag.
+# Publish forward-mcp (the MCP server + `forward` CLI) and its companion
+# forward-capture (live capture with Playwright) to npm from a tag.
 #
 # `git push origin mcp-v0.3.0` runs this. It repeats the full verification —
 # build, typecheck, tests, the self-contained pack and the packed-tarball smoke
-# test — and only then publishes that one version:
+# test — and only then publishes that one version of both packages:
 #
-#   npm     forward-mcp, with provenance (trusted publishing: no token)
-#   GitHub  a Release with generated notes and the npm tarball attached
+#   npm     forward-capture, then forward-mcp, with provenance (trusted
+#           publishing: no token). The companion goes first, so a published
+#           forward-mcp never points `npx forward-capture@<its version>` at
+#           a version that isn't there.
+#   GitHub  a Release with generated notes and both npm tarballs attached
 #
 # Tags are namespaced `mcp-v*` because release.yml owns `v*` for the VS Code
 # extension, and the two version independently. The tag must equal the version
@@ -78,8 +82,11 @@ jobs:
         run: npm run smoke:package -w apps/mcp
 
       # `--pack-destination` does not create the directory.
-      - name: Tarball
-        run: mkdir -p release && npm pack ./apps/mcp/pkg --pack-destination release
+      - name: Tarballs
+        run: |
+          mkdir -p release
+          npm pack ./apps/mcp/pkg --pack-destination release
+          npm pack ./apps/mcp/pkg-capture --pack-destination release
 
       - uses: actions/upload-artifact@v4
         with:
@@ -129,11 +136,15 @@ jobs:
         env:
           VERSION: ${{ needs.verify.outputs.version }}
         run: |
-          if [ "$(npm view "forward-mcp@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
-            echo "::notice::forward-mcp@$VERSION is already on npm; skipping publish."
-          else
-            npm publish ./apps/mcp/pkg --access public
-          fi
+          publish() { # <package> <dir>
+            if [ "$(npm view "$1@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "::notice::$1@$VERSION is already on npm; skipping publish."
+            else
+              npm publish "$2" --access public
+            fi
+          }
+          publish forward-capture ./apps/mcp/pkg-capture
+          publish forward-mcp ./apps/mcp/pkg
 
   release:
     name: github release
@@ -157,5 +168,5 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" release/*.tgz \
             --verify-tag \
-            --title "forward-mcp v$VERSION" \
+            --title "forward-mcp + forward-capture v$VERSION" \
             --generate-notes

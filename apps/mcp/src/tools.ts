@@ -1388,7 +1388,8 @@ server.registerTool(
       "For screens that were built without a design: capture the running frontend and turn what " +
       "the browser renders into canvas elements — one frame per route, boxes, text, and (React " +
       "dev builds) repeated components as a component + instances. Give `url` + `routes` to " +
-      "capture live (needs Playwright installed in the project), or `snapshotPath` for snapshot " +
+      "capture live — with the project's Playwright, or a Chromium-based browser already installed " +
+      "(Chrome, Edge, Brave, Chromium, Vivaldi, Opera; see `browser`) — or `snapshotPath` for snapshot " +
       "files made with `forward capture --script` in the browser's DevTools. The results are " +
       "drafts marked as generated from code: re-running updates drafts in place (stable ids, API " +
       "docs kept, even when the page around them changed) but never touches an element someone " +
@@ -1402,10 +1403,19 @@ server.registerTool(
         .optional()
         .describe('Routes to capture against `url`, e.g. ["/", "/login"] (default ["/"]).'),
       viewport: z.string().optional().describe('Viewport for live capture, e.g. "1440x900" (default) or "390x844".'),
+      browser: z
+        .string()
+        .optional()
+        .describe(
+          'Which browser captures live: "auto" (default: the project\'s Playwright, else the first ' +
+            'installed Chromium-based browser), "playwright", "chrome", "edge", "chromium", "brave", ' +
+            '"vivaldi" or "opera" (a path only via FORWARD_BROWSER or the CLI). Firefox and Safari can\'t be ' +
+            "driven; use the DevTools snippet in them.",
+        ),
       storageState: z
         .string()
         .optional()
-        .describe("Playwright storage-state JSON (cookies/localStorage) for pages behind a login."),
+        .describe("Storage-state JSON (Playwright's format: cookies + localStorage) for pages behind a login."),
       waitMs: z.number().int().nonnegative().max(60_000).optional().describe("Extra settle time per route, in ms."),
       snapshotPath: z
         .array(z.string().min(1))
@@ -1447,16 +1457,29 @@ server.registerTool(
       for (const p of input.snapshotPath ?? []) {
         push(JSON.parse(await readFile(resolve(process.cwd(), p), "utf8")));
       }
+      let capturedWith: string | undefined;
+      const liveNotes: string[] = [];
       if (input.url) {
-        push(
-          await captureLive({
-            url: input.url,
-            routes: input.routes?.length ? input.routes : ["/"],
-            viewport: parseViewport(input.viewport),
-            ...(input.storageState ? { storageState: resolve(process.cwd(), input.storageState) } : {}),
-            ...(input.waitMs ? { waitMs: input.waitMs } : {}),
-          }),
-        );
+        const browser = input.browser?.trim();
+        // A path would let an MCP client start any program on this machine. Only
+        // the user picks one — `forward capture --browser <path>`, or FORWARD_BROWSER.
+        if (browser && /[\\/]/.test(browser)) {
+          return fail(
+            "`browser` takes a name here (auto, playwright, chrome, edge, chromium, brave, vivaldi, opera). " +
+              "To use a browser by path, set FORWARD_BROWSER or run `forward capture --browser <path>`.",
+          );
+        }
+        const live = await captureLive({
+          url: input.url,
+          routes: input.routes?.length ? input.routes : ["/"],
+          viewport: parseViewport(input.viewport),
+          ...(input.storageState ? { storageState: resolve(process.cwd(), input.storageState) } : {}),
+          ...(input.waitMs ? { waitMs: input.waitMs } : {}),
+          ...(browser ? { browser } : {}),
+        });
+        push(live.snapshots);
+        capturedWith = live.capturedWith;
+        liveNotes.push(...(live.notes ?? []));
       }
       if (!raws.length) {
         return fail(
@@ -1536,7 +1559,7 @@ server.registerTool(
       if (input.prune === true && !prune) warnings.push("Not pruning, because a page above may not be the real page.");
 
       // Not a reason to distrust the capture, just worth knowing.
-      const notes: string[] = [];
+      const notes: string[] = [...liveNotes];
       for (const [i, m] of mapped.entries()) {
         if (m.elements.length > LARGE_PAGE) {
           notes.push(
@@ -1588,6 +1611,7 @@ server.registerTool(
       const limit = 50;
       return ok({
         dryRun,
+        ...(capturedWith ? { capturedWith } : {}),
         pages: mapped.map((m, i) => ({
           route: snapshots[i]?.route,
           viewport: m.viewport,

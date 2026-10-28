@@ -1,5 +1,11 @@
 import { createRequire } from "node:module";
-import { join } from "node:path";
+import { captureWithBrowser } from "./browser/cdp.js";
+import { resolveBrowser, type InstalledBrowser } from "./browser/find.js";
+import { captureWithCompanion } from "./companion/run.js";
+import { capturePages, checkRoutes, type PageJob, type PlaywrightBrowser, type PlaywrightModule } from "./playwright-run.js";
+import { VERSION } from "./version.js";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -187,49 +193,56 @@ export function parseViewport(value: string | undefined): { width: number; heigh
   return { width: Number(m[1]), height: Number(m[2]) };
 }
 
-interface PlaywrightPage {
-  goto(url: string, opts: { waitUntil: string; timeout: number }): Promise<unknown>;
-  waitForLoadState(state: string, opts: { timeout: number }): Promise<void>;
-  waitForTimeout(ms: number): Promise<void>;
-  evaluate(expression: string): Promise<unknown>;
-}
-interface PlaywrightModule {
-  chromium: {
-    launch(opts?: { headless?: boolean }): Promise<{
-      newContext(opts: Record<string, unknown>): Promise<{ newPage(): Promise<PlaywrightPage> }>;
-      close(): Promise<void>;
-    }>;
-  };
-}
-
 export const PLAYWRIGHT_MISSING =
-  "Live capture needs Playwright, which Forward does not install. Add it to the project " +
-  "(`npm i -D playwright && npx playwright install chromium`) — or capture without it: " +
-  "`forward capture --script` prints a snippet to paste into the browser's DevTools, then " +
-  "`forward capture --from forward-snapshot.json`.";
+  "Playwright isn't installed in this project. Add it (`npm i -D playwright && npx playwright " +
+  "install chromium`), or capture with a browser you already have: `--browser auto` uses the " +
+  "first Chromium-based browser installed (Chrome, Edge, Brave, Chromium, Vivaldi, Opera). " +
+  "Or capture without either: `forward capture --script` prints a snippet to paste into any " +
+  "browser's DevTools, then `forward capture --from forward-snapshot.json`.";
+
+/** Packages whose presence in a package.json means "this project uses Playwright". */
+const PLAYWRIGHT_PACKAGES = ["playwright", "@playwright/test", "playwright-core"];
 
 /**
- * Load Playwright on demand. It is resolved from the user's project first (the
- * cwd), then next to Forward itself, so a globally installed or npx'd
- * `forward` still finds the project's copy. Never a dependency of forward-mcp.
+ * Whether the project (the cwd's package.json, or a parent's — monorepos keep
+ * tools at the root) declares Playwright itself. A copy that is merely present
+ * in node_modules — hoisted there by forward-capture, Storybook's test runner
+ * and the like — is somebody else's, with somebody else's browser expectations.
+ */
+export function declaresPlaywright(cwd: string): boolean {
+  for (let dir = resolve(cwd); ; dir = dirname(dir)) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as Record<string, Record<string, string> | undefined>;
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies };
+      if (PLAYWRIGHT_PACKAGES.some((name) => name in deps)) return true;
+    } catch {
+      // no package.json here
+    }
+    if (dirname(dir) === dir) return false;
+  }
+}
+
+/**
+ * Load the project's own Playwright, resolved from the cwd — and only that:
+ * where Forward itself happens to be installed, or what else hoisted a copy
+ * into node_modules, must not change which browser captures. (Without one,
+ * the forward-capture companion brings its own.) Never a dependency of forward-mcp.
  */
 export async function loadPlaywright(
   cwd = process.cwd(),
   importer: (specifier: string) => Promise<unknown> = (s) => import(s),
+  resolver: (name: string) => string = (name) => createRequire(join(cwd, "package.json")).resolve(name),
+  declared: (cwd: string) => boolean = declaresPlaywright,
 ): Promise<PlaywrightModule> {
-  for (const name of ["playwright", "playwright-core"]) {
+  if (!declared(cwd)) throw new Error(PLAYWRIGHT_MISSING);
+  // @playwright/test first: it's what `npm init playwright` declares, and pnpm
+  // doesn't hoist the `playwright` it depends on to where we can resolve it.
+  for (const name of ["@playwright/test", "playwright", "playwright-core"]) {
     try {
-      const resolved = createRequire(join(cwd, "package.json")).resolve(name);
-      const mod = asPlaywright(await importer(pathToFileURL(resolved).href));
+      const mod = asPlaywright(await importer(pathToFileURL(resolver(name)).href));
       if (mod) return mod;
     } catch {
       // not in the project — try the next candidate
-    }
-    try {
-      const mod = asPlaywright(await importer(name));
-      if (mod) return mod;
-    } catch {
-      // not next to Forward either
     }
   }
   throw new Error(PLAYWRIGHT_MISSING);
@@ -254,53 +267,96 @@ export interface LiveCaptureOptions {
   /** Routes to capture, resolved against `url`. */
   routes: string[];
   viewport: { width: number; height: number };
-  /** Playwright storage-state file, for pages behind a login. */
+  /** Storage-state file (Playwright's format: cookies + localStorage), for pages behind a login. */
   storageState?: string;
   /** Extra settle time after load, in ms. */
   waitMs?: number;
   /** Navigation timeout per route, in ms (default 30s). */
   timeoutMs?: number;
+  /**
+   * Which browser drives the capture: "auto" (default — the project's
+   * Playwright if it has one, else the first installed Chromium-based
+   * browser), "playwright", a browser id (chrome, edge, chromium, brave,
+   * vivaldi, opera) or a path to a Chromium-based browser. `$FORWARD_BROWSER`
+   * sets the default.
+   */
+  browser?: string;
 }
 
-/** Capture each route of a running app with headless Chromium. */
-export async function captureLive(opts: LiveCaptureOptions): Promise<unknown[]> {
-  const base = new URL(opts.url);
-  if (base.protocol !== "http:" && base.protocol !== "https:") {
-    throw new Error(`Capture URL must be http(s), got ${base.protocol}`);
-  }
-  // A route is a path on the app; an absolute one (file://, another host,
-  // chrome://) could pull a local file or another site into .forward/.
-  for (const route of opts.routes) {
-    if (new URL(route, base).origin !== base.origin) {
-      throw new Error(`Route "${route}" is not on ${base.origin}; give paths like /login.`);
+export interface LiveCapture {
+  snapshots: unknown[];
+  /** Which browser captured, for the report. */
+  capturedWith: string;
+  /** Anything worth telling the user (a one-time download), for the report. */
+  notes?: string[];
+}
+
+/** Capture each route of a running app with a headless browser. */
+export async function captureLive(opts: LiveCaptureOptions): Promise<LiveCapture> {
+  checkRoutes(opts.url, opts.routes);
+  const named = (v: string | undefined) => {
+    const t = (v ?? "").trim();
+    return /^(auto|playwright)$/i.test(t) ? t.toLowerCase() : t;
+  };
+  const requested = named(opts.browser) || "auto";
+  const choice = requested === "auto" ? named(process.env.FORWARD_BROWSER) || "auto" : requested;
+  const job: PageJob = {
+    url: opts.url,
+    routes: opts.routes,
+    viewport: opts.viewport,
+    ...(opts.storageState ? { storageState: opts.storageState } : {}),
+    ...(opts.waitMs ? { waitMs: opts.waitMs } : {}),
+    ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+  };
+  // The project's Playwright — if it has one and it can actually start (a
+  // project can have Playwright, or pull it in, without ever downloading its browser).
+  const projectPlaywright = async (): Promise<{ launched?: PlaywrightBrowser; problem?: string }> => {
+    const pw = await loadPlaywright().catch(() => undefined);
+    if (!pw) return {};
+    try {
+      return { launched: await pw.chromium.launch({ headless: true }) };
+    } catch (err) {
+      return { problem: (err as Error).message.split("\n")[0] };
     }
+  };
+  // The companion package brings its own Playwright (and fetches its browser once).
+  const companion = () => captureWithCompanion(job, COLLECTOR_SOURCE, VERSION);
+
+  if (choice === "playwright") {
+    const { launched } = await projectPlaywright();
+    if (launched) return { snapshots: await capturePages(launched, job, COLLECTOR_SOURCE), capturedWith: "Playwright (Chromium)" };
+    return companion();
   }
-  const pw = await loadPlaywright();
-  const browser = await pw.chromium.launch({ headless: true });
+  let playwrightProblem: string | undefined;
+  if (choice === "auto") {
+    const { launched, problem } = await projectPlaywright();
+    if (launched) return { snapshots: await capturePages(launched, job, COLLECTOR_SOURCE), capturedWith: "Playwright (Chromium)" };
+    playwrightProblem = problem;
+  }
+  let browser: InstalledBrowser;
   try {
-    const context = await browser.newContext({
-      viewport: opts.viewport,
-      ...(opts.storageState ? { storageState: opts.storageState } : {}),
-    });
-    const page = await context.newPage();
-    const out: unknown[] = [];
-    for (const route of opts.routes) {
-      const response = await page.goto(new URL(route, base).toString(), {
-        waitUntil: "load",
-        timeout: opts.timeoutMs ?? 30_000,
-      });
-      // Let client-side rendering and data fetching settle; a page that never
-      // goes idle (polling, websockets) is captured as it stands.
-      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-      if (opts.waitMs) await page.waitForTimeout(opts.waitMs);
-      const snapshot = (await page.evaluate(
-        `(${COLLECTOR_SOURCE})(${JSON.stringify({ route })})`,
-      )) as Record<string, unknown>;
-      const status = (response as { status?: () => number } | null)?.status?.();
-      out.push({ ...snapshot, ...(typeof status === "number" ? { status } : {}) });
+    browser = resolveBrowser(choice);
+  } catch (err) {
+    // Auto, and no browser here: the companion is the last resort.
+    if (choice !== "auto") throw err;
+    try {
+      return await companion();
+    } catch (companionErr) {
+      throw new Error(
+        `${(companionErr as Error).message} (No Chromium-based browser is installed` +
+          `${playwrightProblem ? `, and the project's Playwright couldn't start: ${playwrightProblem}` : ""}.)`,
+      );
     }
-    return out;
-  } finally {
-    await browser.close();
   }
+  const { snapshots, product } = await captureWithBrowser({
+    browser,
+    url: opts.url,
+    routes: opts.routes,
+    viewport: opts.viewport,
+    collector: COLLECTOR_SOURCE,
+    ...(opts.storageState ? { storageState: opts.storageState } : {}),
+    ...(opts.waitMs ? { waitMs: opts.waitMs } : {}),
+    ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+  });
+  return { snapshots, capturedWith: `${browser.name} (${product}) at ${browser.path}` };
 }

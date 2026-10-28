@@ -42,8 +42,8 @@ jobs:
           GIT_COMMITTER_NAME: ci
           GIT_COMMITTER_EMAIL: ci@example.com
 
-      # The published artifact, not the source tree: pack forward-mcp as npm
-      # would, install it into an empty project and drive its binaries.
+      # The published artifacts, not the source tree: pack forward-mcp and its
+      # companion forward-capture as npm would, install them and drive their binaries.
       - name: Package smoke test
         run: |
           npm run pack -w apps/mcp

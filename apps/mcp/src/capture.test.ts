@@ -165,12 +165,33 @@ describe("live capture", () => {
   });
   it("accepts Playwright's CommonJS entry, whose exports arrive on `default`", async () => {
     const chromium = { launch: async () => ({}) };
-    const cjs = await loadPlaywright(tmpdir(), async () => ({ default: { chromium } }));
+    const found = () => "/project/node_modules/playwright/index.js";
+    const cjs = await loadPlaywright(tmpdir(), async () => ({ default: { chromium } }), found, () => true);
     expect(cjs.chromium).toBe(chromium);
-    const esm = await loadPlaywright(tmpdir(), async () => ({ chromium }));
+    const esm = await loadPlaywright(tmpdir(), async () => ({ chromium }), found, () => true);
     expect(esm.chromium).toBe(chromium);
     // A module that isn't Playwright is treated as missing, not crashed on later.
-    await expect(loadPlaywright(tmpdir(), async () => ({ default: {} }))).rejects.toThrow(PLAYWRIGHT_MISSING);
+    await expect(loadPlaywright(tmpdir(), async () => ({ default: {} }), found, () => true)).rejects.toThrow(PLAYWRIGHT_MISSING);
+    // Only the project's copy counts: a resolvable one elsewhere is never imported.
+    let imported = false;
+    await expect(
+      loadPlaywright(tmpdir(), async () => ((imported = true), { chromium }), () => {
+        throw new Error("not in the project");
+      }, () => true),
+    ).rejects.toThrow(PLAYWRIGHT_MISSING);
+    expect(imported).toBe(false);
+    // `@playwright/test` (what `npm init playwright` declares) is tried first: under pnpm it's the only one resolvable.
+    const tried: string[] = [];
+    const viaTest = await loadPlaywright(tmpdir(), async () => ({ chromium }), (name) => {
+      tried.push(name);
+      if (name !== "@playwright/test") throw new Error("not hoisted");
+      return "/project/node_modules/@playwright/test/index.js";
+    }, () => true);
+    expect(viaTest.chromium).toBe(chromium);
+    expect(tried).toEqual(["@playwright/test"]);
+    // Present in node_modules but not declared by the project (hoisted by forward-capture): not the project's.
+    await expect(loadPlaywright(tmpdir(), async () => ((imported = true), { chromium }), found, () => false)).rejects.toThrow(PLAYWRIGHT_MISSING);
+    expect(imported).toBe(false);
   });
 
   it("refuses routes that leave the app's origin, before loading a browser", async () => {
@@ -468,6 +489,15 @@ describe("import_design_from_code through the in-memory client", () => {
     expect(webpack.anchors.skipped).toEqual([expect.objectContaining({ reason: "declaration already anchored" })]);
   });
 
+  it("takes browser names only from MCP clients, never a path to run", async () => {
+    const { callTool } = await import("./cli/call.js");
+    for (const browser of ["/bin/sh", "./scripts/x", "C:\\tools\\x.exe"]) {
+      const res = await callTool("import_design_from_code", { url: "http://127.0.0.1:1", browser });
+      expect(res.isError).toBe(true);
+      expect(res.text).toMatch(/takes a name here.*FORWARD_BROWSER/);
+    }
+  });
+
   it("rejects input that is not a capture, and duplicate pages", async () => {
     const { callTool } = await import("./cli/call.js");
     const bad = await callTool("import_design_from_code", { snapshot: { version: 1, route: "/x" } });
@@ -477,5 +507,22 @@ describe("import_design_from_code through the in-memory client", () => {
     expect(dup.text).toMatch(/same page/);
     const none = await callTool("import_design_from_code", {});
     expect(none.text).toMatch(/Nothing to import/);
+  });
+});
+
+describe("whose Playwright it is", () => {
+  it("counts only a Playwright the project (or a parent workspace) declares", async () => {
+    const { declaresPlaywright } = await import("./capture.js");
+    const root = mkdtempSync(join(tmpdir(), "forward-declares-"));
+    try {
+      mkdirSync(join(root, "packages/web"), { recursive: true });
+      writeFileSync(join(root, "packages/web/package.json"), JSON.stringify({ name: "web", dependencies: { "forward-capture": "0.3.0" } }));
+      writeFileSync(join(root, "package.json"), JSON.stringify({ name: "mono", private: true }));
+      expect(declaresPlaywright(join(root, "packages/web"))).toBe(false);
+      writeFileSync(join(root, "package.json"), JSON.stringify({ name: "mono", devDependencies: { "@playwright/test": "^1.61.0" } }));
+      expect(declaresPlaywright(join(root, "packages/web"))).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

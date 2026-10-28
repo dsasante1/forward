@@ -16,3 +16,4 @@ out/
 # Built canvas host shipped with the forward CLI
 apps/canvas/dist-host/
 apps/mcp/pkg/
+apps/mcp/pkg-capture/

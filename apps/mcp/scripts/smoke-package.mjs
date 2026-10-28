@@ -9,6 +9,10 @@
 // `forward --version`, `init`, a tool call, `validate`, `export`, `serve` (with
 // its session token) and an MCP stdio handshake.
 //
+// Then the companion, ./pkg-capture (forward-capture): exactly one, exactly
+// pinned dependency (playwright-core); installed next to forward-mcp, where
+// `forward capture --browser playwright` must find and run it.
+//
 // Run after `npm run pack -w apps/mcp`.
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -97,6 +101,12 @@ try {
   step("forward validate");
   run("validate");
 
+  step("forward capture --browsers");
+  // Exercises the bundled browser finder; any machine may have none.
+  if (!/Live capture can use|No Chromium-based browser found/.test(run("capture", "--browsers"))) {
+    throw new Error("capture --browsers printed neither a browser list nor the none-found note");
+  }
+
   step("forward export");
   run("export", "--out", path.join(work, "site"));
   for (const f of ["index.html", "forward.json"]) {
@@ -135,7 +145,53 @@ try {
   const tools = await mcpToolCount(forwardMcp, repo);
   if (tools < 30) throw new Error(`MCP listed ${tools} tools`);
 
-  console.log(`smoke: ok — forward-mcp@${manifest.version} (${tools} tools)`);
+  // --- forward-capture ----------------------------------------------------
+  const capDir = path.resolve(pkgDir, "..", "pkg-capture");
+  const capManifest = JSON.parse(readFileSync(path.join(capDir, "package.json"), "utf8"));
+  if (capManifest.name !== "forward-capture" || capManifest.version !== manifest.version) {
+    throw new Error(`pkg-capture must be forward-capture@${manifest.version}, is ${capManifest.name}@${capManifest.version}`);
+  }
+  const capDeps = Object.entries(capManifest.dependencies ?? {});
+  if (capDeps.length !== 1 || capDeps[0][0] !== "playwright-core" || !/^\d+\.\d+\.\d+$/.test(capDeps[0][1])) {
+    throw new Error(`forward-capture must depend on exactly playwright-core at an exact version, found ${JSON.stringify(capManifest.dependencies)}`);
+  }
+  step("packing apps/mcp/pkg-capture");
+  const [capPacked] = JSON.parse(
+    execFileSync("npm", ["pack", capDir, "--pack-destination", work, "--json"], { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] }),
+  );
+  step("npm publish --dry-run (forward-capture)");
+  const capCheck = path.join(work, "publish-check-capture");
+  cpSync(capDir, capCheck, { recursive: true });
+  writeFileSync(path.join(capCheck, "package.json"), `${JSON.stringify({ ...capManifest, version: `${capManifest.version}-smoke.${Date.now()}` }, null, 2)}\n`);
+  const capDry = spawnSyncText("npm", ["publish", capCheck, "--dry-run", "--access", "public", "--tag", "smoke"]);
+  if (/errors corrected|was invalid and removed/.test(capDry)) throw new Error(`npm would rewrite forward-capture's package.json:\n${capDry}`);
+
+  // Into the project being captured, which is where forward looks for it.
+  step(`installing ${capPacked.filename} into the project`);
+  execFileSync("npm", ["install", "--omit=dev", "--no-audit", "--no-fund", "--no-package-lock", path.join(work, capPacked.filename)], {
+    cwd: repo,
+    stdio: ["ignore", "ignore", "inherit"],
+  });
+  const capBin = path.join(repo, "node_modules", ".bin", "forward-capture");
+  const capVersion = execFileSync(capBin, ["--version"], { encoding: "utf8" }).trim();
+  if (capVersion !== manifest.version) throw new Error(`forward-capture --version printed "${capVersion}"`);
+
+  // The whole path, without downloading a browser: forward finds the
+  // companion in the project, the companion loads playwright-core, and the
+  // capture fails cleanly (no browser allowed, or nothing listening on port 1).
+  step("forward capture --browser playwright → forward-capture");
+  const viaCompanion = spawnSync(forward, ["capture", "http://127.0.0.1:1", "/", "--browser", "playwright", "--dry-run"], {
+    cwd: repo,
+    encoding: "utf8",
+    env: { ...process.env, FORWARD_NO_DOWNLOAD: "1", PLAYWRIGHT_BROWSERS_PATH: path.join(work, "no-browsers") },
+    timeout: 120_000,
+  });
+  const said = `${viaCompanion.stdout}\n${viaCompanion.stderr}`;
+  if (viaCompanion.status === 0 || !/FORWARD_NO_DOWNLOAD is set/.test(said)) {
+    throw new Error(`forward capture via forward-capture did not end as expected (exit ${viaCompanion.status}):\n${said.slice(-800)}`);
+  }
+
+  console.log(`smoke: ok — forward-mcp@${manifest.version} (${tools} tools), forward-capture@${capManifest.version}`);
 } catch (err) {
   console.error(`smoke: FAILED — ${err instanceof Error ? err.message : err}`);
   process.exitCode = 1;
