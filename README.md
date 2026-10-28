@@ -9,7 +9,7 @@ integrate, change or remove.
 
 - **Lives in git.** The whole project is plain JSON in `.forward/`, one file per record. It is
   versioned, reviewed and merged with the code it describes. No server and no account are needed.
-- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 38 tools with full
+- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 39 tools with full
   parity with the canvas. Agents without MCP use the same tools through the `forward` CLI.
 - **GitHub native.** One workflow validates `.forward/` on pull requests, posts a catch-up digest
   as a PR comment, and publishes a read-only canvas to GitHub Pages.
@@ -59,7 +59,7 @@ configuration is needed: the server finds the nearest `.forward/` and works on t
 **Without MCP**, the CLI calls the very same tool code in-process:
 
 ```bash
-forward tools                                   # list all 38 tools
+forward tools                                   # list all 39 tools
 forward tools write_documentation               # one tool's arguments
 forward find_element --query "login button"
 forward write_documentation --element-id el_123 --title "POST /login" --description "Body: email, password"
@@ -70,6 +70,53 @@ forward diff origin/main                        # what this branch changed, as M
 Good first calls for an agent are `project_info`, `find_element`, `write_documentation`,
 `validate_project` and `get_changes_since_ref`. Writes are stamped with your git `user.name`, plus
 `via <agent>` when `FORWARD_AGENT` is set.
+
+## Designs from frontend code
+
+Ideally the frontend is built from the design. When a screen was built first, Forward can draw it
+for you: it renders the running app, reads back what the browser actually painted (position, size,
+colours, borders, corners, fonts, text, stacking) and turns it into canvas elements: one frame per
+route, a box for everything that paints, text for every run of text. Wrappers that paint nothing are
+dropped, so the layer tree stays readable. React dev builds also report which component rendered
+each node, so repeated components become a component plus instances.
+
+```bash
+npm i -D playwright && npx playwright install chromium   # once, in your project
+forward capture http://localhost:5173 / /login /settings --dry-run
+forward capture http://localhost:5173 / /login /settings
+forward capture http://localhost:5173 /account --auth state.json --viewport 390x844
+```
+
+No Playwright? `forward capture --script` prints a snippet to paste into the browser's DevTools
+console. It downloads `forward-snapshot.json`, which `forward capture --from forward-snapshot.json`
+imports. Agents call the same thing as `import_design_from_code`.
+
+Generated elements are **drafts**, marked "from code" on the canvas:
+
+- Re-running a capture updates drafts in place, and API docs attached to a draft are kept. An
+  element keeps its identity by its `data-testid`, `id`, the JSX line that rendered it (React dev
+  builds) or its `aria-label`. Failing those, by its position under the nearest element that has
+  one. When the page around a draft changes (a banner inserted above, say), drafts are re-matched by
+  type, name or text, size and what they contain, as long as the match is unambiguous. API docs
+  never move on a guess: if a documented draft can't be matched for certain, it stays where it was
+  (stale, docs intact) and the capture reports it. Test ids on repeated or generic elements make
+  identity certain.
+- A draft someone has edited (moved, restyled, renamed) is never overwritten. The import reports
+  it as a conflict.
+- **Adopt draft** (inspector or right-click menu) turns a draft into an ordinary design element
+  that imports never touch again.
+- Deleting a draft remembers it in `.forward/dismissed/`, so the next capture doesn't bring it
+  back. `--restore` brings deleted drafts back.
+- Drafts the code no longer renders are reported as stale. `--prune` removes them, but never one
+  that is documented, edited, adopted, or holds something that stays. Pruning also forgets deleted
+  drafts the code no longer renders.
+- `--anchors` adds `// @adc <id>` markers above each component's declaration in your JS/TS source,
+  so `resolve_anchors` links code to design. It edits source files, so it is off by default; every
+  capture says how many anchors it would add.
+- Adopting a draft isn't listed as a design change in the PR digest. The digest reports it on its
+  own "Adopted from code" line instead.
+- A capture records what the page shows, so run it against development or seed data, not real
+  customer data. Password fields are always masked.
 
 ## GitHub
 
@@ -115,6 +162,7 @@ server, database or account. Git is the sync, the history and the access control
 | `agents/agents`, `agents/servers` | Agents and the MCP servers they call |
 | `tasks/<id>.json` | Task tracker |
 | `checkpoints/<id>.json` | Named, restorable snapshots of design and infra |
+| `dismissed/<id>.json` | Code drafts someone deleted, so capture doesn't recreate them |
 
 One file per record keeps merges clean and PR diffs readable. History entries are separate files,
 so two branches that both document endpoints merge without conflicts. The project activity feed is
@@ -150,7 +198,7 @@ npm workspaces (Node >= 22.12 to develop; `.nvmrc` pins 22).
 | Path | Package | What it is |
 |---|---|---|
 | [packages/shared](packages/shared) | `forward-core` | The contract: Zod schemas + types, timeline/diff/infra/entity helpers, the `api-rest` client (`forward-core/api`) and the repo-mode store, router and git helpers (`forward-core/repo`) |
-| [apps/mcp](apps/mcp) | `forward-mcp` | The agent surface: the MCP server (`forward-mcp`) and the `forward` CLI (init, serve, validate, diff, export, agents, every tool) |
+| [apps/mcp](apps/mcp) | `forward-mcp` | The agent surface: the MCP server (`forward-mcp`) and the `forward` CLI (init, serve, validate, diff, export, capture, agents, every tool) |
 | [apps/canvas](apps/canvas) | `forward-canvas` | The design editor, shipped standalone with the CLI (`host/`) and embedded in the VS Code extension |
 | [apps/extension](apps/extension) | `forward-vscode` | VS Code extension. Works on the workspace's `.forward/` automatically |
 | [apps/docs-ci](apps/docs-ci) | `forward-docs-ci` | Bring-your-own-AI CI step that applies an agent-written plan to a project |

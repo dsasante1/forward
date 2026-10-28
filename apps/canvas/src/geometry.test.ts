@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { contains, findParent, descendants, snap } from "./geometry.js";
+import { contains, findParent, descendants, sameRect, snap } from "./geometry.js";
 import type { DesignElement } from "forward-core";
 
 function el(
@@ -93,5 +93,15 @@ describe("snap", () => {
     const result = snap(moving, [other]);
     expect(result.dx).toBe(0);
     expect(result.vGuides).toHaveLength(0);
+  });
+});
+
+describe("sameRect", () => {
+  it("is true only when position and size are all unchanged", () => {
+    const r = { x: 1, y: 2, width: 3, height: 4 };
+    expect(sameRect(r, { ...r })).toBe(true);
+    for (const d of [{ x: 0 }, { y: 0 }, { width: 0 }, { height: 0 }]) {
+      expect(sameRect(r, { ...r, ...d })).toBe(false);
+    }
   });
 });

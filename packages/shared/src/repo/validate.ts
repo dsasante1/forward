@@ -6,6 +6,7 @@ import {
   AgentNode,
   Checkpoint,
   DesignElement,
+  DismissedDraft,
   Entity,
   EntityRelation,
   InfraEdge,
@@ -42,6 +43,7 @@ const SCHEMAS: Record<Exclude<CollectionKey, "history">, z.ZodTypeAny> = {
   servers: McpServerNode,
   tasks: Task,
   checkpoints: Checkpoint,
+  dismissed: DismissedDraft,
 };
 
 /**

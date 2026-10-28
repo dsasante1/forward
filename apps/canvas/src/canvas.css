@@ -433,6 +433,11 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 .el-text-hit { pointer-events: all; cursor: move; }
 .el-name { fill: #6b6a64; font-family: var(--mono); pointer-events: none; }
 .el-badge { fill: var(--accent); font-size: 10px; font-weight: 700; pointer-events: none; }
+.el-code-badge { opacity: 0.75; font-weight: 600; }
+.from-code-row { display: flex; gap: 8px; font-size: 12px; margin: 4px 0; }
+.from-code-label { flex: 0 0 76px; opacity: 0.6; }
+.from-code-value { min-width: 0; overflow-wrap: anywhere; }
+.from-code-note { font-size: 11px; opacity: 0.6; margin: 8px 0; }
 /* Selection chrome. Handles render in world space, so non-scaling-stroke keeps
  * the 1px lines crisp at any zoom. */
 .handles { pointer-events: none; }

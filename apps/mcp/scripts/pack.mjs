@@ -28,6 +28,9 @@ const { metafile } = await build({
   sourcemap: false,
   legalComments: "eof",
   metafile: true,
+  // Live capture loads Playwright from the user's project at runtime; it is
+  // never bundled and never a dependency of the package.
+  external: ["playwright", "playwright-core"],
   banner: {
     // Bundled CJS dependencies may call require(); give ESM output one.
     js: "import { createRequire as __fwdCreateRequire } from 'node:module';\nconst require = __fwdCreateRequire(import.meta.url);",

@@ -4102,6 +4102,45 @@ var Style = external_exports.object({
   fontFamily: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   color: external_exports.string().max(SHORT_TEXT_MAX).optional()
 });
+var ElementOrigin = external_exports.object({
+  kind: external_exports.literal("code"),
+  /** The page route the element was captured on, e.g. "/login". */
+  route: external_exports.string().max(SHORT_TEXT_MAX),
+  /** Viewport the route was captured at, e.g. "1440x900". */
+  viewport: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** Stable key of the source DOM node within the route (testid, id or path). */
+  key: external_exports.string().max(SHORT_TEXT_MAX),
+  /** Source location when known, e.g. "src/Login.tsx:42". */
+  source: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** Frontend component that rendered it, when known (React dev builds). */
+  component: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** Design hash of the element as last imported. */
+  hash: external_exports.string().max(SHORT_TEXT_MAX),
+  /** ISO-8601 time of the import that last wrote it (stamped by the backend). */
+  importedAt: external_exports.string().datetime()
+});
+var DismissedDraft = external_exports.object({
+  /** The deleted draft's element id. */
+  id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  route: external_exports.string().max(SHORT_TEXT_MAX),
+  viewport: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  key: external_exports.string().max(SHORT_TEXT_MAX),
+  type: ElementType,
+  name: external_exports.string().max(SHORT_TEXT_MAX).default(""),
+  text: external_exports.string().max(LONG_TEXT_MAX).optional(),
+  /** The parent it sat in, so look-alike siblings can still be told apart by order. */
+  parentId: external_exports.string().max(SHORT_TEXT_MAX).nullable().optional(),
+  /** For a container: the text it held, so it isn't mistaken for a look-alike. */
+  signature: external_exports.string().max(LONG_TEXT_MAX).optional(),
+  /** Offset from the page frame's top-left. */
+  x: external_exports.number(),
+  y: external_exports.number(),
+  width: external_exports.number().nonnegative(),
+  height: external_exports.number().nonnegative(),
+  dismissedAt: external_exports.string().datetime(),
+  /** Who deleted it (stamped by the backend). */
+  by: external_exports.string().max(SHORT_TEXT_MAX).default("")
+});
 var DesignElement = external_exports.object({
   id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   type: ElementType,
@@ -4127,6 +4166,8 @@ var DesignElement = external_exports.object({
   componentId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional API documentation attached by the backend from VS Code. */
   apiBinding: ApiBinding.optional(),
+  /** Set when the element was generated from frontend code; absent once adopted. */
+  origin: ElementOrigin.optional(),
   /** ISO-8601 timestamp of the last write. */
   updatedAt: external_exports.string().datetime()
 });
@@ -4527,6 +4568,128 @@ function diffLines(before, after) {
   return rows;
 }
 
+// ../../packages/shared/dist/design-import.js
+var SNAPSHOT_VERSION = 1;
+var CaptureRect = external_exports.object({
+  x: external_exports.number(),
+  y: external_exports.number(),
+  w: external_exports.number(),
+  h: external_exports.number()
+});
+var CaptureStyle = external_exports.object({
+  display: external_exports.string(),
+  visibility: external_exports.string(),
+  opacity: external_exports.string(),
+  position: external_exports.string(),
+  zIndex: external_exports.string(),
+  background: external_exports.string(),
+  backgroundImage: external_exports.string(),
+  boxShadow: external_exports.string(),
+  color: external_exports.string(),
+  fontSize: external_exports.string(),
+  fontWeight: external_exports.string(),
+  fontFamily: external_exports.string(),
+  borderTopWidth: external_exports.string(),
+  borderRightWidth: external_exports.string(),
+  borderBottomWidth: external_exports.string(),
+  borderLeftWidth: external_exports.string(),
+  borderTopStyle: external_exports.string(),
+  borderRightStyle: external_exports.string(),
+  borderBottomStyle: external_exports.string(),
+  borderLeftStyle: external_exports.string(),
+  borderTopColor: external_exports.string(),
+  borderRightColor: external_exports.string(),
+  borderBottomColor: external_exports.string(),
+  borderLeftColor: external_exports.string(),
+  borderTopLeftRadius: external_exports.string(),
+  borderTopRightRadius: external_exports.string(),
+  borderBottomRightRadius: external_exports.string(),
+  borderBottomLeftRadius: external_exports.string()
+}).partial();
+var CaptureAttrs = external_exports.object({
+  testid: external_exports.string().max(SHORT_TEXT_MAX),
+  id: external_exports.string().max(SHORT_TEXT_MAX),
+  label: external_exports.string().max(SHORT_TEXT_MAX),
+  alt: external_exports.string().max(SHORT_TEXT_MAX),
+  role: external_exports.string().max(SHORT_TEXT_MAX),
+  placeholder: external_exports.string().max(SHORT_TEXT_MAX)
+}).partial();
+var CaptureNode = external_exports.lazy(() => external_exports.object({
+  tag: external_exports.string().min(1).max(64),
+  rect: CaptureRect,
+  size: external_exports.object({ w: external_exports.number(), h: external_exports.number() }).optional(),
+  rotation: external_exports.number().optional(),
+  style: CaptureStyle.optional(),
+  text: external_exports.string().max(LONG_TEXT_MAX).optional(),
+  textRect: CaptureRect.optional(),
+  attrs: CaptureAttrs.optional(),
+  component: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  source: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  componentRoot: external_exports.boolean().optional(),
+  children: external_exports.array(CaptureNode).optional()
+}));
+var CaptureSnapshot = external_exports.object({
+  version: external_exports.literal(SNAPSHOT_VERSION),
+  url: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** Route path the page was captured at, e.g. "/login". */
+  route: external_exports.string().min(1).max(SHORT_TEXT_MAX),
+  viewport: external_exports.object({ width: external_exports.number().positive(), height: external_exports.number().positive() }),
+  /** Background colour the page paints (body, falling back to html). */
+  pageBackground: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  capturedAt: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** The collector stopped at its node limit; the page is only partly captured. */
+  truncated: external_exports.boolean().optional(),
+  /** HTTP status of the page load (live capture only). */
+  status: external_exports.number().int().optional(),
+  /** The `<body>` element. */
+  root: CaptureNode
+});
+function cyrb53(str, seed = 0) {
+  let h1 = 3735928559 ^ seed;
+  let h2 = 1103547991 ^ seed;
+  for (let i = 0; i < str.length; i++) {
+    const ch = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ h1 >>> 16, 2246822507) ^ Math.imul(h2 ^ h2 >>> 13, 3266489909);
+  h2 = Math.imul(h2 ^ h2 >>> 16, 2246822507) ^ Math.imul(h1 ^ h1 >>> 13, 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, "0");
+}
+function stableJson(value) {
+  if (value === null || typeof value !== "object")
+    return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value))
+    return `[${value.map(stableJson).join(",")}]`;
+  const entries = Object.entries(value).filter(([, v]) => v !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stableJson(v)}`).join(",")}}`;
+}
+function designHash(el, origin = { x: 0, y: 0 }) {
+  return cyrb53(stableJson({
+    type: el.type,
+    name: el.name,
+    // Rounded: a canvas drag at any zoom leaves float noise (99.99999999999999)
+    // in positions that are, to a person, unchanged.
+    x: Math.round((el.x - origin.x) * 100) / 100,
+    y: Math.round((el.y - origin.y) * 100) / 100,
+    width: el.width,
+    height: el.height,
+    parentId: el.parentId ?? null,
+    z: el.z ?? 0,
+    rotation: el.rotation ?? 0,
+    text: el.text,
+    style: el.style,
+    componentId: el.componentId
+  }));
+}
+function importedElementId(route, viewport, key) {
+  return `el_${cyrb53(`${route}\0${viewport}\0${key}`)}`;
+}
+function pageFrameId(origin) {
+  return importedElementId(origin.route, origin.viewport ?? "", "page");
+}
+var MAX_IMPORT_ELEMENTS = 5e3;
+
 // ../../packages/shared/dist/tasks.js
 function nextTaskKey(existing) {
   let max = 0;
@@ -4669,7 +4832,8 @@ var COLLECTIONS = {
   agents: "agents/agents",
   servers: "agents/servers",
   tasks: "tasks",
-  checkpoints: "checkpoints"
+  checkpoints: "checkpoints",
+  dismissed: "dismissed"
 };
 var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 function fileNameForId(id) {
@@ -4732,34 +4896,513 @@ var RepoStore = class {
   getElement(id) {
     return this.readOne("elements", id, DesignElement);
   }
-  /** Upsert geometry/style. A client-sent binding is ignored and the stored one kept. */
+  /**
+   * Upsert geometry/style. A client-sent binding is ignored and the stored one
+   * kept. `origin` is owned by {@link importDesign}: a save keeps the stored
+   * origin when it sends one back and drops it when it doesn't (that is how a
+   * draft is adopted), but can never set or change one — otherwise a client
+   * could forge a hash and make an edited element overwritable by import.
+   */
   saveElement(input) {
     const parsed = this.parse(DesignElement, input, "design element");
-    const { apiBinding: _ignored, ...clean } = parsed;
-    const stored = this.getElement(clean.id)?.apiBinding;
+    const { apiBinding: _ignored, origin: sentOrigin, ...clean } = parsed;
+    const current = this.getElement(clean.id);
+    const stored = current?.apiBinding;
+    const origin = sentOrigin && current?.origin ? current.origin : void 0;
     const next = DesignElement.parse({
       ...clean,
       ...stored ? { apiBinding: stored } : {},
+      ...origin ? { origin } : {},
       updatedAt: this.iso()
     });
     this.write("elements", next.id, next);
     return next;
   }
-  /** Partial update that preserves untouched fields, including the binding. */
+  /** Partial update that preserves untouched fields, including the binding and origin. */
   patchElement(id, patch) {
     const current = this.requireElement(id);
-    const { apiBinding: _ignored, ...rest } = patch ?? {};
+    const { apiBinding: _ignored, origin: _origin, ...rest } = patch ?? {};
     const next = this.parse(DesignElement, { ...current, ...rest, id, updatedAt: this.iso() }, "design element");
     this.write("elements", id, next);
     return next;
   }
-  /** Delete an element, by default with its `parentId` subtree. History is kept. */
+  /**
+   * Delete an element, by default with its `parentId` subtree. History is kept.
+   * A deleted code draft is remembered in `dismissed/`, so the next import
+   * doesn't bring it back (see {@link importDesign}).
+   */
   deleteElement(id, cascade = true) {
     const all = this.listElements();
+    const byId = new Map(all.map((e) => [e.id, e]));
     const ids = cascade ? [id, ...descendantIds(id, all)] : [id];
-    for (const target of ids)
-      this.remove("elements", target);
+    const at = this.iso();
+    for (const target of ids) {
+      const el = byId.get(target);
+      if (this.remove("elements", target) && el?.origin) {
+        this.write("dismissed", target, dismissedRecord(el, el.origin, byId, at, this.author));
+      }
+    }
     return ids;
+  }
+  /** Deleted code drafts the next import will not recreate. */
+  listDismissed() {
+    return this.readAll("dismissed", DismissedDraft);
+  }
+  /**
+   * Write elements generated from frontend code (see design-import.ts), in one
+   * call. Every element is validated before any file is written.
+   *
+   * First, each captured element is matched to the stored element it is:
+   * - a stable key (test id, HTML id, JSX source line, label) matches by id;
+   * - otherwise — and for anything still unmatched — by what it looks like
+   *   (type, name or text, size), but only when that match is unambiguous both
+   *   ways, so a draft whose positional key shifted keeps its id and API docs;
+   * - a positional id that matched nothing still names the element in place.
+   * A captured element that matches a deleted draft (`dismissed/`) is not
+   * recreated, unless `restoreDismissed` is set.
+   *
+   * Then, per element: new → created; stored without `origin` (drawn by hand,
+   * or adopted) → skipped; edited since its import → conflict; untouched →
+   * updated, or unchanged when the code didn't change. Stored drafts of the
+   * captured pages that matched nothing are reported as stale; `prune` removes
+   * them — never one that is documented, edited, or holds a kept child, and
+   * never with a cascade — and forgets dismissed drafts the code no longer
+   * renders. The hash and `importedAt` are computed here; whatever a client
+   * sends is ignored. API docs on an updated element are kept.
+   */
+  importDesign(input) {
+    const body = input ?? {};
+    if (!Array.isArray(body.elements)) {
+      throw new RepoError(400, "Invalid design import: `elements` must be an array");
+    }
+    if (body.elements.length > MAX_IMPORT_ELEMENTS) {
+      throw new RepoError(400, `Design import has ${body.elements.length} elements; the limit is ${MAX_IMPORT_ELEMENTS}. Capture fewer routes at a time.`);
+    }
+    const dryRun = body.dryRun === true;
+    const restore = body.restoreDismissed === true;
+    const now = this.iso();
+    const incoming = [];
+    const seen = /* @__PURE__ */ new Set();
+    body.elements.forEach((raw, i) => {
+      const r = raw ?? {};
+      const { apiBinding: _b, updatedAt: _u, origin, ...rest } = r;
+      if (!origin || typeof origin !== "object") {
+        throw new RepoError(400, `Invalid imported element at elements.${i}: missing origin`);
+      }
+      const parsed = this.parse(DesignElement, { ...rest, origin: { ...origin, hash: "-", importedAt: now }, updatedAt: now }, `imported element at elements.${i}`);
+      if (seen.has(parsed.id)) {
+        throw new RepoError(400, `Invalid design import: duplicate element id ${parsed.id}`);
+      }
+      seen.add(parsed.id);
+      const stamped = parsed.origin;
+      if (!stamped)
+        throw new RepoError(400, `Invalid imported element at elements.${i}: missing origin`);
+      incoming.push({ ...parsed, origin: stamped });
+    });
+    const existing = new Map(this.listElements().map((e) => [e.id, e]));
+    const dismissed = new Map(this.listDismissed().map((d) => [d.id, d]));
+    const scopes = new Set(incoming.map((e) => scopeOf(e.origin)));
+    const report = {
+      dryRun,
+      created: [],
+      updated: [],
+      unchanged: [],
+      skipped: [],
+      conflicts: [],
+      rematched: [],
+      dismissed: [],
+      restored: [],
+      stale: [],
+      removed: [],
+      kept: [],
+      forgotten: [],
+      dismissedPages: [],
+      idMap: {}
+    };
+    const resolved = /* @__PURE__ */ new Map();
+    const claimed = /* @__PURE__ */ new Set();
+    const notRecreated = /* @__PURE__ */ new Set();
+    const usedDismissed = /* @__PURE__ */ new Set();
+    const forget = /* @__PURE__ */ new Set();
+    const claim = (el, id) => {
+      resolved.set(el.id, id);
+      claimed.add(id);
+    };
+    const dismiss = (el, recordId) => {
+      notRecreated.add(el.id);
+      usedDismissed.add(recordId);
+    };
+    const capturedParent = new Map(incoming.map((e) => [e.id, e.parentId]));
+    const finalRef = (ref) => {
+      let p = ref;
+      while (p && notRecreated.has(p))
+        p = capturedParent.get(p) ?? null;
+      return p ? resolved.get(p) ?? p : p;
+    };
+    const parentOf = (el) => {
+      let p = el.parentId;
+      while (p && notRecreated.has(p))
+        p = capturedParent.get(p) ?? null;
+      if (!p)
+        return null;
+      return resolved.get(p);
+    };
+    const childrenOf = (els) => {
+      const m = /* @__PURE__ */ new Map();
+      for (const e of els)
+        if (e.parentId)
+          m.set(e.parentId, [...m.get(e.parentId) ?? [], e]);
+      return m;
+    };
+    const capturedKids = childrenOf(incoming);
+    const storedKids = childrenOf(existing.values());
+    const capturedShape = new Map(incoming.map((e) => [e.id, { ...e, ...capturedKids.has(e.id) ? { sig: signatureOf(e.id, capturedKids) } : {} }]));
+    const shapeOf = (el) => capturedShape.get(el.id);
+    const capturedView = new Map([...existing, ...incoming.map((e) => [e.id, e])]);
+    const placeIn = (e, view) => {
+      const frame = e.origin ? view.get(pageFrameId(e.origin)) : void 0;
+      return { x: e.x - (frame?.x ?? 0), y: e.y - (frame?.y ?? 0) };
+    };
+    const byPlace = (a, b) => a.y - b.y || a.x - b.x;
+    for (const d of [...dismissed.values()]) {
+      if (existing.has(d.id)) {
+        forget.add(d.id);
+        dismissed.delete(d.id);
+      }
+    }
+    const draftByKey = /* @__PURE__ */ new Map();
+    for (const e of existing.values())
+      if (e.origin)
+        draftByKey.set(keyOf(e.origin), e.id);
+    const dismissedByKey = /* @__PURE__ */ new Map();
+    for (const d of dismissed.values())
+      dismissedByKey.set(keyOf(d), d.id);
+    const goneScopes = /* @__PURE__ */ new Set();
+    if (!restore) {
+      for (const el of incoming) {
+        if (el.origin.key === "page" && !existing.has(el.id) && dismissed.has(el.id))
+          goneScopes.add(scopeOf(el.origin));
+      }
+      for (const el of incoming)
+        if (goneScopes.has(scopeOf(el.origin)))
+          notRecreated.add(el.id);
+      for (const d of dismissed.values())
+        if (goneScopes.has(scopeOf(d)))
+          usedDismissed.add(d.id);
+      report.dismissedPages.push(...[...goneScopes].map((sc) => sc.replace("\0", " \xB7 ")));
+    }
+    const baseOf = (o) => `${scopeOf(o)}\0${o.key.replace(/~\d+(?=$|::)/g, "")}`;
+    const baseCount = /* @__PURE__ */ new Map();
+    for (const el of incoming)
+      baseCount.set(baseOf(el.origin), (baseCount.get(baseOf(el.origin)) ?? 0) + 1);
+    const trusted = (el) => el.origin.key === "page" || /^(tid:|#)/.test(el.origin.key) && !/\[\d+\]/.test(el.origin.key) && baseCount.get(baseOf(el.origin)) === 1;
+    for (const el of incoming) {
+      if (notRecreated.has(el.id) || !trusted(el))
+        continue;
+      const id = existing.has(el.id) ? el.id : draftByKey.get(keyOf(el.origin));
+      if (id && !claimed.has(id))
+        claim(el, id);
+      else if (!id && !restore) {
+        const d = dismissed.has(el.id) ? el.id : dismissedByKey.get(keyOf(el.origin));
+        if (d)
+          dismiss(el, d);
+      }
+    }
+    const storedShape = (e) => ({
+      ...e,
+      ...storedKids.has(e.id) ? { sig: signatureOf(e.id, storedKids) } : {}
+    });
+    const pageScope = /* @__PURE__ */ new Map();
+    for (const el of incoming)
+      if (el.origin.key === "page")
+        pageScope.set(el.id, scopeOf(el.origin));
+    const scopeWithin = (e) => {
+      const seen2 = /* @__PURE__ */ new Set();
+      for (let cur = e; cur && !seen2.has(cur.id); cur = existing.get(cur.parentId ?? "")) {
+        seen2.add(cur.id);
+        const sc = pageScope.get(cur.id);
+        if (sc)
+          return sc;
+      }
+      return void 0;
+    };
+    const owned = [];
+    for (const e of existing.values()) {
+      if (e.origin || claimed.has(e.id))
+        continue;
+      const sc = scopeWithin(e);
+      if (sc)
+        owned.push({ id: e.id, dismissed: false, owned: true, scope: sc, parentId: e.parentId, at: placeIn(e, existing), shape: storedShape(e), documented: Boolean(e.apiBinding) });
+    }
+    const pool = [
+      ...owned,
+      ...[...existing.values()].filter((e) => e.origin && scopes.has(scopeOf(e.origin)) && !claimed.has(e.id)).map((e) => ({
+        id: e.id,
+        dismissed: false,
+        scope: scopeOf(e.origin),
+        parentId: e.parentId,
+        at: placeIn(e, existing),
+        shape: storedShape(e),
+        documented: Boolean(e.apiBinding)
+      })),
+      ...(restore ? [] : [...dismissed.values()]).filter((d) => scopes.has(scopeOf(d)) && !usedDismissed.has(d.id)).map((d) => ({
+        id: d.id,
+        dismissed: true,
+        scope: scopeOf(d),
+        parentId: d.parentId,
+        at: { x: d.x, y: d.y },
+        shape: { ...d, ...d.signature !== void 0 ? { sig: d.signature } : {} },
+        documented: false
+      }))
+    ];
+    const index = /* @__PURE__ */ new Map();
+    const indexKeys = (scope, sh) => [
+      ...sh.name ? [`${scope}|${kindOf(sh.type)}|n:${sh.name}`] : [],
+      ...sh.text ? [`${scope}|${kindOf(sh.type)}|t:${sh.text}`] : []
+    ];
+    for (const c of pool) {
+      for (const k of indexKeys(c.scope, c.shape))
+        index.set(k, [...index.get(k) ?? [], c]);
+    }
+    const near = (a, b, sh) => Math.abs(a.x - b.x) <= Math.max(16, sh.width / 2) && Math.abs(a.y - b.y) <= Math.max(16, sh.height / 2);
+    const free = (c) => !(c.dismissed ? usedDismissed.has(c.id) : claimed.has(c.id));
+    const open = (el) => !resolved.has(el.id) && !notRecreated.has(el.id);
+    let ownedTurn = false;
+    const looksLike = (el, c) => c.scope === scopeOf(el.origin) && sameShape(shapeOf(el), c.shape) && (ownedTurn || !c.owned);
+    const lookalikes = (el) => {
+      const out = /* @__PURE__ */ new Set();
+      for (const k of indexKeys(scopeOf(el.origin), el))
+        for (const c of index.get(k) ?? [])
+          if (free(c) && looksLike(el, c))
+            out.add(c);
+      return [...out];
+    };
+    const byId = new Map(pool.map((c) => [c.id, c]));
+    const take = (el, c) => {
+      if (c.dismissed)
+        dismiss(el, c.id);
+      else {
+        claim(el, c.id);
+        const stored = existing.get(c.id)?.origin;
+        if (stored && stored.key !== el.origin.key)
+          report.rematched.push(c.id);
+      }
+    };
+    for (let progress = true; progress; ) {
+      progress = false;
+      const remaining = incoming.filter(open);
+      const suitors = /* @__PURE__ */ new Map();
+      const listOf = /* @__PURE__ */ new Map();
+      for (const el of remaining) {
+        const list = lookalikes(el);
+        listOf.set(el, list);
+        for (const c of list)
+          suitors.set(c, [...suitors.get(c) ?? [], el]);
+      }
+      for (const el of remaining) {
+        if (!open(el))
+          continue;
+        const list = (listOf.get(el) ?? []).filter(free);
+        const only = list.length === 1 ? list[0] : void 0;
+        if (only && (suitors.get(only) ?? []).filter(open).length === 1) {
+          take(el, only);
+          progress = true;
+        }
+      }
+      for (const el of remaining) {
+        if (!open(el))
+          continue;
+        const kids = (capturedKids.get(el.id) ?? []).filter((k) => resolved.has(k.id));
+        if (!kids.length)
+          continue;
+        const homes = new Set(kids.map((k) => existing.get(resolved.get(k.id) ?? "")?.parentId ?? null));
+        const [home] = [...homes];
+        const c = homes.size === 1 && home ? byId.get(home) : void 0;
+        if (c && free(c) && !c.dismissed && kindOf(c.shape.type) === kindOf(el.type) && c.scope === scopeOf(el.origin)) {
+          take(el, c);
+          progress = true;
+        }
+      }
+      for (const el of remaining) {
+        if (!open(el))
+          continue;
+        const parent = parentOf(el);
+        if (parent === void 0)
+          continue;
+        const sibs = (listOf.get(el) ?? []).filter((c) => free(c) && c.parentId === parent);
+        if (!sibs.length)
+          continue;
+        const group = remaining.filter((o) => open(o) && parentOf(o) === parent && sibs.some((c) => looksLike(o, c)));
+        const all = [...new Set(group.flatMap((o) => (listOf.get(o) ?? []).filter((c) => free(c) && c.parentId === parent)))];
+        if (group.length !== all.length)
+          continue;
+        group.sort((a, b) => byPlace(placeIn(a, capturedView), placeIn(b, capturedView)));
+        all.sort((a, b) => byPlace(a.at, b.at));
+        if (!group.every((o, i) => looksLike(o, all[i])))
+          continue;
+        group.forEach((o, i) => take(o, all[i]));
+        progress = true;
+      }
+    }
+    for (const el of incoming.filter(open)) {
+      const parent = parentOf(el);
+      if (parent === void 0)
+        continue;
+      const here = placeIn(el, capturedView);
+      const drafts = pool.filter((c) => free(c) && !c.dismissed && c.scope === scopeOf(el.origin) && c.parentId === parent && !c.owned && kindOf(c.shape.type) === kindOf(el.type) && sizeClose(el, c.shape) && near(here, c.at, c.shape) && // With API docs at stake, "changed in place" isn't enough on its own.
+      (!c.documented || sameContent(shapeOf(el), c.shape)));
+      if (drafts.length !== 1)
+        continue;
+      const only = drafts[0];
+      const rivals = incoming.filter((o) => o !== el && open(o) && kindOf(o.type) === kindOf(el.type) && parentOf(o) === parent && sizeClose(o, only.shape));
+      if (!rivals.length)
+        take(el, only);
+    }
+    ownedTurn = true;
+    for (const el of incoming.filter(open)) {
+      const list = lookalikes(el).filter((c) => c.owned);
+      const only = list.length === 1 ? list[0] : void 0;
+      if (!only)
+        continue;
+      const rivals = incoming.filter((o) => o !== el && open(o) && looksLike(o, only));
+      if (!rivals.length)
+        take(el, only);
+    }
+    for (const el of incoming.filter(open)) {
+      const hint = [el.id, draftByKey.get(keyOf(el.origin))].find((id) => id !== void 0 && existing.has(id) && !claimed.has(id));
+      const target = hint ? existing.get(hint) : void 0;
+      if (!hint || !target)
+        continue;
+      if (!target.origin) {
+        claim(el, hint);
+        continue;
+      }
+      const parent = parentOf(el);
+      if (parent === void 0 || kindOf(target.type) !== kindOf(el.type) || (target.parentId ?? null) !== parent)
+        continue;
+      if (target.apiBinding) {
+        const theirs = storedShape(target);
+        const rival = incoming.some((o) => o !== el && open(o) && sameShape(shapeOf(o), theirs));
+        if (!sameContent(shapeOf(el), theirs) || rival)
+          continue;
+      }
+      claim(el, hint);
+    }
+    for (const el of incoming.filter(open)) {
+      let id = el.id;
+      for (let n = 2; existing.has(id) || claimed.has(id); n++) {
+        id = importedElementId(el.origin.route, el.origin.viewport ?? "", `${el.origin.key}${n}`);
+      }
+      claim(el, id);
+    }
+    report.dismissed.push(...usedDismissed);
+    for (const el of incoming) {
+      const final = notRecreated.has(el.id) ? null : resolved.get(el.id) ?? el.id;
+      if (final !== el.id)
+        report.idMap[el.id] = final;
+    }
+    const live = [];
+    for (const el of incoming) {
+      if (notRecreated.has(el.id))
+        continue;
+      const { componentId, ...rest } = el;
+      const master = componentId && !notRecreated.has(componentId) ? finalRef(componentId) : void 0;
+      live.push({
+        ...rest,
+        id: resolved.get(el.id) ?? el.id,
+        parentId: finalRef(el.parentId) ?? null,
+        ...master ? { componentId: master } : {}
+      });
+    }
+    const parents = new Set(live.map((e) => e.parentId));
+    for (const el of live) {
+      if (el.type === "instance" && !el.componentId)
+        el.type = parents.has(el.id) ? "frame" : "rectangle";
+    }
+    const offset = (o, from) => {
+      const frame = from.get(pageFrameId(o));
+      return frame ? { x: frame.x, y: frame.y } : { x: 0, y: 0 };
+    };
+    const hashOf = (e, from) => e.origin ? designHash(e, offset(e.origin, from)) : designHash(e);
+    const incomingView = new Map([...existing, ...live.map((e) => [e.id, e])]);
+    for (const el of live)
+      el.origin = { ...el.origin, hash: hashOf(el, incomingView) };
+    const writes = [];
+    for (const el of live) {
+      const cur = existing.get(el.id);
+      if (!cur) {
+        report.created.push(el.id);
+        writes.push(el);
+      } else if (!cur.origin) {
+        report.skipped.push(el.id);
+      } else if (hashOf(cur, existing) !== cur.origin.hash) {
+        report.conflicts.push({ id: el.id, name: cur.name });
+      } else if (cur.origin.hash === el.origin.hash && sameProvenance(cur.origin, el.origin)) {
+        report.unchanged.push(el.id);
+      } else {
+        report.updated.push(el.id);
+        writes.push(cur.apiBinding ? { ...el, apiBinding: cur.apiBinding } : el);
+      }
+    }
+    if (restore) {
+      const records = [...dismissed.values()].filter((d) => scopes.has(scopeOf(d)));
+      for (const d of records)
+        forget.add(d.id);
+      const created = new Set(report.created);
+      for (const el of live) {
+        if (!created.has(el.id))
+          continue;
+        const held = dismissed.has(el.id) || dismissedByKey.has(keyOf(el.origin)) || records.some((d) => scopeOf(d) === scopeOf(el.origin) && sameShape(el, { ...d, ...d.signature !== void 0 ? { sig: d.signature } : {} }));
+        if (held)
+          report.restored.push(el.id);
+      }
+    }
+    for (const e of existing.values()) {
+      if (e.origin && scopes.has(scopeOf(e.origin)) && !claimed.has(e.id))
+        report.stale.push(e.id);
+    }
+    if (body.prune === true) {
+      const after = new Map(existing);
+      for (const w of writes)
+        after.set(w.id, w);
+      const prunable = /* @__PURE__ */ new Set();
+      for (const id of report.stale) {
+        const e = existing.get(id);
+        if (!e?.origin)
+          continue;
+        if (e.apiBinding)
+          report.kept.push({ id, reason: "documented" });
+        else if (hashOf(e, existing) !== e.origin.hash)
+          report.kept.push({ id, reason: "edited" });
+        else
+          prunable.add(id);
+      }
+      const queue = [...after.values()].filter((c) => !prunable.has(c.id)).map((c) => c.parentId);
+      while (queue.length) {
+        const id = queue.pop();
+        if (!id || !prunable.has(id))
+          continue;
+        prunable.delete(id);
+        report.kept.push({ id, reason: "has-kept-children" });
+        queue.push(after.get(id)?.parentId ?? null);
+      }
+      report.removed.push(...prunable);
+      for (const d of dismissed.values()) {
+        if (scopes.has(scopeOf(d)) && !usedDismissed.has(d.id) && !forget.has(d.id)) {
+          forget.add(d.id);
+          report.forgotten.push(d.id);
+        }
+      }
+    }
+    if (!dryRun) {
+      for (const el of writes)
+        this.write("elements", el.id, el);
+      for (const id of report.removed)
+        this.remove("elements", id);
+      for (const id of forget)
+        this.remove("dismissed", id);
+    }
+    return report;
   }
   /** Attach or replace the API docs and append a version entry with a diff. */
   bind(id, body) {
@@ -4959,6 +5602,8 @@ var RepoStore = class {
       for (const item of items)
         this.write(key, item.id, item);
     }
+    for (const item of cp.snapshot.elements)
+      this.remove("dismissed", item.id);
     return cp;
   }
   // --- internals -----------------------------------------------------------
@@ -5033,6 +5678,70 @@ var RepoStore = class {
     return join2(this.root, FORWARD_DIR, COLLECTIONS[key], `${fileNameForId(id)}.json`);
   }
 };
+var scopeOf = (o) => `${o.route}\0${o.viewport ?? ""}`;
+var keyOf = (o) => `${scopeOf(o)}\0${o.key}`;
+function kindOf(type) {
+  return type === "instance" ? "component" : type;
+}
+function signatureOf(id, children) {
+  const texts = [];
+  const seen = /* @__PURE__ */ new Set();
+  const walk = (pid) => {
+    for (const c of children.get(pid) ?? []) {
+      if (seen.has(c.id) || texts.length >= 40)
+        continue;
+      seen.add(c.id);
+      if (c.text)
+        texts.push({ y: c.y, x: c.x, t: c.text });
+      walk(c.id);
+    }
+  };
+  walk(id);
+  return texts.sort((a, b) => a.y - b.y || a.x - b.x).map((t) => t.t).join("\0");
+}
+function sameContent(a, b) {
+  return a.text || b.text ? a.text === b.text : a.name === b.name && a.sig === b.sig;
+}
+function sizeClose(a, b) {
+  const close = (p, q) => Math.abs(p - q) <= Math.max(4, 0.1 * Math.max(p, q));
+  return close(a.width, b.width) && close(a.height, b.height);
+}
+function sameShape(a, b) {
+  if (kindOf(a.type) !== kindOf(b.type) || !sizeClose(a, b))
+    return false;
+  if (a.text && b.text)
+    return a.text === b.text;
+  if (a.name === "" || a.name !== b.name || !a.text !== !b.text)
+    return false;
+  return a.sig === void 0 && b.sig === void 0 ? true : a.sig === b.sig;
+}
+function dismissedRecord(el, origin, elements, at, by) {
+  const children = /* @__PURE__ */ new Map();
+  for (const e of elements.values())
+    if (e.parentId)
+      children.set(e.parentId, [...children.get(e.parentId) ?? [], e]);
+  const frame = elements.get(pageFrameId(origin));
+  return DismissedDraft.parse({
+    id: el.id,
+    route: origin.route,
+    ...origin.viewport !== void 0 ? { viewport: origin.viewport } : {},
+    key: origin.key,
+    type: el.type,
+    name: el.name,
+    ...el.text !== void 0 ? { text: el.text } : {},
+    parentId: el.parentId,
+    ...children.has(el.id) ? { signature: signatureOf(el.id, children) } : {},
+    x: el.x - (frame?.x ?? 0),
+    y: el.y - (frame?.y ?? 0),
+    width: el.width,
+    height: el.height,
+    dismissedAt: at,
+    by
+  });
+}
+function sameProvenance(a, b) {
+  return a.route === b.route && a.viewport === b.viewport && a.key === b.key && a.source === b.source && a.component === b.component;
+}
 function changesOf(snapshot) {
   const out = [];
   if (snapshot.elements.length)
@@ -5290,6 +5999,7 @@ function createRepoRouter(store) {
     routes.push({ method, pattern: new RegExp(`^${path.replace(/:\w+/g, SEG)}$`), handler });
   };
   on("GET", "/elements", () => store.listElements());
+  on("POST", "/elements/import", (_p, body) => store.importDesign(body));
   on("PUT", "/elements/:id", (_p, body) => store.saveElement(body));
   on("PATCH", "/elements/:id", ([id], body) => store.patchElement(id, body));
   on("DELETE", "/elements/:id", ([id], _b, q) => ({

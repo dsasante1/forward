@@ -42,10 +42,13 @@ export class FakeServerSource implements CanvasSource {
   async saveElement(element: SaveableElement): Promise<DesignElement> {
     // Mirror the server: ignore any binding on the payload and re-attach the
     // STORED one, so geometry saves never create or clobber documentation.
+    // `origin` (code-import provenance) follows the store too: a save may keep
+    // the stored one by sending it back, or drop it (adopt), never set one.
     const prior = this.elements.get(element.id);
     const next = DesignElement.parse({
       ...element,
       apiBinding: prior?.apiBinding,
+      origin: element.origin && prior?.origin ? prior.origin : undefined,
       updatedAt: new Date().toISOString(),
     });
     this.elements.set(next.id, next);
@@ -162,6 +165,21 @@ export function describeBindingContract(
       } as unknown as SaveableElement);
       expect(bindingOf("el1")).toBeUndefined();
       expect(timelineOf("el1")).toHaveLength(0); // and no version entry is created
+    });
+
+    it("saveElement keeps or drops a stored origin but never sets one", async () => {
+      const origin = { kind: "code" as const, route: "/", key: "k", hash: "h", importedAt: new Date().toISOString() };
+      const originOf = (id: string) => latest.find((s) => s.element.id === id)?.element.origin;
+      // A hand-drawn element can't claim to be imported.
+      await src.saveElement({ ...el("el1"), origin } as unknown as SaveableElement);
+      expect(originOf("el1")).toBeUndefined();
+      // An imported draft keeps its stored origin (whatever hash is sent back)…
+      src.seed({ ...el("draft"), origin });
+      await src.saveElement({ ...el("draft"), x: 5, origin: { ...origin, hash: "forged" } } as unknown as SaveableElement);
+      expect(originOf("draft")?.hash).toBe("h");
+      // …and adopting it (a save without origin) drops it.
+      await src.saveElement(el("draft") as unknown as SaveableElement);
+      expect(originOf("draft")).toBeUndefined();
     });
 
     it("documentElement persists the binding AND appends a versioned diff", async () => {
