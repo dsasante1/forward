@@ -9,6 +9,7 @@ Forward ships these, each released by pushing a tag:
 | Forward GitHub Action (root `action.yml`) | the same `mcp-v0.2.0` | none: the Action runs from the tagged commit | GitHub |
 | VS Code extension | `v0.4.1` | `.github/workflows/release.yml` | VS Code Marketplace, Open VSX |
 | docs-ci Action | `docs-ci-v2` (major) + `docs-ci-v2.x.y` | none: see [apps/docs-ci](../apps/docs-ci/README.md#releasing-maintainers) | GitHub |
+| Website (`apps/site`) | none: every push to `master` | Vercel's Git integration (root `vercel.json`) | Vercel |
 
 `forward init` writes a workflow that pins the Action to `dsasante1/forward@mcp-v<version>`
 and runs `forward-mcp@<version>` from npm, where `<version>` is the CLI that wrote it. So every

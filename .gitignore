@@ -17,3 +17,6 @@ out/
 apps/canvas/dist-host/
 apps/mcp/pkg/
 apps/mcp/pkg-capture/
+
+# Vercel CLI link (vercel.json is the committed config)
+.vercel/
