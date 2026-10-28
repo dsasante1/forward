@@ -354,13 +354,21 @@ function readStdin(): Promise<string> {
   });
 }
 
+/**
+ * Exit once stdout and stderr have drained: on a pipe their writes are
+ * asynchronous, and exiting straight away cuts off large output (`tools --json`).
+ */
+function exitWhenFlushed(code: number): void {
+  process.stdout.write("", () => process.stderr.write("", () => process.exit(code)));
+}
+
 main(process.argv.slice(2))
   .then(async (code) => {
     await close();
-    process.exit(code);
+    exitWhenFlushed(code);
   })
   .catch(async (err: Error) => {
     console.error(`forward: ${err.message}`);
     await close().catch(() => {});
-    process.exit(1);
+    exitWhenFlushed(1);
   });

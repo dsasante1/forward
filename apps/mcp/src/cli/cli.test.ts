@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -112,4 +113,34 @@ describe("tools through the in-memory client (repo mode)", () => {
     const valid = JSON.parse((await callTool("validate_project", {})).text);
     expect(valid.valid).toBe(true);
   });
+});
+
+const BUILT_CLI = join(import.meta.dirname, "../../dist/cli.js");
+
+describe.skipIf(!existsSync(BUILT_CLI) || process.platform === "win32")("the built CLI", () => {
+  it("writes all of a large output before it exits, even into a pipe nobody is reading yet", () => {
+    const dir = mkdtempSync(join(tmpdir(), "forward-pipe-"));
+    try {
+      // Into a file (written synchronously): the whole output, for comparison.
+      const file = join(dir, "tools.json");
+      execFileSync("sh", ["-c", '"$0" "$1" tools --json > "$2"', process.execPath, BUILT_CLI, file]);
+      const whole = readFileSync(file, "utf8");
+      expect(whole.length, "the output must overflow one pipe buffer to test this").toBeGreaterThan(65_536);
+
+      // Into a pipe whose reader falls behind, as `| jq` can on a busy machine:
+      // it starts reading once forward has exited or 3s have passed. A forward
+      // that exits without draining has lost the rest by then; one that waits
+      // for the reader is still there, and delivers it all.
+      const done = join(dir, "exited");
+      const lag = 'i=0; until [ -e "$2" ] || [ $i -ge 60 ]; do sleep 0.05; i=$((i+1)); done; cat';
+      const piped = execFileSync(
+        "sh",
+        ["-c", `{ "$0" "$1" tools --json; : > "$2"; } | { ${lag}; }`, process.execPath, BUILT_CLI, done],
+        { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, timeout: 20_000 },
+      );
+      expect(piped).toBe(whole);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

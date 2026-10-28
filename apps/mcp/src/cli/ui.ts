@@ -42,6 +42,9 @@ export function writeStaticSite(out: string, bundleFile: string): void {
   mkdirSync(out, { recursive: true });
   cpSync(join(dir, "assets"), join(out, "assets"), { recursive: true });
   writeFileSync(join(out, "index.html"), renderIndex(dir, { mode: "static", bundle: bundleFile }));
+  // The UI bundles mermaid and friends; a published site carries their licenses.
+  const notices = join(dir, "THIRD_PARTY_NOTICES.txt");
+  if (existsSync(notices)) cpSync(notices, join(out, "THIRD_PARTY_NOTICES.txt"));
   // GitHub Pages: serve files as-is (no Jekyll processing of `_`-prefixed assets).
   writeFileSync(join(out, ".nojekyll"), "");
 }

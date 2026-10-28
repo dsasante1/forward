@@ -28,10 +28,6 @@ git add .forward AGENTS.md CLAUDE.md .mcp.json .cursor .github && git commit -m 
 `forward serve` writes straight to `.forward/`. An agent editing through MCP at the same time
 shows up on the canvas within a couple of seconds, and the History view reads your git log.
 
-> **Not on npm yet?** Until `forward-mcp` is published, build from source and use
-> `node <path-to-forward>/apps/mcp/dist/cli.js` wherever this README says `forward`:
-> `git clone https://github.com/dsasante1/forward && cd forward && npm install && npm run build`.
-
 ## AI agents
 
 `forward init` (or `forward agents` later) writes the agent wiring into your repository:
@@ -199,7 +195,7 @@ stays in sync.
 | **Infrastructure** | A project-scoped graph of `InfraNode`s + `InfraEdge`s (frontend, backend, db, cache, queue, service, devops, external, group), rendered as an overlay | project |
 | **Flows** | Narrated `InfraFlow`s — ordered hops over the infra nodes — that serialize to a Mermaid `sequenceDiagram` and can tie a hop to an endpoint | infra graph |
 | **Entities (ER/UML)** | A project-scoped data model of `Entity` tables + crow's-foot `EntityRelation`s, serialized to a Mermaid `erDiagram` | project |
-| **Tasks** | A work tracker (`Task`: status/priority/type, assignees, `dependsOn`, activity feed) that *optionally links* into a design element / flow / endpoint, with a Gantt view | project (soft links) |
+| **Tasks** | A work tracker (`Task`: status/priority/type, assignees, `dependsOn`, activity feed) that *optionally links* into a design element / flow / endpoint | project (soft links) |
 | **Checkpoints** | Named, restorable snapshots of the whole canvas (design + infra) — a deliberate save with a note | project |
 
 On top of these sits the **History timeline**: a per-element append-only API-doc history
@@ -218,6 +214,7 @@ npm workspaces (Node >= 22.12 to develop; `.nvmrc` pins 22).
 | [apps/canvas](apps/canvas) | `forward-canvas` | The design editor, shipped standalone with the CLI (`host/`) and embedded in the VS Code extension |
 | [apps/extension](apps/extension) | `forward-vscode` | VS Code extension. Works on the workspace's `.forward/` automatically |
 | [apps/docs-ci](apps/docs-ci) | `forward-docs-ci` | Bring-your-own-AI CI step that applies an agent-written plan to a project |
+| [apps/site](apps/site) | `forward-site` | The website: landing page, docs and a live read-only demo, deployed on Vercel |
 
 ## Development
 
@@ -227,6 +224,7 @@ npm test                        # all Vitest suites
 npm run typecheck
 npm run dev:host -w apps/canvas # hack on the standalone canvas host with Vite
 node apps/mcp/dist/cli.js serve # run your local build of the CLI against a repo with .forward/
+npm run dev -w apps/site        # the website (landing page + docs) with Vite
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, conventions and governance, and

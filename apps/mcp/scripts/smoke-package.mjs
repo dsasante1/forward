@@ -109,7 +109,7 @@ try {
 
   step("forward export");
   run("export", "--out", path.join(work, "site"));
-  for (const f of ["index.html", "forward.json"]) {
+  for (const f of ["index.html", "forward.json", "THIRD_PARTY_NOTICES.txt"]) {
     if (!existsSync(path.join(work, "site", f))) throw new Error(`export did not write ${f}`);
   }
 
