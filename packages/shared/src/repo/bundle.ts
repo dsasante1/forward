@@ -81,6 +81,12 @@ export interface LayerChange {
 export interface ProjectDiff {
   api: { toIntegrate: EndpointChange[]; toModify: EndpointChange[]; toRemove: EndpointChange[] };
   layers: LayerChange[];
+  /**
+   * Drafts generated from code that were adopted (their `origin` removed):
+   * the design, not the code, is now the source of truth for them. Kept out
+   * of the per-element changes above, where it would only be noise.
+   */
+  adopted: string[];
 }
 
 type Named = { id: string; name?: string; label?: string; title?: string; key?: string };
@@ -113,7 +119,8 @@ export function diffProjects(before: ProjectBundle | undefined, after: ProjectBu
   }
 
   const layers: LayerChange[] = [
-    layerDiff("Design elements", before?.elements, after.elements, ["apiBinding"]),
+    // `origin` is provenance: adopting a generated draft is not a design change.
+    layerDiff("Design elements", before?.elements, after.elements, ["apiBinding", "origin"]),
     layerDiff("Infra nodes", before?.infra.nodes, after.infra.nodes),
     layerDiff("Infra edges", before?.infra.edges, after.infra.edges),
     layerDiff("Flows", before?.infra.flows, after.infra.flows),
@@ -124,7 +131,11 @@ export function diffProjects(before: ProjectBundle | undefined, after: ProjectBu
     layerDiff("Tasks", before?.tasks, after.tasks),
   ].filter((l) => l.added.length + l.modified.length + l.removed.length > 0);
 
-  return { api, layers };
+  const adopted = after.elements
+    .filter((e) => !e.origin && prevEls.get(e.id)?.origin)
+    .map((e) => label(e));
+
+  return { api, layers, adopted };
 }
 
 function entryKey(e: VersionEntry): string {
@@ -172,7 +183,8 @@ export const DIGEST_MARKER = "<!-- forward-digest -->";
 export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; viewerUrl?: string } = {}): string {
   const { toIntegrate, toModify, toRemove } = diff.api;
   const lines: string[] = [DIGEST_MARKER, `## ${opts.title ?? "Forward catch-up"}`, ""];
-  const empty = !toIntegrate.length && !toModify.length && !toRemove.length && !diff.layers.length;
+  const empty =
+    !toIntegrate.length && !toModify.length && !toRemove.length && !diff.layers.length && !diff.adopted.length;
   if (empty) {
     lines.push("No changes to the design, API docs, infrastructure or data model.");
     return lines.join("\n") + "\n";
@@ -210,6 +222,16 @@ export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; vi
       lines.push(`| ${l.layer} | ${cell(l.added)} | ${cell(l.modified)} | ${cell(l.removed)} |`);
     }
     lines.push("");
+  }
+  if (diff.adopted.length) {
+    // Names come from page content: a code span keeps links and @mentions inert.
+    const shown = diff.adopted.slice(0, 10).map((a) => `\`${a.replace(/[`\r\n]/g, "'")}\``).join(", ");
+    const more = diff.adopted.length > 10 ? ` and ${diff.adopted.length - 10} more` : "";
+    lines.push(
+      `**Adopted from code:** ${diff.adopted.length} element${diff.adopted.length === 1 ? "" : "s"} — ${shown}${more}. ` +
+        "The design is now the source of truth for them; code imports no longer update them.",
+      "",
+    );
   }
   if (opts.viewerUrl) lines.push(`[Open the canvas](${opts.viewerUrl})`, "");
   return lines.join("\n");

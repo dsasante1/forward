@@ -17,8 +17,8 @@ Troubleshooting.
 ## Guardrails (apply to every workflow)
 
 - **Document existing elements; don't draw new ones.** Designers own the canvas. Reach for
-  `create_element` only when the design is genuinely missing the thing you built — prefer
-  finding and documenting what's already there.
+  `create_element` or `import_design_from_code` only when the design is genuinely missing the
+  thing you built — prefer finding and documenting what's already there.
 - **Confirm the target before writing.** When `find_element`'s top score is low or two
   candidates are close, show the user the candidates and confirm the element id first.
 - **Never invent API details.** Method, path, params, and responses come from the code or
@@ -78,7 +78,27 @@ prefer these tools over guessing state.
    question, or record a decision. Read with `get_task` first so it lands in context.
 6. **`delete_task`** to remove a work item (its linked layers are untouched).
 
-## Workflow 5 — Project access
+## Workflow 5 — A screen exists in code but has no design
+
+Pattern: dry run → import → review → anchor.
+
+1. **`import_design_from_code`** with `url` + `routes` (live capture; needs Playwright in the
+   project) or `snapshotPath` (files from `forward capture --script` run in DevTools). Pass
+   `dryRun: true` first and show the user the counts.
+2. Run it for real. Drafts land as one frame per route, marked "from code" on the canvas.
+   Re-running updates untouched drafts. `conflicts` are drafts someone edited, and `skipped`
+   are hand-drawn or adopted elements. Leave both alone and tell the user. Relay the `next`
+   hints: `stale` drafts (pass `prune` only if the user agrees), `dismissed` drafts someone deleted
+   (pass `restoreDismissed` only if asked), and how many anchors `writeAnchors` would add.
+3. Tidy names with `update_element` if the user asks. An edited draft is never overwritten
+   by a later import, so do this only once the screen is settled.
+4. `writeAnchors: true` adds `// @adc <id>` above each component's declaration. It edits
+   source files, so only do it when the user agrees.
+5. **Fallback when the app can't run:** read the route's components and sketch the screen
+   with `create_element` (a frame per screen, boxes and text inside), then say it is a
+   rough wireframe from the source, not a capture.
+
+## Workflow 6 — Project access
 
 **`list_members`** to see the roster; **`add_member`** / **`remove_member`** (by uid) to
 enrol or remove collaborators. There's no open self-join — enrolment is deliberately

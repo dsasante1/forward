@@ -308,3 +308,15 @@ describe("string bounds", () => {
     expect(r.success).toBe(true);
   });
 });
+
+describe("DesignElement origin", () => {
+  const base = { id: "el_1", type: "rectangle", x: 0, y: 0, width: 1, height: 1, updatedAt: "2026-05-28T11:45:00Z" };
+  it("is optional, so records written before it still parse", () => {
+    expect(DesignElement.parse(base).origin).toBeUndefined();
+  });
+  it("parses provenance from a code import and rejects unknown kinds", () => {
+    const origin = { kind: "code", route: "/login", viewport: "1440x900", key: "tid:submit", hash: "abc", importedAt: "2026-05-28T11:45:00Z" };
+    expect(DesignElement.parse({ ...base, origin }).origin).toEqual(origin);
+    expect(() => DesignElement.parse({ ...base, origin: { ...origin, kind: "figma" } })).toThrow();
+  });
+});

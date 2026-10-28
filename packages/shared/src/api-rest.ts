@@ -1,3 +1,4 @@
+import type { ImportDesignReport, ImportDesignRequest } from "./design-import.js";
 import {
   AgentNode,
   ApiBinding,
@@ -198,6 +199,19 @@ export async function saveElement(
     `/elements/${encodeURIComponent(element.id)}`,
     element,
   );
+}
+
+/**
+ * Write elements generated from frontend code in one call (see
+ * design-import.ts and `RepoStore.importDesign`). The backend decides per
+ * element whether to create, update, skip (hand-drawn or adopted) or report a
+ * conflict (edited since the last import); `dryRun` only reports.
+ */
+export async function importDesign(
+  cfg: ApiConfig,
+  request_: ImportDesignRequest,
+): Promise<ImportDesignReport> {
+  return request<ImportDesignReport>(cfg, "POST", "/elements/import", request_);
 }
 
 export async function patchElement(

@@ -16,6 +16,7 @@ import {
 } from "forward-core/repo";
 import { parseArgs, str, type Args } from "./cli/args.js";
 import { callTool, close, coerceFlags, listTools, type ToolInfo } from "./cli/call.js";
+import { captureSnippet } from "./capture.js";
 import { scaffoldAgents, scaffoldGithub, scaffoldRoot, type AgentTarget, type ScaffoldResult } from "./cli/scaffold.js";
 import { serve } from "./cli/serve.js";
 import { writeStaticSite } from "./cli/ui.js";
@@ -35,6 +36,13 @@ Project
                              What changed since a ref: the catch-up digest for a PR
   forward export [--out _site] [--no-history]
                              Build a read-only static site for GitHub Pages
+  forward capture <url> [route ...] [--viewport 1440x900] [--auth state.json]
+                [--prune] [--restore] [--anchors] [--no-components] [--dry-run]
+                             Generate design drafts from a running frontend (needs Playwright)
+  forward capture --script [--route /path]
+                             Print a DevTools snippet that captures the page without Playwright
+  forward capture --from <snapshot.json> [more.json ...] [--prune] [--restore] [--anchors] [--dry-run]
+                             Import snapshots saved by that snippet
 
 Agents
   forward agents [--claude] [--cursor] [--vscode] [--agents-md]
@@ -76,6 +84,8 @@ async function main(argv: string[]): Promise<number> {
       return cmdDiff(sub);
     case "export":
       return cmdExport(sub);
+    case "capture":
+      return cmdCapture(sub);
     case "agents":
       return cmdAgents(sub);
     case "github":
@@ -251,6 +261,49 @@ function printTool(t: ToolInfo): void {
     console.log(`  --${k}  ${type}${choices}${required.has(k) ? "  required" : ""}`);
     if (p.description) console.log(`      ${p.description}`);
   }
+}
+
+/**
+ * `forward capture`: the shell front door to `import_design_from_code`. The
+ * tool does the work; this only turns positionals (url, routes, files) into
+ * its arguments and prints the snippet, which needs no project at all.
+ */
+async function cmdCapture(a: Args): Promise<number> {
+  const f = a.flags;
+  if (f.script) {
+    process.stdout.write(captureSnippet(str(f.route)));
+    return 0;
+  }
+  const known = new Set(["from", "viewport", "auth", "wait", "prune", "anchors", "components", "dry-run", "route", "restore"]);
+  for (const k of Object.keys(f)) {
+    if (!known.has(k)) throw new Error(`Unknown option --${k} for capture. Run \`forward help\`.`);
+  }
+  const input: Record<string, unknown> = {};
+  const from = str(f.from);
+  if (from) {
+    input.snapshotPath = [from, ...a.positionals];
+  } else {
+    const [url, ...routes] = a.positionals;
+    if (!url) {
+      throw new Error(
+        "Usage: forward capture <url> [route ...] | forward capture --from <snapshot.json> | forward capture --script",
+      );
+    }
+    input.url = url;
+    const extra = str(f.route);
+    input.routes = [...routes, ...(extra ? [extra] : [])];
+    if (str(f.viewport)) input.viewport = str(f.viewport);
+    if (str(f.auth)) input.storageState = str(f.auth);
+    if (str(f.wait)) input.waitMs = Number(str(f.wait));
+  }
+  if (f.prune === true) input.prune = true;
+  if (f.anchors === true) input.writeAnchors = true;
+  if (f.components === false) input.detectComponents = false;
+  if (f["dry-run"] === true) input.dryRun = true;
+  if (f.restore === true) input.restoreDismissed = true;
+  const res = await callTool("import_design_from_code", input);
+  (res.isError ? process.stderr : process.stdout).write(res.text.endsWith("\n") ? res.text : `${res.text}\n`);
+  return res.isError ? 1 : 0;
 }
 
 async function cmdCall(name: string | undefined, a: Args, implicit = false): Promise<number> {

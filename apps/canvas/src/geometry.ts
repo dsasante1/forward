@@ -8,6 +8,11 @@ export interface Rect {
   height: number;
 }
 
+/** Same position and size — a gesture that ends where it started changed nothing. */
+export function sameRect(a: Rect, b: Rect): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+
 export const SNAP_THRESHOLD = 6;
 
 export function contains(outer: Rect, inner: Rect): boolean {

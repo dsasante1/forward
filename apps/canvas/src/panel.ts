@@ -37,6 +37,11 @@ export function renderPanel(
   /** Close the inspector drawer (the header's ✕). When omitted, no close button
    * is shown. */
   onClose?: () => void,
+  /**
+   * Adopt a draft generated from code (drops its `origin`, so a later import
+   * never updates it). Shown only for elements that carry an origin.
+   */
+  onAdopt?: () => void,
 ): void {
   root.replaceChildren();
   if (!el) {
@@ -50,6 +55,7 @@ export function renderPanel(
 
   // --- header: type chip + name + type subtitle ---
   root.append(inspectorHeader(el, onClose));
+  if (el.origin) root.append(fromCodeSection(el.origin, onAdopt));
 
   // --- Position & size (2-col floating-label grid) ---
   const pos = section("Position & size");
@@ -1283,6 +1289,48 @@ function renderApiDocs(
   remove.textContent = "Remove documentation";
   remove.addEventListener("click", () => onChange({ apiBinding: undefined }));
   root.append(remove);
+}
+
+/**
+ * "From code": where a generated draft came from, and the Adopt action. A
+ * draft stays in step with the frontend on re-import until someone edits or
+ * adopts it; adopting makes it an ordinary, designer-owned element.
+ */
+function fromCodeSection(
+  origin: NonNullable<DesignElement["origin"]>,
+  onAdopt?: () => void,
+): HTMLElement {
+  const sec = section("From code");
+  sec.classList.add("from-code");
+  const rows: Array<[string, string | undefined]> = [
+    ["Route", origin.viewport ? `${origin.route} · ${origin.viewport}` : origin.route],
+    ["Component", origin.component],
+    ["Source", origin.source],
+  ];
+  for (const [label, value] of rows) {
+    if (!value) continue;
+    const row = document.createElement("div");
+    row.className = "from-code-row";
+    row.append(h("span", label, "from-code-label"), h("span", value, "from-code-value"));
+    sec.append(row);
+  }
+  sec.append(
+    h(
+      "p",
+      "A draft generated from the running frontend. Re-importing updates it until it is edited or adopted. Deleting it keeps it from coming back.",
+      "from-code-note",
+    ),
+  );
+  if (onAdopt) {
+    const adopt = document.createElement("button");
+    adopt.type = "button";
+    adopt.className = "doc-save";
+    adopt.textContent = "Adopt draft";
+    adopt.title = "Make this a designer-owned element; code imports will no longer update it";
+    adopt.addEventListener("click", onAdopt);
+    sec.append(adopt);
+  }
+  return sec;
 }
 
 // ---- builders -----------------------------------------------------------

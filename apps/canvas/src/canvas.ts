@@ -29,7 +29,7 @@ import type {
   ElementSnapshot,
   RosterMember,
 } from "./source.js";
-import { descendants, findParent, snap, type Rect } from "./geometry.js";
+import { descendants, findParent, sameRect, snap, type Rect } from "./geometry.js";
 import {
   INFRA_COLORS,
   renderEntityPanel,
@@ -496,7 +496,7 @@ const ZOOM_STEP = 1.2;
 type Gesture =
   | { kind: "move"; id: string; startX: number; startY: number; orig: Rect }
   | { kind: "resize"; id: string; startX: number; startY: number; orig: Rect }
-  | { kind: "rotate"; id: string; cx: number; cy: number }
+  | { kind: "rotate"; id: string; cx: number; cy: number; origRotation: number }
   | { kind: "create"; type: ElementType; startX: number; startY: number; id: string }
   | { kind: "pan"; startX: number; startY: number; origPanX: number; origPanY: number; moved: boolean }
   | { kind: "infra-pan"; startX: number; startY: number; origX: number; origY: number }
@@ -2089,6 +2089,15 @@ function drawElement(raw: DesignElement): SVGGElement {
   if (raw.apiBinding && showDocs) {
     g.append(badge(raw.apiBinding.title, el.x + 6, el.y + 14));
   }
+  // "Generated from code" marker — on the raw element (an instance never shows
+  // its master's provenance), and only at the top of each generated subtree or
+  // on the selection, so a captured page isn't carpeted with badges.
+  if (raw.origin && (raw.id === selectedId || !elements.get(raw.parentId ?? "")?.origin)) {
+    const tag = badge("‹/› from code", el.x + el.width - 6, el.y + 14);
+    tag.setAttribute("text-anchor", "end");
+    tag.classList.add("el-code-badge");
+    g.append(tag);
+  }
   return g;
 }
 
@@ -2547,6 +2556,7 @@ svg.addEventListener("pointerdown", (e) => {
           id: selectedId,
           cx: r.x + r.width / 2,
           cy: r.y + r.height / 2,
+          origRotation: orig.rotation ?? 0,
         };
       } else {
         gesture = {
@@ -2771,7 +2781,14 @@ svg.addEventListener("pointerup", () => {
   const el = elements.get(gesture.id);
   const wasMove = gesture.kind === "move";
   guides = { v: [], h: [] };
-  if (el) {
+  // A click that selects without moving or resizing changes nothing: don't
+  // write (or re-nest) the element. A no-op save would still re-parent it and
+  // stamp it, which turns an untouched code draft into a false import conflict.
+  const untouched =
+    el !== undefined &&
+    (((gesture.kind === "move" || gesture.kind === "resize") && sameRect(rectOf(el), gesture.orig)) ||
+      (gesture.kind === "rotate" && (el.rotation ?? 0) === gesture.origRotation));
+  if (el && !untouched) {
     // On drop, recompute nesting and persist.
     const now = new Date().toISOString();
     const parentId = findParent(rectOf(el), el.id, elements.values());
@@ -2923,6 +2940,9 @@ function openElementMenu(
     openApiDocsFor(id),
   );
   ctxItem(linkIcon(), "Copy @adc anchor", () => copyAnchor(id));
+  if (el.origin) {
+    ctxItem(compIcon(), "Adopt draft from code", () => adoptDraft(id));
+  }
   if (el.type !== "component" && el.type !== "instance") {
     ctxItem(compIcon(), "Make component", makeComponent);
   }
@@ -3382,6 +3402,27 @@ function makeComponent(): void {
   render();
 }
 
+/**
+ * Adopt a draft generated from code — the element and every generated element
+ * nested in it: drop `origin` so a later import never updates them. The store
+ * removes a stored origin whenever a save leaves it out.
+ */
+function adoptDraft(id: string): void {
+  const ids = [id, ...descendants(id, elements.values())];
+  let count = 0;
+  for (const target of ids) {
+    const el = elements.get(target);
+    if (!el?.origin) continue;
+    const { origin: _origin, ...rest } = el;
+    const adopted = { ...rest, updatedAt: now() };
+    elements.set(target, adopted);
+    void persistElement(adopted);
+    count++;
+  }
+  render();
+  notify(count === 1 ? "Draft adopted." : `${count} drafts adopted.`);
+}
+
 /** Restack the selected element and persist the new `z` (front = on top). */
 function restack(id: string, z: number): void {
   const el = elements.get(id);
@@ -3419,6 +3460,7 @@ function placeInstance(): void {
     parentId: null,
     z: nextZ(), // a freshly placed instance sits on top
     apiBinding: undefined,
+    origin: undefined, // a hand-placed copy is not a code draft
     updatedAt: now(),
   });
   elements.set(id, inst);
@@ -3605,6 +3647,7 @@ function renderSelectionPanel(): void {
     },
     onDocument,
     toggleInspector,
+    el?.origin ? () => adoptDraft(el.id) : undefined,
   );
 }
 

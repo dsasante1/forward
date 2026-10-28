@@ -4,7 +4,9 @@ import { z } from "zod";
 import {
   AgentNode,
   ApiBinding,
+  CaptureSnapshot,
   DesignElement,
+  MAX_IMPORT_ELEMENTS,
   Entity,
   EntityRelation,
   InfraEdge,
@@ -22,8 +24,11 @@ import {
   flattenTimelines,
   flowToMermaid,
   infraToComponentMermaid,
+  mapSnapshot,
   newTask,
+  placeSnapshots,
   withoutBinding,
+  type CaptureNode,
   type CurrentLabel,
 } from "forward-core";
 import {
@@ -42,6 +47,7 @@ import {
   fetchInfra,
   fetchTasks,
   fetchTimelinesConditional,
+  importDesign,
   listMembers,
   patchElement,
   saveAgentNode,
@@ -68,8 +74,11 @@ import {
   validateRepo,
 } from "forward-core/repo";
 import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { findAnchorsInSource, resolveAnchors, scanPath } from "./anchor.js";
+import { captureLive, parseViewport } from "./capture.js";
+import { insideRepo, parseSource, planAnchors, writeAnchors, type AnchorOutcome } from "./import-anchors.js";
 import { VERSION } from "./version.js";
 import type { AnchorElement } from "./anchor.js";
 import { rankElements } from "./match.js";
@@ -213,6 +222,7 @@ server.registerTool(
         counts: {
           designElements: elements.length,
           documentedEndpoints: elements.filter((e) => e.apiBinding).length,
+          importedFromCode: elements.filter((e) => e.origin).length,
           infraNodes: infra.nodes.length,
           infraEdges: infra.edges.length,
           flows: flows.length,
@@ -299,7 +309,8 @@ server.registerTool(
     title: "List design elements",
     description:
       "List every design element on the canvas for this project (id, name, type, text, " +
-      "and whether it already has API documentation). Start here to see what you can document.",
+      "whether it already has API documentation, and — for drafts generated from code — the " +
+      "route/component it came from). Start here to see what you can document.",
     inputSchema: {},
   },
   async () => {
@@ -313,6 +324,7 @@ server.registerTool(
           ...(el.text ? { text: el.text } : {}),
           documented: Boolean(el.apiBinding),
           docTitle: el.apiBinding?.title,
+          ...(el.origin ? { fromCode: { route: el.origin.route, ...(el.origin.component ? { component: el.origin.component } : {}) } } : {}),
         })),
       );
     } catch (err) {
@@ -1313,6 +1325,303 @@ server.registerTool(
     try {
       const removed = await deleteElement(getConfig(), elementId, { cascade });
       return ok({ removed, count: removed.length });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+/**
+ * Rewrite every captured source location as a repository-relative path before
+ * mapping. An absolute dev-machine path must not end up committed in
+ * `.forward/` — and sources feed element keys, so they must read the same on
+ * every checkout. Sources outside the repository are dropped and returned, so
+ * the anchor report can say why those components got none.
+ */
+function repoRelativeSources(
+  root: string,
+  snapshot: CaptureSnapshot,
+): { snapshot: CaptureSnapshot; outside: Array<{ component: string; file: string }> } {
+  const outside = new Map<string, { component: string; file: string }>();
+  const visit = (node: CaptureNode): CaptureNode => {
+    const { source, children, ...rest } = node;
+    let kept: string | undefined;
+    if (source) {
+      const loc = parseSource(normalizeSourcePath(source));
+      const file = loc && localPath(loc.file) ? insideRepo(root, loc.file) : null;
+      if (loc && file) kept = `${file}:${loc.line}`;
+      else if (loc && node.component) outside.set(`${node.component}\u0000${loc.file}`, { component: node.component, file: loc.file });
+    }
+    return {
+      ...rest,
+      ...(kept ? { source: kept } : {}),
+      ...(children ? { children: children.map(visit) } : {}),
+    };
+  };
+  return { snapshot: { ...snapshot, root: visit(snapshot.root) }, outside: [...outside.values()] };
+}
+
+/**
+ * Bundler and URL prefixes off a captured source path: `file://` and
+ * `webpack:///./src/A.tsx` become plain paths. A Windows drive path, or any
+ * other scheme, isn't a path in this checkout and is left to be rejected.
+ */
+function normalizeSourcePath(source: string): string {
+  return source
+    .replace(/^file:\/\//, "")
+    .replace(/^webpack(?:-internal)?:\/\/\/?(?:\([^)]*\)\/)?(?:\.\/)?/, "");
+}
+
+/** A path this checkout can resolve: no drive letter, backslash or URL scheme. */
+function localPath(file: string): boolean {
+  return !/^[A-Za-z]:[\\/]|\\/.test(file) && !/^[A-Za-z][\w+.-]*:/.test(file);
+}
+
+/** Above this many elements a page is mostly noise in git; say so. */
+const LARGE_PAGE = 1500;
+
+server.registerTool(
+  "import_design_from_code",
+  {
+    title: "Generate designs from frontend code",
+    description:
+      "For screens that were built without a design: capture the running frontend and turn what " +
+      "the browser renders into canvas elements — one frame per route, boxes, text, and (React " +
+      "dev builds) repeated components as a component + instances. Give `url` + `routes` to " +
+      "capture live (needs Playwright installed in the project), or `snapshotPath` for snapshot " +
+      "files made with `forward capture --script` in the browser's DevTools. The results are " +
+      "drafts marked as generated from code: re-running updates drafts in place (stable ids, API " +
+      "docs kept, even when the page around them changed) but never touches an element someone " +
+      "edited (reported as a conflict) or adopted, and doesn't recreate drafts someone deleted. " +
+      "Use dryRun first to see what would change. If the app can't run, read the components and " +
+      "draw a rough wireframe with create_element instead.",
+    inputSchema: {
+      url: z.string().url().optional().describe("Base URL of the running app, e.g. http://localhost:5173 (live capture)."),
+      routes: z
+        .array(z.string().min(1))
+        .optional()
+        .describe('Routes to capture against `url`, e.g. ["/", "/login"] (default ["/"]).'),
+      viewport: z.string().optional().describe('Viewport for live capture, e.g. "1440x900" (default) or "390x844".'),
+      storageState: z
+        .string()
+        .optional()
+        .describe("Playwright storage-state JSON (cookies/localStorage) for pages behind a login."),
+      waitMs: z.number().int().nonnegative().max(60_000).optional().describe("Extra settle time per route, in ms."),
+      snapshotPath: z
+        .array(z.string().min(1))
+        .optional()
+        .describe("Snapshot JSON files from the DevTools snippet (each holds one snapshot or an array)."),
+      snapshot: z.unknown().optional().describe("A snapshot object (or array of them) passed inline."),
+      detectComponents: z
+        .boolean()
+        .optional()
+        .describe("Turn repeated frontend components into a component + instances (default true)."),
+      prune: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also remove drafts of these routes that the code no longer renders (reported as `stale` " +
+            "otherwise). Never removes a documented, edited or adopted element.",
+        ),
+      restoreDismissed: z
+        .boolean()
+        .optional()
+        .describe("Recreate drafts that someone deleted since they were imported (otherwise they stay deleted)."),
+      writeAnchors: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also insert `// @adc <id>` anchors above each component's declaration in your JS/TS " +
+            "source (edits source files — off by default).",
+        ),
+      dryRun: z.boolean().optional().describe("Report what would change without writing anything."),
+    },
+  },
+  async (input) => {
+    try {
+      const root = requireRepo();
+      const cfg = getConfig();
+      const raws: unknown[] = [];
+      const push = (v: unknown) => raws.push(...(Array.isArray(v) ? v : [v]));
+      if (input.snapshot !== undefined) push(input.snapshot);
+      for (const p of input.snapshotPath ?? []) {
+        push(JSON.parse(await readFile(resolve(process.cwd(), p), "utf8")));
+      }
+      if (input.url) {
+        push(
+          await captureLive({
+            url: input.url,
+            routes: input.routes?.length ? input.routes : ["/"],
+            viewport: parseViewport(input.viewport),
+            ...(input.storageState ? { storageState: resolve(process.cwd(), input.storageState) } : {}),
+            ...(input.waitMs ? { waitMs: input.waitMs } : {}),
+          }),
+        );
+      }
+      if (!raws.length) {
+        return fail(
+          "Nothing to import. Give `url` (+ `routes`) to capture a running app, or `snapshotPath` " +
+            "for files from `forward capture --script`.",
+        );
+      }
+
+      const parsedSnapshots = raws.map((raw, i) => {
+        let res: ReturnType<typeof CaptureSnapshot.safeParse>;
+        try {
+          res = CaptureSnapshot.safeParse(raw);
+        } catch (err) {
+          if (err instanceof RangeError) {
+            throw new Error(`Snapshot ${i + 1} nests too deeply to import; capture it with the Forward collector, which stops at 200 levels.`);
+          }
+          throw err;
+        }
+        if (res.success) return res.data;
+        const issue = res.error.issues[0];
+        const where = issue?.path.length ? ` at ${issue.path.join(".")}` : "";
+        throw new Error(`Snapshot ${i + 1} is not a Forward capture${where}: ${issue?.message ?? "bad shape"}`);
+      });
+      const outsideSources: Array<{ component: string; file: string }> = [];
+      const snapshots = parsedSnapshots.map((s) => {
+        const { snapshot, outside } = repoRelativeSources(root, s);
+        outsideSources.push(...outside);
+        return snapshot;
+      });
+      const pages = new Set<string>();
+      for (const s of snapshots) {
+        const page = `${s.route} @ ${Math.round(s.viewport.width)}x${Math.round(s.viewport.height)}`;
+        if (pages.has(page)) throw new Error(`Two snapshots capture the same page (${page}); keep one.`);
+        pages.add(page);
+      }
+
+      const places = placeSnapshots(snapshots, await fetchElements(cfg));
+      const mapped = snapshots.map((s, i) =>
+        mapSnapshot(s, {
+          x: places[i]?.x ?? 0,
+          y: places[i]?.y ?? 0,
+          detectComponents: input.detectComponents !== false,
+        }),
+      );
+      for (const [i, m] of mapped.entries()) {
+        if (m.elements.length > MAX_IMPORT_ELEMENTS) {
+          throw new Error(
+            `${snapshots[i]?.route} produced ${m.elements.length} elements; the limit is ` +
+              `${MAX_IMPORT_ELEMENTS} per import. Capture a simpler state of the page.`,
+          );
+        }
+      }
+
+      // A page that wasn't really captured — cut off, an error page, or a
+      // redirect (an expired login lands on /login) — must not prune the
+      // drafts of the route it was meant to be.
+      const warnings: string[] = [];
+      for (const snap of snapshots) {
+        if (snap.truncated) warnings.push(`${snap.route}: only partly captured (node limit reached).`);
+        if (snap.status !== undefined && snap.status >= 400) warnings.push(`${snap.route}: the page answered HTTP ${snap.status}.`);
+        // Only a live capture navigated to the route; a DevTools snapshot was
+        // taken by hand on whatever page was open (and its route may be a
+        // pattern like /users/:id given with --route).
+        if (snap.url && snap.status !== undefined) {
+          try {
+            const where = (u: URL) =>
+              (u.pathname.replace(/\/+$/, "") || "/") + (snap.route.includes("#") ? u.hash : "");
+            const landed = where(new URL(snap.url));
+            const wanted = where(new URL(snap.route, snap.url));
+            if (landed !== wanted) warnings.push(`${snap.route}: the page ended up on ${landed} (a redirect — is the login state expired?).`);
+          } catch {
+            // an unparsable url is just not checked
+          }
+        }
+      }
+      const prune = input.prune === true && warnings.length === 0;
+      if (input.prune === true && !prune) warnings.push("Not pruning, because a page above may not be the real page.");
+
+      // Not a reason to distrust the capture, just worth knowing.
+      const notes: string[] = [];
+      for (const [i, m] of mapped.entries()) {
+        if (m.elements.length > LARGE_PAGE) {
+          notes.push(
+            `${snapshots[i]?.route} produced ${m.elements.length} elements (one file each in git). ` +
+              "Consider capturing a simpler state of the page.",
+          );
+        }
+      }
+
+      const elements = mapped.flatMap((m) => m.elements);
+      const dryRun = input.dryRun === true;
+      const report = await importDesign(cfg, {
+        elements,
+        prune,
+        dryRun,
+        ...(input.restoreDismissed ? { restoreDismissed: true } : {}),
+      });
+
+      // Anchors: written on request; otherwise only counted, so the choice is
+      // informed. They name the ids the import settled on (a re-matched draft
+      // keeps its old id; a dismissed one gets none).
+      const settled = elements.flatMap((el) => {
+        const final = el.id in report.idMap ? report.idMap[el.id] : el.id;
+        return final ? [{ ...el, id: final }] : [];
+      });
+      const plan = planAnchors(root, settled);
+      const anchorRun = await writeAnchors(root, plan.targets, { dryRun: dryRun || !input.writeAnchors });
+      let anchors: AnchorOutcome | undefined;
+      if (input.writeAnchors) {
+        const outside = outsideSources.flatMap(({ component, file }) => {
+          const el = settled.find((e) => e.origin.component === component && e.type !== "text");
+          return el ? [{ elementId: el.id, file, reason: "file is outside the repository" }] : [];
+        });
+        anchors = { written: anchorRun.written, skipped: [...plan.skipped, ...outside, ...anchorRun.skipped] };
+      }
+      const next: string[] = [];
+      if (report.stale.length && !prune) {
+        next.push(`${report.stale.length} draft(s) are no longer in the code — run again with prune to remove them.`);
+      }
+      if (report.dismissed.length) {
+        next.push(`${report.dismissed.length} deleted draft(s) were not recreated — use restoreDismissed to bring them back.`);
+      }
+      if (!input.writeAnchors && anchorRun.written.length) {
+        next.push(
+          `writeAnchors would add ${anchorRun.written.length} \`// @adc\` anchor(s) to your source, linking components to their drafts.`,
+        );
+      }
+
+      const limit = 50;
+      return ok({
+        dryRun,
+        pages: mapped.map((m, i) => ({
+          route: snapshots[i]?.route,
+          viewport: m.viewport,
+          frameId: m.frameId,
+          elements: m.elements.length,
+          ...(snapshots[i]?.truncated ? { truncated: true } : {}),
+        })),
+        counts: {
+          created: report.created.length,
+          updated: report.updated.length,
+          unchanged: report.unchanged.length,
+          skipped: report.skipped.length,
+          conflicts: report.conflicts.length,
+          rematched: report.rematched.length,
+          dismissed: report.dismissed.length,
+          restored: report.restored.length,
+          stale: report.stale.length,
+          removed: report.removed.length,
+          kept: report.kept.length,
+          forgotten: report.forgotten.length,
+        },
+        ...(report.conflicts.length ? { conflicts: report.conflicts.slice(0, limit) } : {}),
+        ...(report.kept.length ? { kept: report.kept.slice(0, limit) } : {}),
+        ...(anchors ? { anchors } : {}),
+        ...(warnings.length ? { warnings } : {}),
+        ...(notes.length ? { notes } : {}),
+        ...(next.length ? { next } : {}),
+        hint: dryRun
+          ? "Dry run — nothing was written. Run again without dryRun to apply."
+          : "These are drafts generated from code. Review them on the canvas (`forward serve`), " +
+            "rename or restyle what you keep — an edited draft is never overwritten by a later " +
+            "import — and commit .forward/ with the code. Conflicts are drafts someone edited; " +
+            "skipped are hand-drawn or adopted elements.",
+      });
     } catch (err) {
       return fail((err as Error).message);
     }

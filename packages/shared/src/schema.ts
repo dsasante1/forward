@@ -139,6 +139,67 @@ export const Style = z.object({
 export type Style = z.infer<typeof Style>;
 
 /**
+ * Where an element came from when it was generated rather than drawn. Only
+ * `kind: "code"` exists today: the element was imported from a running
+ * frontend (`forward capture` / `import_design_from_code`). Its presence marks
+ * the element as a draft that re-importing the same code may update; a designer
+ * "adopts" it by removing `origin`, after which import never touches it again.
+ *
+ * `hash` is the design hash ({@link designHash} in design-import.ts) of the
+ * element as last imported. Re-import overwrites only while the element still
+ * hashes to it, so a draft someone has edited is reported as a conflict instead.
+ */
+export const ElementOrigin = z.object({
+  kind: z.literal("code"),
+  /** The page route the element was captured on, e.g. "/login". */
+  route: z.string().max(SHORT_TEXT_MAX),
+  /** Viewport the route was captured at, e.g. "1440x900". */
+  viewport: z.string().max(SHORT_TEXT_MAX).optional(),
+  /** Stable key of the source DOM node within the route (testid, id or path). */
+  key: z.string().max(SHORT_TEXT_MAX),
+  /** Source location when known, e.g. "src/Login.tsx:42". */
+  source: z.string().max(SHORT_TEXT_MAX).optional(),
+  /** Frontend component that rendered it, when known (React dev builds). */
+  component: z.string().max(SHORT_TEXT_MAX).optional(),
+  /** Design hash of the element as last imported. */
+  hash: z.string().max(SHORT_TEXT_MAX),
+  /** ISO-8601 time of the import that last wrote it (stamped by the backend). */
+  importedAt: z.string().datetime(),
+});
+export type ElementOrigin = z.infer<typeof ElementOrigin>;
+
+/**
+ * A code draft someone deleted, remembered so the next import doesn't bring it
+ * back (`.forward/dismissed/<id>.json`). It keeps what the draft looked like —
+ * position relative to its page frame — so a draft whose key shifted can still
+ * be recognised as the dismissed one. Importing with `restoreDismissed` brings
+ * dismissed drafts back; pruning forgets the ones the code no longer renders.
+ */
+export const DismissedDraft = z.object({
+  /** The deleted draft's element id. */
+  id: z.string().min(1).max(SHORT_TEXT_MAX),
+  route: z.string().max(SHORT_TEXT_MAX),
+  viewport: z.string().max(SHORT_TEXT_MAX).optional(),
+  key: z.string().max(SHORT_TEXT_MAX),
+  type: ElementType,
+  name: z.string().max(SHORT_TEXT_MAX).default(""),
+  text: z.string().max(LONG_TEXT_MAX).optional(),
+  /** The parent it sat in, so look-alike siblings can still be told apart by order. */
+  parentId: z.string().max(SHORT_TEXT_MAX).nullable().optional(),
+  /** For a container: the text it held, so it isn't mistaken for a look-alike. */
+  signature: z.string().max(LONG_TEXT_MAX).optional(),
+  /** Offset from the page frame's top-left. */
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+  dismissedAt: z.string().datetime(),
+  /** Who deleted it (stamped by the backend). */
+  by: z.string().max(SHORT_TEXT_MAX).default(""),
+});
+export type DismissedDraft = z.infer<typeof DismissedDraft>;
+
+/**
  * A single element on the design canvas. Geometry is absolute (canvas space);
  * `parentId` records hierarchy/nesting. `apiBinding` is the optional backend
  * annotation. `componentId` links an instance back to its master component.
@@ -168,6 +229,8 @@ export const DesignElement = z.object({
   componentId: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional API documentation attached by the backend from VS Code. */
   apiBinding: ApiBinding.optional(),
+  /** Set when the element was generated from frontend code; absent once adopted. */
+  origin: ElementOrigin.optional(),
   /** ISO-8601 timestamp of the last write. */
   updatedAt: z.string().datetime(),
 });

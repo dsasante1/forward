@@ -20,6 +20,7 @@ import { join } from "node:path";
  *     agents/agents|servers/<id>.json
  *     tasks/<id>.json
  *     checkpoints/<id>.json
+ *     dismissed/<elementId>.json      DismissedDraft (deleted code drafts)
  */
 export const FORWARD_DIR = ".forward";
 export const MANIFEST_FILE = "forward.json";
@@ -38,6 +39,7 @@ export const COLLECTIONS = {
   servers: "agents/servers",
   tasks: "tasks",
   checkpoints: "checkpoints",
+  dismissed: "dismissed",
 } as const;
 
 export type CollectionKey = keyof typeof COLLECTIONS;
