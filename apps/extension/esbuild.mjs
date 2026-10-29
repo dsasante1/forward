@@ -2,6 +2,7 @@ import { copyFile, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { build, context } from "esbuild";
 import { thirdPartyNotices } from "../../scripts/third-party-notices.mjs";
+import { zodEnglishOnly } from "../../scripts/zod-english-only.mjs";
 
 /**
  * Two bundles:
@@ -41,6 +42,7 @@ const host = {
   format: "cjs",
   sourcemap: true,
   external: ["vscode"],
+  plugins: [zodEnglishOnly],
   logLevel: "info",
 };
 
@@ -58,7 +60,7 @@ const webview = {
     "process.env.NODE_ENV": '"production"',
     global: "globalThis",
   },
-  plugins: [cssInlinePlugin],
+  plugins: [cssInlinePlugin, zodEnglishOnly],
   logLevel: "info",
 };
 

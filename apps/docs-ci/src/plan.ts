@@ -28,13 +28,19 @@ import {
  * before writing, so a loose input here still can't produce an invalid write.
  */
 
+/**
+ * Geometry made optional WITHOUT the canonical defaults. zod 4 fills a
+ * `.default()` inside `.partial()`, and `apply` reads an absent width/height/
+ * parent as "keep the stored one" — so a defaulted value would reset every box
+ * someone resized or nested on each run.
+ */
 const geometry = {
-  x: true,
-  y: true,
-  width: true,
-  height: true,
-  parentId: true,
-} as const;
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().nonnegative().optional(),
+  height: z.number().nonnegative().optional(),
+  parentId: z.string().nullable().optional(),
+};
 
 /** Attach/replace an element's API documentation. `elementId` is resolved by the
  *  AI from the `@adc <id>` anchor in the source — that is what makes a re-run
@@ -51,7 +57,7 @@ export const BindingInput = ApiBinding.extend({
 export type BindingInput = z.infer<typeof BindingInput>;
 
 /** An ER table. Geometry is optional — `apply` owns placement. */
-export const EntityInput = Entity.omit({ updatedAt: true }).partial(geometry);
+export const EntityInput = Entity.omit({ updatedAt: true }).extend(geometry);
 export type EntityInput = z.infer<typeof EntityInput>;
 
 /** A crow's-foot relation between two entities (by id). */
@@ -59,7 +65,7 @@ export const EntityRelationInput = EntityRelation.omit({ updatedAt: true });
 export type EntityRelationInput = z.infer<typeof EntityRelationInput>;
 
 /** An infrastructure component. Geometry is optional — `apply` owns placement. */
-export const InfraNodeInput = InfraNode.omit({ updatedAt: true }).partial(geometry);
+export const InfraNodeInput = InfraNode.omit({ updatedAt: true }).extend(geometry);
 export type InfraNodeInput = z.infer<typeof InfraNodeInput>;
 
 /** A directed connection between two infra nodes (by id). */
@@ -71,11 +77,11 @@ export const InfraFlowInput = InfraFlow.omit({ updatedAt: true });
 export type InfraFlowInput = z.infer<typeof InfraFlowInput>;
 
 /** An MCP server box (pillar 8). Geometry optional — `apply` owns placement. */
-export const McpServerInput = McpServerNode.omit({ updatedAt: true }).partial(geometry);
+export const McpServerInput = McpServerNode.omit({ updatedAt: true }).extend(geometry);
 export type McpServerInput = z.infer<typeof McpServerInput>;
 
 /** An agent box; `mcpServerIds` wire it to the MCP servers it can call (by id). */
-export const AgentInput = AgentNode.omit({ updatedAt: true }).partial(geometry);
+export const AgentInput = AgentNode.omit({ updatedAt: true }).extend(geometry);
 export type AgentInput = z.infer<typeof AgentInput>;
 
 /**

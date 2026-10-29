@@ -3,6 +3,7 @@
 import { writeFileSync } from "node:fs";
 import { build } from "esbuild";
 import { thirdPartyNotices } from "../../../scripts/third-party-notices.mjs";
+import { zodEnglishOnly } from "../../../scripts/zod-english-only.mjs";
 
 const { metafile } = await build({
   entryPoints: ["src/cli.ts"],
@@ -12,6 +13,7 @@ const { metafile } = await build({
   target: "node20",
   outfile: "dist/action.mjs",
   metafile: true,
+  plugins: [zodEnglishOnly],
 });
 writeFileSync(
   "dist/THIRD_PARTY_NOTICES.txt",

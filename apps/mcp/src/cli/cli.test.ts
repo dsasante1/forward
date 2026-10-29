@@ -141,6 +141,31 @@ describe("tools through the in-memory client (repo mode)", () => {
       `${ui.key} starts 2026-11-04, before ${api.key} is due (2026-11-06).`,
     ]);
 
+    // An update touches only the fields it passes; list_tasks without filters lists everything.
+    const busy = await create({
+      title: "Busy",
+      type: "bug",
+      status: "blocked",
+      priority: "urgent",
+      labels: ["backend"],
+      assignees: ["ada"],
+      dependsOn: [api.id],
+    });
+    expect((await callTool("update_task", { taskId: busy.id, title: "Busy, renamed" })).isError).toBe(false);
+    const kept = JSON.parse((await callTool("get_task", { taskId: busy.id })).text).task;
+    expect(kept).toMatchObject({
+      title: "Busy, renamed",
+      type: "bug",
+      status: "blocked",
+      priority: "urgent",
+      labels: ["backend"],
+      assignees: ["ada"],
+      dependsOn: [api.id],
+    });
+    const listed = JSON.parse((await callTool("list_tasks", {})).text);
+    expect(listed.count).toBe(4);
+    expect(new Set(listed.tasks.map((t: { status: string }) => t.status))).toEqual(new Set(["todo", "blocked"]));
+
     // An empty start date clears it, and the change is logged.
     expect((await callTool("update_task", { taskId: ui.id, startDate: "" })).isError).toBe(false);
     const task = JSON.parse((await callTool("get_task", { taskId: ui.id })).text).task;
