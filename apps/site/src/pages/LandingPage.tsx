@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { BackToTop } from "../components/BackToTop.js";
+import { ThemeToggle } from "../components/ThemeToggle.js";
 import { DEMO_PATH, DOCS_PATH, GITHUB_URL, MARKETPLACE_URL, NPM_URL } from "../site.js";
 import "../landing.css";
 
@@ -47,6 +48,7 @@ export function LandingPage() {
             <a className="l-nav-link l-nav-hide" href={GITHUB_URL}>
               GitHub
             </a>
+            <ThemeToggle />
             <a className="l-btn l-btn-dark" href={DEMO_PATH}>
               Live demo
             </a>
@@ -249,21 +251,21 @@ export function LandingPage() {
                 viewBox="0 0 150 130"
                 width="150"
                 fill="none"
-                stroke="rgba(28,26,21,0.4)"
+                stroke="color-mix(in srgb, var(--ink) 40%, transparent)"
                 strokeWidth="1.2"
                 role="img"
               >
                 <title>Design canvas layout illustration</title>
-                <rect x="6" y="6" width="138" height="118" rx="3" stroke="rgba(28,26,21,0.2)" />
+                <rect x="6" y="6" width="138" height="118" rx="3" stroke="color-mix(in srgb, var(--ink) 20%, transparent)" />
                 <rect x="20" y="20" width="60" height="44" rx="2" />
                 <rect x="28" y="30" width="30" height="6" rx="1" stroke="var(--accent)" />
-                <rect x="28" y="42" width="44" height="4" rx="1" stroke="rgba(28,26,21,0.3)" />
-                <rect x="28" y="50" width="36" height="4" rx="1" stroke="rgba(28,26,21,0.3)" />
+                <rect x="28" y="42" width="44" height="4" rx="1" stroke="color-mix(in srgb, var(--ink) 30%, transparent)" />
+                <rect x="28" y="50" width="36" height="4" rx="1" stroke="color-mix(in srgb, var(--ink) 30%, transparent)" />
                 <rect x="96" y="20" width="34" height="34" rx="2" stroke="var(--accent)" />
                 <circle cx="113" cy="37" r="7" stroke="var(--accent)" />
                 <rect x="20" y="78" width="110" height="34" rx="2" />
                 <line x1="30" y1="90" x2="120" y2="90" />
-                <line x1="30" y1="100" x2="90" y2="100" stroke="rgba(28,26,21,0.28)" />
+                <line x1="30" y1="100" x2="90" y2="100" stroke="color-mix(in srgb, var(--ink) 28%, transparent)" />
               </svg>
             </div>
           </div>
@@ -384,7 +386,7 @@ export function LandingPage() {
                 <span className="l-task-title">Draw order summary frame</span>
                 <span
                   className="l-link-tag"
-                  style={{ background: "rgba(28,26,21,0.06)", color: "var(--soft)" }}
+                  style={{ background: "color-mix(in srgb, var(--ink) 6%, transparent)", color: "var(--soft)" }}
                 >
                   → design
                 </span>
@@ -626,7 +628,7 @@ export function LandingPage() {
                   <line x1="4" y1="17" x2="58" y2="17" />
                   <path d="M4 11v12" />
                   <path d="M70 17L58 11M70 17L58 23M70 17H58" />
-                  <text x="30" y="12" fontFamily="var(--mono)" fontSize="10" fill="#9c9488" stroke="none" textAnchor="middle">
+                  <text x="30" y="12" fontFamily="var(--mono)" fontSize="10" fill="var(--faint)" stroke="none" textAnchor="middle">
                     1 : N
                   </text>
                 </svg>
@@ -727,7 +729,7 @@ export function LandingPage() {
                   <b>Resized &amp; moved frame</b>
                   <span
                     className="l-pill"
-                    style={{ background: "rgba(28,26,21,0.06)", color: "var(--soft)" }}
+                    style={{ background: "color-mix(in srgb, var(--ink) 6%, transparent)", color: "var(--soft)" }}
                   >
                     DESIGN
                   </span>
@@ -1081,14 +1083,14 @@ function InfraGraph() {
       <title>Infrastructure graph: web client to api-gateway to checkout service and payments database</title>
       <defs>
         <marker id="l-arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0 0 L6 3 L0 6 Z" fill="#9c9488" />
+          <path d="M0 0 L6 3 L0 6 Z" fill="var(--faint)" />
         </marker>
         <marker id="l-arrA" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
           <path d="M0 0 L6 3 L0 6 Z" fill="var(--accent)" />
         </marker>
       </defs>
       {/* edges */}
-      <g stroke="#b9af9c" strokeWidth="1.4" fill="none">
+      <g stroke="var(--edge)" strokeWidth="1.4" fill="none">
         <path d="M186 70 L300 70" markerEnd="url(#l-arr)" />
         <path d="M226 96 C260 150 260 150 300 196" markerEnd="url(#l-arr)" />
         <path d="M460 70 L560 70" markerEnd="url(#l-arr)" />
@@ -1100,27 +1102,27 @@ function InfraGraph() {
       </g>
       {/* nodes */}
       <g>
-        <rect x="40" y="48" width="146" height="46" rx="7" fill="#fffdf8" stroke="#cdbfa6" />
-        <text x="113" y="68" textAnchor="middle" fontSize="13" fill="#1c1a15">
+        <rect x="40" y="48" width="146" height="46" rx="7" fill="var(--panel-bright)" stroke="var(--swatch)" />
+        <text x="113" y="68" textAnchor="middle" fontSize="13" fill="var(--ink)">
           web client
         </text>
-        <text x="113" y="83" textAnchor="middle" fontSize="10" fill="#9c9488">
+        <text x="113" y="83" textAnchor="middle" fontSize="10" fill="var(--faint)">
           browser
         </text>
 
-        <rect x="300" y="48" width="160" height="46" rx="7" fill="#fffdf8" stroke="#cdbfa6" />
-        <text x="380" y="68" textAnchor="middle" fontSize="13" fill="#1c1a15">
+        <rect x="300" y="48" width="160" height="46" rx="7" fill="var(--panel-bright)" stroke="var(--swatch)" />
+        <text x="380" y="68" textAnchor="middle" fontSize="13" fill="var(--ink)">
           api-gateway
         </text>
-        <text x="380" y="83" textAnchor="middle" fontSize="10" fill="#9c9488">
+        <text x="380" y="83" textAnchor="middle" fontSize="10" fill="var(--faint)">
           edge
         </text>
 
-        <rect x="560" y="48" width="160" height="46" rx="7" fill="#fffdf8" stroke="#cdbfa6" />
-        <text x="640" y="68" textAnchor="middle" fontSize="13" fill="#1c1a15">
+        <rect x="560" y="48" width="160" height="46" rx="7" fill="var(--panel-bright)" stroke="var(--swatch)" />
+        <text x="640" y="68" textAnchor="middle" fontSize="13" fill="var(--ink)">
           events-queue
         </text>
-        <text x="640" y="83" textAnchor="middle" fontSize="10" fill="#9c9488">
+        <text x="640" y="83" textAnchor="middle" fontSize="10" fill="var(--faint)">
           async
         </text>
 
@@ -1130,11 +1132,11 @@ function InfraGraph() {
           width="160"
           height="48"
           rx="7"
-          fill="#fffdf8"
+          fill="var(--panel-bright)"
           stroke="var(--accent)"
           strokeWidth="1.6"
         />
-        <text x="380" y="217" textAnchor="middle" fontSize="13" fill="#1c1a15">
+        <text x="380" y="217" textAnchor="middle" fontSize="13" fill="var(--ink)">
           checkout-svc
         </text>
         <text x="380" y="232" textAnchor="middle" fontSize="10" fill="var(--accent)">
@@ -1147,11 +1149,11 @@ function InfraGraph() {
           width="160"
           height="46"
           rx="7"
-          fill="#fffdf8"
+          fill="var(--panel-bright)"
           stroke="var(--accent2)"
           strokeWidth="1.4"
         />
-        <text x="640" y="218" textAnchor="middle" fontSize="13" fill="#1c1a15">
+        <text x="640" y="218" textAnchor="middle" fontSize="13" fill="var(--ink)">
           payments-db
         </text>
         <text x="640" y="233" textAnchor="middle" fontSize="10" fill="var(--accent2)">
@@ -1169,7 +1171,7 @@ function InfraGraph() {
           fill="color-mix(in srgb, var(--accent) 12%, transparent)"
         />
         <circle cx="60" cy="297" r="4" fill="var(--accent)" />
-        <text x="74" y="301" fontSize="12" fill="#1c1a15">
+        <text x="74" y="301" fontSize="12" fill="var(--ink)">
           flow: place order · 4 hops → Mermaid
         </text>
       </g>

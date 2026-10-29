@@ -7,24 +7,44 @@
  */
 
 .docs {
-  --bg: #efe8da;
-  --panel: #faf6ee;
-  --panel-bright: #fffdf8;
-  --bar: #f3ede1;
-  --rail: #f5efe3;
-  --ink: #1c1a15;
-  --muted: #57514a;
-  --soft: #6a6358;
-  --faint: #9c9488;
-  --hair: rgba(28, 26, 21, 0.1);
-  --line: rgba(28, 26, 21, 0.14);
-  --line-strong: rgba(28, 26, 21, 0.18);
-  --accent: #bf5a36;
-  --accent2: #3a6ea8;
-  --layer-design: #3a6ea8;
-  --layer-api: #bf5a36;
-  --layer-infra: #8a6db0;
-  --layer-tasks: #a98f5e;
+  /* light-dark(light, dark): resolved by the inherited color-scheme (styles.css
+     sets it from the OS preference, or the theme toggle's data-theme). */
+  --bg: light-dark(#efe8da, #15130f);
+  --panel: light-dark(#faf6ee, #1d1a15);
+  --panel-bright: light-dark(#fffdf8, #24201a);
+  --bar: light-dark(#f3ede1, #1a1813);
+  --rail: light-dark(#f5efe3, #1b1914);
+  --ink: light-dark(#1c1a15, #ece5d6);
+  --muted: light-dark(#57514a, #b4ac9d);
+  --soft: light-dark(#6a6358, #a39b8c);
+  --faint: light-dark(#9c9488, #7f7869);
+  --hair: color-mix(in srgb, var(--ink) 10%, transparent);
+  --line: color-mix(in srgb, var(--ink) 14%, transparent);
+  --line-strong: color-mix(in srgb, var(--ink) 18%, transparent);
+  --accent: light-dark(#bf5a36, #e07a52);
+  --accent2: light-dark(#3a6ea8, #7aa5dc);
+  --layer-design: light-dark(#3a6ea8, #7aa5dc);
+  --layer-api: light-dark(#bf5a36, #e07a52);
+  --layer-infra: light-dark(#8a6db0, #a98fd0);
+  --layer-tasks: light-dark(#a98f5e, #c9ad78);
+  /* text on fills painted in --ink (dark buttons, entity headers) */
+  --on-ink: light-dark(#f1ece1, #15130f);
+  /* the closing CTA / AI bands stay dark in both themes */
+  --band: light-dark(#1c1a15, #24201a);
+  --band-edge: light-dark(transparent, rgba(236, 229, 214, 0.1));
+  /* shadows stay dark rather than inverting with --ink */
+  --shadow: light-dark(#1c1a16, #000);
+  --rule: light-dark(#b6ab97, #5a5347);
+  --swatch: light-dark(#cdbfa6, #4d473d);
+  --edge: light-dark(#b9af9c, #5f584b);
+  --check-idle: light-dark(#c2b8a4, #5a5347);
+  --ok: light-dark(#5b8c6e, #7fbf95);
+  --bad: light-dark(#b34a3a, #e8806c);
+  /* the section figures (DocsPage.tsx) */
+  --design-tint: light-dark(#e7ecf4, #1f2a3a);
+  --fig-ok: light-dark(#4a9d6b, #6cc08c);
+  --fig-ok-text: light-dark(#3f7f52, #7fcf9a);
+  --fig-bad: light-dark(#bf4636, #e8806c);
 
   --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -52,8 +72,8 @@
   position: sticky;
   top: 0;
   z-index: 50;
-  border-bottom: 1px solid rgba(28, 26, 21, 0.08);
-  background: rgba(239, 232, 218, 0.82);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -111,7 +131,7 @@
   color: var(--ink);
   text-decoration: none;
 }
-.d-btn {
+.docs .d-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -121,10 +141,10 @@
   padding: 9px 16px;
   border-radius: 4px;
   background: var(--ink);
-  color: #f1ece1;
+  color: var(--on-ink);
   transition: transform 0.18s ease;
 }
-.d-btn:hover {
+.docs .d-btn:hover {
   transform: translateY(-1px);
   text-decoration: none;
 }
@@ -351,7 +371,7 @@
   place-items: center;
   font-family: var(--mono);
   font-size: 13px;
-  color: #f1ece1;
+  color: var(--on-ink);
   background: var(--ink);
   border-radius: 50%;
 }

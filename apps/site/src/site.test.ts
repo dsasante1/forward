@@ -4,6 +4,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { pages } from "./prerender.js";
+import { THEME_KEY } from "./site.js";
 
 const repo = resolve(import.meta.dirname, "../../..");
 const CLI = join(repo, "apps/mcp/dist/cli.js");
@@ -48,6 +49,11 @@ describe.each(Object.keys(pages))("%s", (file) => {
       return m ? !docIds.has(m[1]!) : false;
     });
     expect(broken).toEqual([]);
+  });
+
+  it("restores the theme the toggle saved before first paint", () => {
+    expect(template(file)).toContain(`localStorage.getItem("${THEME_KEY}")`);
+    expect(page).toContain('class="theme-toggle"');
   });
 
   it("links only to the site's own pages, or to absolute https URLs", () => {

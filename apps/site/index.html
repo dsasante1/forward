@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        var t = localStorage.getItem("forward-theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content="Forward keeps design and backend in sync. Designers draw the interface; developers and AI agents document its API, infrastructure and data model next to it. Open source, stored as JSON in your git repository." />
     <meta property="og:title" content="Forward — Design and backend, in sync" />
