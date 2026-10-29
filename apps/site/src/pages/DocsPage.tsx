@@ -9,7 +9,7 @@ import "../docs.css";
  * page with anchor sections; a sticky sidebar drives navigation and an
  * IntersectionObserver highlights the active section.
  *
- * Same warm editorial aesthetic as the landing page (docs.css mirrors the
+ * Same mono & lime editorial aesthetic as the landing page (docs.css mirrors the
  * landing tokens). Content tracks the git-native product: the `.forward/`
  * directory, the `forward` CLI, the MCP tools and the seven data layers (see
  * the repository README and CLAUDE.md).
@@ -1840,7 +1840,7 @@ function Figure({
 
 /*
  * Hand-drawn SVG figures, one per major section. Same idiom as the landing
- * page's InfraGraph: JetBrains Mono labels, --panel-bright boxes on the warm
+ * page's InfraGraph: JetBrains Mono labels, --panel-bright boxes on the
  * rail, and the per-layer colours from docs.css. Colours are docs.css tokens so
  * the figures follow the light/dark theme; the terminal and VS Code panels are
  * dark in both.
@@ -1955,7 +1955,7 @@ function CanvasFigure() {
         <rect key={`${x}-${y}`} x={x} y={y} width="6" height="6" fill={BOX} stroke={DESIGN} />
       ))}
       <rect x="358" y="180" width="30" height="14" rx="7" fill="var(--accent)" />
-      <text x="373" y="190" textAnchor="middle" fontSize="8" fill="#fff" letterSpacing="0.06em">API</text>
+      <text x="373" y="190" textAnchor="middle" fontSize="8" fill="var(--on-accent)" letterSpacing="0.06em">API</text>
       {/* api drawer */}
       <path d="M600 40 V332" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <text x="614" y="62" fontSize="9" fill={FAINT} letterSpacing="0.14em">API DRAWER</text>
@@ -1993,8 +1993,8 @@ function BindingFigure() {
       <rect x="318" y="76" width="330" height="6" rx="3" fill="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <rect x="318" y="90" width="280" height="6" rx="3" fill="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <rect x="318" y="104" width="300" height="6" rx="3" fill="color-mix(in srgb, var(--ink) 10%, transparent)" />
-      <rect x="318" y="118" width="200" height="22" rx="4" fill="#201d18" />
-      <text x="328" y="132" fontSize="9" fill="#d98a5f">{"{ amount, currency }"}</text>
+      <rect x="318" y="118" width="200" height="22" rx="4" fill="#161616" />
+      <text x="328" y="132" fontSize="9" fill="var(--band-accent)">{"{ amount, currency }"}</text>
     </svg>
   );
 }
@@ -2025,14 +2025,14 @@ function FlowFigure() {
       {/* hops */}
       <path d="M170 54 H296" fill="none" stroke="var(--muted)" strokeWidth="1.5" markerEnd="url(#w-arr)" />
       <circle cx="233" cy="54" r="9" fill="var(--accent)" />
-      <text x="233" y="58" textAnchor="middle" fontSize="10" fill="#fff">1</text>
+      <text x="233" y="58" textAnchor="middle" fontSize="10" fill="var(--on-accent)">1</text>
       <path d="M440 62 H576" fill="none" stroke="var(--muted)" strokeWidth="1.5" markerEnd="url(#w-arr)" />
       <circle cx="508" cy="62" r="9" fill="var(--accent)" />
-      <text x="508" y="66" textAnchor="middle" fontSize="10" fill="#fff">2</text>
+      <text x="508" y="66" textAnchor="middle" fontSize="10" fill="var(--on-accent)">2</text>
       <text x="508" y="86" textAnchor="middle" fontSize="9" fill="var(--accent)">ties to POST /orders</text>
       <path d="M380 84 C400 140 480 172 576 172" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="5 4" markerEnd="url(#w-arr)" />
       <circle cx="466" cy="146" r="9" fill="var(--accent)" />
-      <text x="466" y="150" textAnchor="middle" fontSize="10" fill="#fff">3</text>
+      <text x="466" y="150" textAnchor="middle" fontSize="10" fill="var(--on-accent)">3</text>
       <path d="M300 76 H174" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="2 3" markerEnd="url(#w-arr)" />
       <circle cx="233" cy="76" r="9" fill={FAINT} />
       <text x="233" y="80" textAnchor="middle" fontSize="10" fill="#fff">4</text>
@@ -2134,44 +2134,44 @@ function VscodeFigure() {
     <svg viewBox="0 0 760 340" fontFamily={FONT} role="img" aria-label={label}>
       <title>{label}</title>
       {/* editor window */}
-      <rect x="8" y="8" width="744" height="324" rx="10" fill="#201d18" stroke="rgba(0,0,0,0.3)" />
-      <circle cx="30" cy="26" r="4.5" fill="#8f8778" opacity="0.5" />
-      <circle cx="46" cy="26" r="4.5" fill="#8f8778" opacity="0.5" />
-      <circle cx="62" cy="26" r="4.5" fill="#8f8778" opacity="0.5" />
-      <text x="380" y="30" textAnchor="middle" fontSize="10" fill="#8f8778">checkout.ts — forward-shop</text>
+      <rect x="8" y="8" width="744" height="324" rx="10" fill="#161616" stroke="rgba(0,0,0,0.3)" />
+      <circle cx="30" cy="26" r="4.5" fill="#8a8a85" opacity="0.5" />
+      <circle cx="46" cy="26" r="4.5" fill="#8a8a85" opacity="0.5" />
+      <circle cx="62" cy="26" r="4.5" fill="#8a8a85" opacity="0.5" />
+      <text x="380" y="30" textAnchor="middle" fontSize="10" fill="#8a8a85">checkout.ts — forward-shop</text>
       {/* activity bar + explorer */}
-      <path d="M52 42 V310" stroke="rgba(230,221,203,0.12)" />
+      <path d="M52 42 V310" stroke="rgba(230,230,225,0.12)" />
       {[58, 86, 114, 142].map((y) => (
-        <rect key={y} x="21" y={y} width="18" height="18" rx="4" fill="none" stroke="#8f8778" opacity="0.55" />
+        <rect key={y} x="21" y={y} width="18" height="18" rx="4" fill="none" stroke="#8a8a85" opacity="0.55" />
       ))}
       {/* code */}
       <rect x="66" y="59" width="118" height="18" rx="4" fill="color-mix(in srgb, var(--accent) 22%, transparent)" />
-      <text x="72" y="72" fontSize="11.5" fill="#d98a5f">{"// @adc el_7f3a"}</text>
-      <text x="72" y="98" fontSize="11.5" fill="#e6ddcb">
+      <text x="72" y="72" fontSize="11.5" fill="var(--band-accent)">{"// @adc el_7f3a"}</text>
+      <text x="72" y="98" fontSize="11.5" fill="#e6e6e1">
         {"router.post("}
-        <tspan fill="#d98a5f">"/api/checkout"</tspan>
+        <tspan fill="var(--band-accent)">"/api/checkout"</tspan>
         {", async (req, res) => {"}
       </text>
-      <text x="88" y="122" fontSize="11.5" fill="#e6ddcb">{"const order = await createOrder(req.body);"}</text>
-      <text x="88" y="146" fontSize="11.5" fill="#e6ddcb">
+      <text x="88" y="122" fontSize="11.5" fill="#e6e6e1">{"const order = await createOrder(req.body);"}</text>
+      <text x="88" y="146" fontSize="11.5" fill="#e6e6e1">
         {"res.status("}
-        <tspan fill="#d98a5f">201</tspan>
+        <tspan fill="var(--band-accent)">201</tspan>
         {").json(order);"}
       </text>
-      <text x="72" y="170" fontSize="11.5" fill="#e6ddcb">{"});"}</text>
+      <text x="72" y="170" fontSize="11.5" fill="#e6e6e1">{"});"}</text>
       {/* command palette */}
-      <rect x="200" y="186" width="420" height="112" rx="8" fill="#2c2822" stroke="rgba(230,221,203,0.18)" />
-      <rect x="212" y="198" width="396" height="24" rx="5" fill="#201d18" stroke="rgba(230,221,203,0.14)" />
-      <text x="222" y="214" fontSize="11" fill="#e6ddcb">&gt; forward</text>
+      <rect x="200" y="186" width="420" height="112" rx="8" fill="#222222" stroke="rgba(230,230,225,0.18)" />
+      <rect x="212" y="198" width="396" height="24" rx="5" fill="#161616" stroke="rgba(230,230,225,0.14)" />
+      <text x="222" y="214" fontSize="11" fill="#e6e6e1">&gt; forward</text>
       <rect x="212" y="228" width="396" height="20" rx="4" fill="color-mix(in srgb, var(--accent) 26%, transparent)" />
-      <text x="222" y="242" fontSize="10.5" fill="#f1ece1">Forward: Document API on Design Element</text>
-      <text x="222" y="264" fontSize="10.5" fill="#b5ac9b">Forward: Catch Up on Endpoint Changes</text>
-      <text x="222" y="284" fontSize="10.5" fill="#b5ac9b">Forward: Create Task</text>
+      <text x="222" y="242" fontSize="10.5" fill="#f0f0ec">Forward: Document API on Design Element</text>
+      <text x="222" y="264" fontSize="10.5" fill="#b0b0aa">Forward: Catch Up on Endpoint Changes</text>
+      <text x="222" y="284" fontSize="10.5" fill="#b0b0aa">Forward: Create Task</text>
       {/* status bar */}
-      <path d="M8 310 H752" stroke="rgba(230,221,203,0.12)" />
+      <path d="M8 310 H752" stroke="rgba(230,230,225,0.12)" />
       <circle cx="28" cy="321" r="3" fill={GREEN} />
-      <text x="38" y="325" fontSize="9.5" fill="#b5ac9b">Forward · shop · .forward/</text>
-      <text x="732" y="325" textAnchor="end" fontSize="9.5" fill="#8f8778">TypeScript</text>
+      <text x="38" y="325" fontSize="9.5" fill="#b0b0aa">Forward · shop · .forward/</text>
+      <text x="732" y="325" textAnchor="end" fontSize="9.5" fill="#8a8a85">TypeScript</text>
     </svg>
   );
 }
@@ -2209,24 +2209,24 @@ function McpFigure() {
       <path d="M490 66 H566" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#m-arrS)" markerEnd="url(#m-arr)" />
       <text x="528" y="56" textAnchor="middle" fontSize="9" fill={FAINT}>read / write</text>
       {/* tool-call trace */}
-      <rect x="40" y="160" width="680" height="116" rx="8" fill="#201d18" stroke="rgba(0,0,0,0.3)" />
-      <text x="58" y="184" fontSize="10.5" fill="#8f8778">{"# the agent documents what it just built "}</text>
-      <text x="58" y="206" fontSize="10.5" fill="#e6ddcb">
+      <rect x="40" y="160" width="680" height="116" rx="8" fill="#161616" stroke="rgba(0,0,0,0.3)" />
+      <text x="58" y="184" fontSize="10.5" fill="#8a8a85">{"# the agent documents what it just built "}</text>
+      <text x="58" y="206" fontSize="10.5" fill="#e6e6e1">
         {"find_element("}
-        <tspan fill="#d98a5f">"pay now button"</tspan>
+        <tspan fill="var(--band-accent)">"pay now button"</tspan>
         {")"}
-        <tspan fill="#8f8778">{"  → el_7f3a (fuzzy match)"}</tspan>
+        <tspan fill="#8a8a85">{"  → el_7f3a (fuzzy match)"}</tspan>
       </text>
-      <text x="58" y="228" fontSize="10.5" fill="#e6ddcb">
+      <text x="58" y="228" fontSize="10.5" fill="#e6e6e1">
         {"write_documentation(el_7f3a, "}
-        <tspan fill="#d98a5f">"POST /api/checkout"</tspan>
+        <tspan fill="var(--band-accent)">"POST /api/checkout"</tspan>
         {", …)"}
       </text>
-      <text x="58" y="250" fontSize="10.5" fill="#e6ddcb">
+      <text x="58" y="250" fontSize="10.5" fill="#e6e6e1">
         {"update_task(FWD-12, "}
-        <tspan fill="#d98a5f">"done"</tspan>
+        <tspan fill="var(--band-accent)">"done"</tspan>
         {")"}
-        <tspan fill="#8f8778">{"  → file changes, committed with the code"}</tspan>
+        <tspan fill="#8a8a85">{"  → file changes, committed with the code"}</tspan>
       </text>
     </svg>
   );

@@ -1,10 +1,10 @@
 <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
   <!-- Solid variant of the Forward mark (resources/forward.svg minus the inner
        cutouts): outline strokes dissolve at 16px, solid chevrons stay legible.
-       The media query lifts the terracotta for dark browser chrome. -->
+       The media query swaps to the dark theme's lime for dark browser chrome. -->
   <style>
-    path { fill: #bf5a36; }
-    @media (prefers-color-scheme: dark) { path { fill: #d98159; } }
+    path { fill: #4d7c0f; }
+    @media (prefers-color-scheme: dark) { path { fill: #b5f23d; } }
   </style>
   <path d="M4.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9z"/>
   <path d="M13.75 4.9a.75.75 0 0 1 1.2-.6l9 6.75a.75.75 0 0 1 0 1.2l-9 6.75a.75.75 0 0 1-1.2-.6V4.9z"/>

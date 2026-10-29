@@ -1,5 +1,5 @@
 /*
- * Documentation page — same warm editorial / technical aesthetic as the
+ * Documentation page — same mono & lime editorial / technical aesthetic as the
  * landing surface, but laid out as a docs shell (sticky sidebar + content).
  * Everything is scoped under `.docs` so the signed-in app keeps styles.css.
  * Tokens mirror landing.css (they're scoped under `.landing`, so we re-declare
@@ -9,39 +9,45 @@
 .docs {
   /* light-dark(light, dark): resolved by the inherited color-scheme (styles.css
      sets it from the OS preference, or the theme toggle's data-theme). */
-  --bg: light-dark(#efe8da, #15130f);
-  --panel: light-dark(#faf6ee, #1d1a15);
-  --panel-bright: light-dark(#fffdf8, #24201a);
-  --bar: light-dark(#f3ede1, #1a1813);
-  --rail: light-dark(#f5efe3, #1b1914);
-  --ink: light-dark(#1c1a15, #ece5d6);
-  --muted: light-dark(#57514a, #b4ac9d);
-  --soft: light-dark(#6a6358, #a39b8c);
-  --faint: light-dark(#9c9488, #7f7869);
+  --bg: light-dark(#f5f5f2, #0a0a0a);
+  --panel: light-dark(#fbfbf9, #121212);
+  --panel-bright: light-dark(#ffffff, #181818);
+  --bar: light-dark(#f8f8f6, #0e0e0e);
+  --rail: light-dark(#f9f9f7, #0f0f0f);
+  --ink: light-dark(#111111, #f0f0ec);
+  --muted: light-dark(#4f4f4c, #b0b0aa);
+  --soft: light-dark(#696965, #969690);
+  --faint: light-dark(#8f8f8a, #6e6e6a);
   --hair: color-mix(in srgb, var(--ink) 10%, transparent);
   --line: color-mix(in srgb, var(--ink) 14%, transparent);
   --line-strong: color-mix(in srgb, var(--ink) 18%, transparent);
-  --accent: light-dark(#bf5a36, #e07a52);
-  --accent2: light-dark(#3a6ea8, #7aa5dc);
-  --layer-design: light-dark(#3a6ea8, #7aa5dc);
-  --layer-api: light-dark(#bf5a36, #e07a52);
-  --layer-infra: light-dark(#8a6db0, #a98fd0);
-  --layer-tasks: light-dark(#a98f5e, #c9ad78);
+  --accent: light-dark(#4d7c0f, #b5f23d);
+  --accent2: light-dark(#3b5bdb, #7c9bff);
+  --layer-design: light-dark(#3b5bdb, #7c9bff);
+  --layer-api: light-dark(#4d7c0f, #b5f23d);
+  --layer-infra: light-dark(#9c4fd6, #c69cf5);
+  --layer-tasks: light-dark(#b06f17, #e8a64c);
   /* text on fills painted in --ink (dark buttons, entity headers) */
-  --on-ink: light-dark(#f1ece1, #15130f);
+  --on-ink: light-dark(#ffffff, #0a0a0a);
+  /* text on fills painted in --accent (and the layer colours): lime needs dark text */
+  --on-accent: light-dark(#ffffff, #0a0a0a);
   /* the closing CTA / AI bands stay dark in both themes */
-  --band: light-dark(#1c1a15, #24201a);
-  --band-edge: light-dark(transparent, rgba(236, 229, 214, 0.1));
+  --band: light-dark(#111111, #181818);
+  --band-edge: light-dark(transparent, rgba(240, 240, 236, 0.1));
+  --band-text: #f0f0ec;
+  --band-muted: #b0b0aa;
+  --band-faint: #8f8f8a;
+  --band-accent: #b5f23d;
   /* shadows stay dark rather than inverting with --ink */
-  --shadow: light-dark(#1c1a16, #000);
-  --rule: light-dark(#b6ab97, #5a5347);
-  --swatch: light-dark(#cdbfa6, #4d473d);
-  --edge: light-dark(#b9af9c, #5f584b);
-  --check-idle: light-dark(#c2b8a4, #5a5347);
+  --shadow: light-dark(#111111, #000);
+  --rule: light-dark(#b5b5b3, #4a4a49);
+  --swatch: light-dark(#c7c7c5, #383837);
+  --edge: light-dark(#babab7, #464645);
+  --check-idle: light-dark(#bebebc, #414140);
   --ok: light-dark(#5b8c6e, #7fbf95);
   --bad: light-dark(#b34a3a, #e8806c);
   /* the section figures (DocsPage.tsx) */
-  --design-tint: light-dark(#e7ecf4, #1f2a3a);
+  --design-tint: light-dark(#e7ebfb, #242834);
   --fig-ok: light-dark(#4a9d6b, #6cc08c);
   --fig-ok-text: light-dark(#3f7f52, #7fcf9a);
   --fig-bad: light-dark(#bf4636, #e8806c);
@@ -57,7 +63,7 @@
   -webkit-font-smoothing: antialiased;
 }
 .docs ::selection {
-  background: rgba(191, 90, 54, 0.22);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 .docs a {
   color: var(--accent);
@@ -306,7 +312,7 @@
 }
 .d-pre {
   margin: 0 0 18px;
-  background: #201d18;
+  background: #161616;
   border: 1px solid rgba(0, 0, 0, 0.3);
   border-radius: 8px;
   padding: 16px 18px;
@@ -316,14 +322,14 @@
   font-family: var(--mono);
   font-size: 13px;
   line-height: 1.65;
-  color: #e6ddcb;
+  color: #e6e6e1;
   white-space: pre;
 }
 .d-pre .c {
-  color: #8f8778;
+  color: #8a8a85;
 }
 .d-pre .t {
-  color: #d98a5f;
+  color: var(--band-accent);
 }
 
 /* callout */
