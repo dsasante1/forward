@@ -129,6 +129,9 @@ export interface MountOptions {
 /** Handle from mountCanvas; `destroy` stops polling and removes global listeners. */
 export interface CanvasHandle {
   destroy: () => void;
+  /** Open the task tracker in `mode` — a host's "show the task timeline"
+   * command. A no-op when the source can't list tasks. */
+  showTasks: (mode: TasksMode) => void;
 }
 
 // --- instance state ------------------------------------------------------
@@ -238,7 +241,15 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   subscribeAll();
   console.info("[canvas] mounted");
 
-  return { destroy };
+  return { destroy, showTasks: openTasks };
+}
+
+/** Open the task tracker in `mode`, staying in it if it is already open. */
+function openTasks(mode: TasksMode): void {
+  if (!source.subscribeTasks) return;
+  taskMode = mode;
+  if (view === "tasks") renderTasksPanel();
+  else setView("tasks");
 }
 
 /** Render the breadcrumb as `forward / <project> / canvas`; the project segment

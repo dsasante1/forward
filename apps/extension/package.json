@@ -130,6 +130,21 @@
         "category": "Forward"
       },
       {
+        "command": "forward.updateTask",
+        "title": "Update Task (Schedule, Dependencies, Priority…)",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.showTaskTimeline",
+        "title": "Show Task Timeline (Gantt)",
+        "category": "Forward"
+      },
+      {
+        "command": "forward.validate",
+        "title": "Validate Project",
+        "category": "Forward"
+      },
+      {
         "command": "forward.showHistory",
         "title": "Show Endpoint Documentation History",
         "category": "Forward"

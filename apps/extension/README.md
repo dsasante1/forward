@@ -20,10 +20,20 @@ From inside VS Code you can:
 - **Flows & sequence diagrams** — narrate ordered hops across your
   infrastructure; they render as a Mermaid sequence diagram. A step can carry an
   optional branch guard — steps sharing one condition render as an `alt`/`else`.
-- **Tasks** — file tasks and update their status, optionally linked to an
-  element, flow or endpoint.
-- **Open Design Canvas** — view the live design with your API docs and diagrams
-  overlaid, right inside VS Code.
+- **Tasks** — file tasks with an optional start date, due date (`YYYY-MM-DD`),
+  type (a milestone is a single date) and the tasks they depend on, optionally
+  linked to a design element (picked up from an `@adc` anchor under the
+  cursor). **Update Task** changes the schedule, dependencies, priority or type;
+  **Update Task Status** is the quick "mark done".
+- **Task timeline** — **Show Task Timeline** opens the canvas on a Gantt view
+  of the tasks: bars from start to due date, milestones, and dependency arrows.
+- **Validate** — the same checks as `forward validate` in CI (bad files,
+  broken links, non-ISO due dates, dependency cycles) show in the Problems
+  panel and update as `.forward/` changes. **Validate Project** runs them on
+  demand.
+- **Open Design Canvas** — the full canvas editor (design, API docs, infra,
+  flows, data model, tasks, checkpoints) right inside VS Code. It refreshes when
+  `.forward/` changes, whether you, a teammate's pull or an AI agent changed it.
 - **Endpoint timeline** — the canvas's **Timeline** button opens a git-graph of
   every endpoint's created/modified/deleted history, plus a catch-up digest of
   what to integrate, modify or remove since a chosen baseline.

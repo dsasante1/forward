@@ -8,6 +8,7 @@
  */
 export { mountCanvas } from "./canvas.js";
 export type { MountOptions, CanvasHandle } from "./canvas.js";
+export type { TasksMode } from "./tasks-view.js";
 export { ServerSource } from "./server-source.js";
 export type { TokenProvider } from "./server-source.js";
 // Read-only source over an exported project bundle (GitHub Pages viewer).

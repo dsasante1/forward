@@ -5,6 +5,7 @@ import {
   type ElementSnapshot,
   type EntitySnapshot,
   type InfraSnapshot,
+  type TasksMode,
   mountCanvas,
 } from "forward-canvas/embed";
 import type {
@@ -31,11 +32,12 @@ import type { RosterMember } from "forward-core/api";
  * the canvas `forward serve` opens, and stay in sync automatically.
  *
  * The canvas drives a `CanvasSource`; here that source is a thin RPC bridge over
- * `postMessage`. The extension host runs the actual backend client (a
- * `ServerSource`) and answers the bridge's subscription + mutation calls, so the
- * access token never enters the webview and the CSP can forbid direct network
- * access. Reads flow host → webview as `snap` messages; writes flow webview →
- * host as `rpc` calls that resolve a Promise when the host replies.
+ * `postMessage`. The extension host reads and writes the workspace's `.forward/`
+ * files and answers the bridge's subscription + mutation calls, so the webview
+ * needs no file or network access and the CSP can forbid it. Reads flow host →
+ * webview as `snap` messages; writes flow webview → host as `rpc` calls that
+ * resolve a Promise when the host replies. The host's "show task timeline"
+ * command arrives as a `show-tasks` message.
  */
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void };
@@ -53,11 +55,17 @@ interface Snapshot {
   channel: string;
   data: unknown;
 }
-type HostMessage = RpcResult | Snapshot;
+interface ShowTasks {
+  kind: "show-tasks";
+  mode: TasksMode;
+}
+type HostMessage = RpcResult | Snapshot | ShowTasks;
 
 interface FwdConfig {
   projectId: string | null;
   projectName: string | null;
+  /** Open on the task tracker in this layout (the "show task timeline" command). */
+  tasksMode?: TasksMode | null;
 }
 declare global {
   interface Window {
@@ -82,6 +90,8 @@ window.addEventListener("message", (e: MessageEvent) => {
     else p.reject(new Error(msg.error ?? "Request failed"));
   } else if (msg?.kind === "snap") {
     channels.get(msg.channel)?.(msg.data);
+  } else if (msg?.kind === "show-tasks") {
+    handle?.showTasks(msg.mode);
   }
 });
 
@@ -219,6 +229,7 @@ try {
     projectId: config.projectId,
     projectName: config.projectName,
   });
+  if (config.tasksMode) handle.showTasks(config.tasksMode);
 } catch (err) {
   container.textContent = `Failed to mount the canvas: ${(err as Error).message}`;
 }

@@ -7,7 +7,11 @@ import {
   McpOrigin,
   McpServerNode,
   McpTransport,
+  PRIORITY_LABELS,
+  TYPE_LABELS,
+  TaskPriority,
   TaskStatus,
+  TaskType,
   applyTaskChange,
   digest,
   flattenTimelines,
@@ -25,6 +29,7 @@ import {
   type InfraNode,
   type InfraStepKind,
   type Task,
+  type TaskPatch,
   type TimelineEvent,
 } from "forward-core";
 import {
@@ -63,11 +68,33 @@ import {
   unbindApiFromElement,
   type ApiConfig,
 } from "forward-core/api";
-import { RepoStore, findRepoRoot, initRepo, repoConfig } from "forward-core/repo";
+import {
+  FORWARD_DIR,
+  RepoStore,
+  findRepoRoot,
+  initRepo,
+  repoConfig,
+  resolveAuthor,
+  validateRepo,
+} from "forward-core/repo";
 import { registerActionsView } from "./actionsView.js";
 import { commentFor } from "./comment.js";
+import { createRefresher } from "./refresher.js";
+import {
+  cycleWith,
+  dayError,
+  dueDateError,
+  startDateError,
+  taskName,
+  taskPickItem,
+} from "./task-fields.js";
 
-const POLL_MS = 1000; // cadence each subscribed channel polls while visible
+// The canvas refreshes when `.forward/` or git's HEAD changes. The slow poll is a
+// backstop for what a watcher can miss: a linked worktree (whose `.git` is a
+// file), a network drive, or an OS out of watch handles.
+const REFRESH_DEBOUNCE_MS = 100;
+const FALLBACK_POLL_MS = 15_000;
+const VALIDATE_DEBOUNCE_MS = 500;
 
 export function activate(context: vscode.ExtensionContext): void {
   registerActionsView(context);
@@ -108,11 +135,17 @@ export function activate(context: vscode.ExtensionContext): void {
       "forward.updateTaskStatus",
       updateTaskStatus,
     ),
+    vscode.commands.registerCommand("forward.updateTask", updateTask),
+    vscode.commands.registerCommand("forward.showTaskTimeline", () =>
+      showTaskTimeline(context),
+    ),
+    vscode.commands.registerCommand("forward.validate", () => validateProject(true)),
     vscode.commands.registerCommand("forward.showHistory", showHistory),
     vscode.commands.registerCommand("forward.catchUp", catchUp),
     vscode.commands.registerCommand("forward.setupMcp", setupMcp),
     vscode.commands.registerCommand("forward.initRepo", initRepoCommand),
   );
+  watchValidation(context);
 
   // Opt-in: open the canvas at startup, but only when it's actually configured
   // so we never throw a "set your config" toast on every launch.
@@ -150,6 +183,7 @@ async function initRepoCommand(): Promise<void> {
   }
   const { created, manifest } = initRepo(folder.uri.fsPath);
   repoConfigs.clear();
+  validateProject();
   vscode.window.showInformationMessage(
     created
       ? `Created .forward/ for “${manifest.name}”. Commit it with your code; run “npx -y -p forward-mcp forward agents” to wire up AI agents.`
@@ -183,6 +217,101 @@ async function readConfig(): Promise<ApiConfig | undefined> {
     repoConfigs.set(repo, cfg);
   }
   return cfg;
+}
+
+/**
+ * Run a read a command depends on. The project is read in-process, so a failure
+ * is real (an unreadable manifest, a permissions error), never "offline": show it
+ * and return undefined so the caller stops, rather than reporting an empty project.
+ */
+async function load<T>(what: string, read: () => Promise<T>): Promise<T | undefined> {
+  try {
+    return await read();
+  } catch (err) {
+    vscode.window.showErrorMessage(`Forward: couldn't read ${what}: ${(err as Error).message}`);
+    return undefined;
+  }
+}
+
+/**
+ * Who is writing: the identity the store stamps on every write (`$FORWARD_AUTHOR`,
+ * then git `user.name`, then the OS user). A task's activity feed credits it; a
+ * history entry's `author` is re-stamped by the store regardless.
+ */
+function currentAuthor(): string {
+  const root = activeRepoRoot();
+  return root ? resolveAuthor(root) : "unknown";
+}
+
+// ==========================================================================
+// Validation — `forward validate` in the Problems panel, so what CI would flag
+// (bad files, dangling links, non-ISO due dates, dependency cycles) shows up
+// while editing.
+// ==========================================================================
+
+const diagnostics = vscode.languages.createDiagnosticCollection("forward");
+
+/**
+ * Validate the project into the Problems panel. `report` (the command) also says
+ * what it found and opens the panel; the background run on file changes is silent.
+ */
+function validateProject(report = false): void {
+  const root = activeRepoRoot();
+  diagnostics.clear();
+  if (!root) {
+    if (report) void readConfig(); // offers to initialize
+    return;
+  }
+  let issues: ReturnType<typeof validateRepo>;
+  try {
+    issues = validateRepo(root);
+  } catch (err) {
+    if (report) vscode.window.showErrorMessage(`Forward: validation failed: ${(err as Error).message}`);
+    return;
+  }
+  const byFile = new Map<string, vscode.Diagnostic[]>();
+  for (const issue of issues) {
+    const d = new vscode.Diagnostic(
+      new vscode.Range(0, 0, 0, 0),
+      issue.message,
+      issue.level === "error" ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning,
+    );
+    d.source = "forward";
+    const list = byFile.get(issue.file) ?? [];
+    list.push(d);
+    byFile.set(issue.file, list);
+  }
+  for (const [file, list] of byFile) {
+    diagnostics.set(vscode.Uri.joinPath(vscode.Uri.file(root), file), list);
+  }
+  if (!report) return;
+  const errors = issues.filter((i) => i.level === "error").length;
+  const warnings = issues.length - errors;
+  if (!issues.length) {
+    vscode.window.showInformationMessage("Forward: the project is valid.");
+    return;
+  }
+  vscode.window.showWarningMessage(
+    `Forward: ${errors} error${errors === 1 ? "" : "s"}, ${warnings} warning${warnings === 1 ? "" : "s"}` +
+      (errors ? " — CI's forward validate will fail." : " — CI fails these only with --strict."),
+  );
+  void vscode.commands.executeCommand("workbench.actions.view.problems");
+}
+
+/** Validate on activation, then again whenever a `.forward/` file changes. */
+function watchValidation(context: vscode.ExtensionContext): void {
+  context.subscriptions.push(diagnostics);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => validateProject(), VALIDATE_DEBOUNCE_MS);
+  };
+  const watcher = vscode.workspace.createFileSystemWatcher(`**/${FORWARD_DIR}/**`);
+  watcher.onDidCreate(schedule);
+  watcher.onDidChange(schedule);
+  watcher.onDidDelete(schedule);
+  context.subscriptions.push(watcher, { dispose: () => timer && clearTimeout(timer) });
+  validateProject();
 }
 
 /**
@@ -280,7 +409,7 @@ async function documentElement(
   try {
     await bindApiToElement(cfg, elementId, binding, {
       version: new Date().toISOString(),
-      author: process.env.USER ?? "unknown",
+      author: currentAuthor(),
       action: existing ? "modified" : "created",
       changeLog,
       ...(breaking ? { breaking } : {}),
@@ -289,49 +418,7 @@ async function documentElement(
       `Documented ${elementId}: ${binding.title}`,
     );
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
-  }
-}
-
-/**
- * Persist the free-form documentation the developer typed into the canvas inline
- * form. This is the no-prompt path: a single block of text arrives, and we turn
- * it into a binding — the first line becomes the label (`title`) and the rest is
- * the Markdown body (`description`). The change-log entry is generated
- * automatically — add vs. update is inferred from whether the element already
- * carried a binding.
- */
-async function saveDocumentation(
-  cfg: ApiConfig,
-  elementId: string,
-  text: string,
-): Promise<void> {
-  const trimmed = text.trim();
-  if (!trimmed) return; // the form validates this, but guard the host too.
-
-  const newline = trimmed.indexOf("\n");
-  const title = (newline === -1 ? trimmed : trimmed.slice(0, newline)).trim();
-  const description = newline === -1 ? "" : trimmed.slice(newline + 1).trim();
-  const binding: ApiBinding = { title, description };
-
-  let existed = false;
-  try {
-    existed = !!(await fetchElements(cfg)).find((el) => el.id === elementId)
-      ?.apiBinding;
-  } catch {
-    /* offline / unreachable — fall back to "Add" wording */
-  }
-
-  try {
-    await bindApiToElement(cfg, elementId, binding, {
-      version: new Date().toISOString(),
-      author: process.env.USER ?? "unknown",
-      action: existed ? "modified" : "created",
-      changeLog: existed ? "Update API documentation" : "Add API documentation",
-    });
-    vscode.window.showInformationMessage(`Documented ${elementId}: ${binding.title}`);
-  } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -340,14 +427,11 @@ async function removeDocumentationCommand(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let documented: Array<{ id: string; title: string }> = [];
-  try {
-    documented = (await fetchElements(cfg))
-      .filter((el) => el.apiBinding)
-      .map((el) => ({ id: el.id, title: el.apiBinding?.title ?? el.id }));
-  } catch {
-    /* offline / unreachable */
-  }
+  const elements = await load("the design elements", () => fetchElements(cfg));
+  if (!elements) return;
+  const documented = elements
+    .filter((el) => el.apiBinding)
+    .map((el) => ({ id: el.id, title: el.apiBinding?.title ?? el.id }));
   if (!documented.length) {
     vscode.window.showWarningMessage("No documented elements to remove.");
     return;
@@ -377,7 +461,7 @@ async function removeDocumentation(
   try {
     await unbindApiFromElement(cfg, elementId, {
       version: new Date().toISOString(),
-      author: process.env.USER ?? "unknown",
+      author: currentAuthor(),
       action: "deleted",
       ...(title ? { endpoint: { title } } : {}),
       changeLog: "Removed API documentation",
@@ -419,7 +503,7 @@ async function gatherDocumentation(
 
 // ==========================================================================
 // Infrastructure layer (pillar 3) — project-scoped architecture diagram.
-// Authored entirely from the palette; both canvases render it read-only.
+// Authored from the palette here, or on the canvas's Infra view.
 // ==========================================================================
 
 /**
@@ -460,7 +544,7 @@ async function addInfraNode(): Promise<void> {
   try {
     existing = (await fetchInfra(cfg)).nodes.length;
   } catch {
-    /* offline / unreachable — fall back to the first slot */
+    /* only the tiling slot is lost; the save below reports a real problem */
   }
   const node: InfraNode = {
     id: `infra_${Date.now().toString(36)}`,
@@ -480,7 +564,7 @@ async function addInfraNode(): Promise<void> {
     await saveInfraNode(cfg, node);
     vscode.window.showInformationMessage(`Added infra node: ${node.label}`);
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -520,7 +604,7 @@ async function addMcpServer(): Promise<void> {
   try {
     existing = (await fetchAgents(cfg)).servers.length;
   } catch {
-    /* offline — fall back to the first slot */
+    /* only the tiling slot is lost; the save below reports a real problem */
   }
   const server = McpServerNode.parse({
     id: `mcp_${Date.now().toString(36)}`,
@@ -538,7 +622,7 @@ async function addMcpServer(): Promise<void> {
     await saveMcpServer(cfg, server);
     vscode.window.showInformationMessage(`Added MCP server: ${server.label}`);
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -574,7 +658,7 @@ async function addAgent(): Promise<void> {
   try {
     existing = (await fetchAgents(cfg)).agents.length;
   } catch {
-    /* offline — fall back to the first slot */
+    /* only the tiling slot is lost; the save below reports a real problem */
   }
   const agent = AgentNode.parse({
     id: `agent_${Date.now().toString(36)}`,
@@ -591,7 +675,7 @@ async function addAgent(): Promise<void> {
     await saveAgentNode(cfg, agent);
     vscode.window.showInformationMessage(`Added agent: ${agent.label}`);
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -604,12 +688,8 @@ async function removeMcpServer(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let servers: McpServerNode[] = [];
-  try {
-    servers = (await fetchAgents(cfg)).servers;
-  } catch {
-    /* offline / unreachable */
-  }
+  const servers = await load("the MCP servers", async () => (await fetchAgents(cfg)).servers);
+  if (!servers) return;
   if (!servers.length) {
     vscode.window.showWarningMessage("No MCP servers to remove.");
     return;
@@ -641,12 +721,8 @@ async function removeAgent(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let agents: AgentNode[] = [];
-  try {
-    agents = (await fetchAgents(cfg)).agents;
-  } catch {
-    /* offline / unreachable */
-  }
+  const agents = await load("the agents", async () => (await fetchAgents(cfg)).agents);
+  if (!agents) return;
   if (!agents.length) {
     vscode.window.showWarningMessage("No agents to remove.");
     return;
@@ -682,12 +758,8 @@ async function linkInfraNodes(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let nodes: InfraNode[] = [];
-  try {
-    nodes = (await fetchInfra(cfg)).nodes;
-  } catch {
-    /* offline / unreachable */
-  }
+  const nodes = await load("the infrastructure", async () => (await fetchInfra(cfg)).nodes);
+  if (!nodes) return;
   if (nodes.length < 2) {
     vscode.window.showWarningMessage(
       "Add at least two infra nodes before linking them.",
@@ -729,7 +801,7 @@ async function linkInfraNodes(): Promise<void> {
       `Linked ${from.label} → ${to.label}`,
     );
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -738,12 +810,8 @@ async function removeInfraNode(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let nodes: InfraNode[] = [];
-  try {
-    nodes = (await fetchInfra(cfg)).nodes;
-  } catch {
-    /* offline / unreachable */
-  }
+  const nodes = await load("the infrastructure", async () => (await fetchInfra(cfg)).nodes);
+  if (!nodes) return;
   if (!nodes.length) {
     vscode.window.showWarningMessage("No infra nodes to remove.");
     return;
@@ -772,8 +840,8 @@ async function removeInfraNode(): Promise<void> {
 
 // ==========================================================================
 // Narrated flows (pillar 3b) — sequence diagrams authored from the palette.
-// A flow walks existing infra nodes, so add the nodes first; both canvases and
-// the Flows view render the result read-only. Mirrors the MCP write_flow /
+// A flow walks existing infra nodes, so add the nodes first; the canvas's Flows
+// view renders and edits the result too. Mirrors the MCP write_flow /
 // add_flow_step / remove_flow tools so the surfaces stay at parity.
 // ==========================================================================
 
@@ -836,12 +904,8 @@ async function addFlow(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let nodes: InfraNode[] = [];
-  try {
-    nodes = (await fetchInfra(cfg)).nodes;
-  } catch {
-    /* offline / unreachable */
-  }
+  const nodes = await load("the infrastructure", async () => (await fetchInfra(cfg)).nodes);
+  if (!nodes) return;
   if (!nodes.length) {
     vscode.window.showWarningMessage(
       "Add at least one infra node before authoring a flow.",
@@ -888,7 +952,7 @@ async function addFlow(): Promise<void> {
       `Added flow "${flow.name}" (${steps.length} step${steps.length === 1 ? "" : "s"}).`,
     );
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -897,14 +961,10 @@ async function addFlowStep(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let flows: InfraFlow[] = [];
-  let nodes: InfraNode[] = [];
-  try {
-    flows = await fetchFlows(cfg);
-    nodes = (await fetchInfra(cfg)).nodes;
-  } catch {
-    /* offline / unreachable */
-  }
+  const flows = await load("the flows", () => fetchFlows(cfg));
+  if (!flows) return;
+  const nodes = await load("the infrastructure", async () => (await fetchInfra(cfg)).nodes);
+  if (!nodes) return;
   if (!flows.length) {
     vscode.window.showWarningMessage(
       'No flows yet — create one with "Forward: Add Flow".',
@@ -942,7 +1002,7 @@ async function addFlowStep(): Promise<void> {
       `Added step to "${flow.name}" (${next.steps.length} total).`,
     );
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
   }
 }
 
@@ -951,12 +1011,8 @@ async function removeFlow(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let flows: InfraFlow[] = [];
-  try {
-    flows = await fetchFlows(cfg);
-  } catch {
-    /* offline / unreachable */
-  }
+  const flows = await load("the flows", () => fetchFlows(cfg));
+  if (!flows) return;
   if (!flows.length) {
     vscode.window.showWarningMessage("No flows to remove.");
     return;
@@ -989,8 +1045,9 @@ async function removeFlow(): Promise<void> {
 
 // ==========================================================================
 // Task tracker (pillar 4) — project-scoped work items that optionally link to
-// the design element the dev is documenting. Mirrors the MCP create_task /
-// update_task tools so the surfaces stay at parity.
+// the design element the dev is documenting, with optional start/due dates and
+// dependencies that the canvas draws as a timeline (Gantt). Mirrors the MCP
+// create_task / update_task tools so the surfaces stay at parity.
 // ==========================================================================
 
 // `@adc <elementId>` source marker — the same anchor the MCP server resolves.
@@ -1020,27 +1077,88 @@ const STATUS_PICKS: (vscode.QuickPickItem & { status: TaskStatus })[] = [
   { label: "done", description: "Complete", status: "done" },
 ];
 
-// The extension is a trusted admin client with no per-user identity; activity it
-// writes to a task's feed is attributed to "extension".
-const TASK_ACTOR = "extension";
-
-/** Read the project's tasks, swallowing offline errors into an empty list. */
-async function safeFetchTasks(cfg: ApiConfig): Promise<Task[]> {
-  try {
-    return await fetchTasks(cfg);
-  } catch {
-    return [];
-  }
+/** Quick-pick rows for an enum with `first` on top, so Enter keeps it. */
+function enumPicks<T extends string>(
+  values: readonly T[],
+  labels: Record<T, string>,
+  first: T,
+  firstNote: string,
+): (vscode.QuickPickItem & { value: T })[] {
+  return [first, ...values.filter((v) => v !== first)].map((value) => ({
+    label: labels[value],
+    ...(value === first ? { description: firstNote } : {}),
+    value,
+  }));
 }
 
 /**
- * File a new task. Title is mandatory; everything else optional. The task can be
- * linked to a design element — pre-selected from an `@adc` anchor under the
- * cursor when present, otherwise picked from the canvas elements.
+ * Ask for an optional ISO date. Returns "" when left empty (skip, or clear on an
+ * update) and undefined when escaped.
+ */
+function askDay(
+  prompt: string,
+  value: string | undefined,
+  validateInput: (v: string) => string | undefined,
+): Thenable<string | undefined> {
+  return vscode.window.showInputBox({
+    prompt,
+    placeHolder: "YYYY-MM-DD — leave empty for none",
+    value: value ?? "",
+    validateInput,
+  });
+}
+
+/**
+ * Multi-pick the tasks one waits on. Returns undefined when escaped. Ids that no
+ * longer match a task (a soft link to a deleted one) can't be shown, so they are
+ * kept rather than silently dropped; `forward validate` reports them.
+ */
+async function askDependsOn(
+  tasks: Task[],
+  selfId: string | undefined,
+  current: string[],
+): Promise<string[] | undefined> {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const others = tasks.filter((t) => t.id !== selfId);
+  if (!others.length) return current;
+  const picks = await vscode.window.showQuickPick(
+    others.map((t) => ({ ...taskPickItem(t, byId), id: t.id, picked: current.includes(t.id) })),
+    {
+      canPickMany: true,
+      placeHolder: "Depends on which tasks? (optional — pick none to skip)",
+      matchOnDescription: true,
+    },
+  );
+  if (!picks) return undefined;
+  return [...picks.map((p) => p.id), ...current.filter((id) => !byId.has(id))];
+}
+
+/** Quick-pick a task. Returns undefined when there are none or the user escapes. */
+async function pickTask(tasks: Task[], placeHolder: string): Promise<Task | undefined> {
+  if (!tasks.length) {
+    vscode.window.showWarningMessage('No tasks yet — create one with "Forward: Create Task".');
+    return undefined;
+  }
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const choice = await vscode.window.showQuickPick(
+    tasks.map((t) => ({ ...taskPickItem(t, byId), id: t.id })),
+    { placeHolder, matchOnDescription: true, matchOnDetail: true },
+  );
+  return choice && byId.get(choice.id);
+}
+
+/**
+ * File a new task. Title is mandatory; everything else optional — Enter keeps
+ * each default, an empty date skips it. The task can be linked to a design
+ * element — pre-selected from an `@adc` anchor under the cursor when present,
+ * otherwise picked from the canvas elements.
  */
 async function createTask(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
+  // Read first: the dependency picker lists them, and the new key follows theirs.
+  const existing = await load("the tasks", () => fetchTasks(cfg));
+  if (!existing) return;
 
   const title = await vscode.window.showInputBox({
     prompt: "Task title (required)",
@@ -1055,16 +1173,48 @@ async function createTask(): Promise<void> {
   });
   if (description === undefined) return;
 
+  const typePick = await vscode.window.showQuickPick(
+    enumPicks(TaskType.options, TYPE_LABELS, "task", "default"),
+    { placeHolder: "Type — a milestone is a single date on the timeline" },
+  );
+  if (!typePick) return;
+  const milestone = typePick.value === "milestone";
+
   const statusPick = await vscode.window.showQuickPick(STATUS_PICKS, {
     placeHolder: "Status",
   });
   if (!statusPick) return;
 
+  const priorityPick = await vscode.window.showQuickPick(
+    enumPicks(TaskPriority.options, PRIORITY_LABELS, "medium", "default"),
+    { placeHolder: "Priority" },
+  );
+  if (!priorityPick) return;
+
+  // A milestone is one date, stored as its due date; a span gets start and due.
+  let startDate = "";
+  if (!milestone) {
+    const start = await askDay("Start date (optional — defaults to today on the timeline)", "", dayError);
+    if (start === undefined) return;
+    startDate = start.trim();
+  }
+  const due = await askDay(
+    milestone ? "Milestone date (optional)" : "Due date (optional)",
+    "",
+    (v) => dueDateError(v, startDate || undefined),
+  );
+  if (due === undefined) return;
+  const dueDate = due.trim();
+
+  const dependsOn = await askDependsOn(existing, undefined, []);
+  if (!dependsOn) return;
+
   // Optionally link the task to a design element. Default to the anchored id
   // (from an `@adc` marker under the cursor) when there is one.
   let elementId = anchoredElementId();
   if (!elementId) {
-    const elements = await safeListElements(cfg);
+    const elements = await load("the design elements", () => listElements(cfg));
+    if (!elements) return;
     if (elements.length) {
       const items: Array<vscode.QuickPickItem & { id?: string }> = [
         { label: "— no design element —", id: undefined },
@@ -1088,22 +1238,40 @@ async function createTask(): Promise<void> {
     );
   }
 
-  // Read existing tasks so the new one gets the next FWD-NN key.
-  const existing = await safeFetchTasks(cfg);
   const task = newTask(
     {
       title: title.trim(),
       description,
+      type: typePick.value,
       status: statusPick.status,
+      priority: priorityPick.value,
+      ...(startDate ? { startDate } : {}),
+      ...(dueDate ? { dueDate } : {}),
+      ...(dependsOn.length ? { dependsOn } : {}),
       ...(elementId ? { elementId } : {}),
     },
-    { actor: TASK_ACTOR, existingKeys: existing.map((t) => t.key) },
+    { actor: currentAuthor(), existingKeys: existing.map((t) => t.key) },
   );
   try {
     await saveTask(cfg, task);
-    vscode.window.showInformationMessage(`Created task: ${task.title}`);
+    vscode.window.showInformationMessage(`Created task ${taskName(task)}: ${task.title}`);
   } catch (err) {
-    vscode.window.showErrorMessage(`Push failed: ${(err as Error).message}`);
+    vscode.window.showErrorMessage(`Save failed: ${(err as Error).message}`);
+  }
+}
+
+/** Save a changed task through the shared helper, so its activity feed records it. */
+async function saveTaskChange(
+  cfg: ApiConfig,
+  prev: Task,
+  patch: TaskPatch,
+  done: string,
+): Promise<void> {
+  try {
+    await saveTask(cfg, applyTaskChange(prev, patch, currentAuthor()));
+    vscode.window.showInformationMessage(`${taskName(prev)}: ${done}`);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Update failed: ${(err as Error).message}`);
   }
 }
 
@@ -1112,48 +1280,117 @@ async function updateTaskStatus(): Promise<void> {
   const cfg = await readConfig();
   if (!cfg) return;
 
-  let tasks: Task[] = [];
-  try {
-    tasks = await fetchTasks(cfg);
-  } catch {
-    /* offline / unreachable */
-  }
-  if (!tasks.length) {
-    vscode.window.showWarningMessage(
-      'No tasks yet — create one with "Forward: Create Task".',
-    );
-    return;
-  }
-
-  const choice = await vscode.window.showQuickPick(
-    tasks.map((t) => ({
-      label: t.title,
-      description: t.status,
-      detail: t.elementId ? `linked to ${t.elementId}` : undefined,
-      id: t.id,
-    })),
-    { placeHolder: "Update which task?" },
-  );
-  if (!choice) return;
+  const tasks = await load("the tasks", () => fetchTasks(cfg));
+  if (!tasks) return;
+  const prev = await pickTask(tasks, "Update which task?");
+  if (!prev) return;
 
   const statusPick = await vscode.window.showQuickPick(STATUS_PICKS, {
     placeHolder: "New status",
   });
   if (!statusPick) return;
+  await saveTaskChange(cfg, prev, { status: statusPick.status }, `status → ${statusPick.status}`);
+}
 
-  const prev = tasks.find((t) => t.id === choice.id);
+type TaskField = "status" | "startDate" | "dueDate" | "dependsOn" | "priority" | "type";
+
+/**
+ * Pick a task, then one field to change: status, schedule (start/due), the tasks
+ * it depends on, priority or type. Mirrors the MCP update_task tool.
+ */
+async function updateTask(): Promise<void> {
+  const cfg = await readConfig();
+  if (!cfg) return;
+
+  const tasks = await load("the tasks", () => fetchTasks(cfg));
+  if (!tasks) return;
+  const prev = await pickTask(tasks, "Update which task?");
   if (!prev) return;
 
-  try {
-    // Apply through the shared helper so the change is recorded in the task's
-    // activity feed, exactly as the canvas does.
-    await saveTask(cfg, applyTaskChange(prev, { status: statusPick.status }, TASK_ACTOR));
-    vscode.window.showInformationMessage(
-      `"${choice.label}" → ${statusPick.status}`,
-    );
-  } catch (err) {
-    vscode.window.showErrorMessage(`Update failed: ${(err as Error).message}`);
+  const milestone = prev.type === "milestone";
+  const deps = prev.dependsOn.length;
+  const fields: (vscode.QuickPickItem & { field: TaskField })[] = [
+    { label: "Status", description: prev.status, field: "status" },
+    ...(milestone
+      ? []
+      : [{ label: "Start date", description: prev.startDate ?? "not set", field: "startDate" as const }]),
+    {
+      label: milestone ? "Milestone date" : "Due date",
+      description: prev.dueDate ?? "not set",
+      field: "dueDate",
+    },
+    { label: "Depends on", description: deps ? `${deps} task${deps === 1 ? "" : "s"}` : "none", field: "dependsOn" },
+    { label: "Priority", description: PRIORITY_LABELS[prev.priority], field: "priority" },
+    { label: "Type", description: TYPE_LABELS[prev.type], field: "type" },
+  ];
+  const pick = await vscode.window.showQuickPick(fields, { placeHolder: `Change what on ${taskName(prev)}?` });
+  if (!pick) return;
+
+  switch (pick.field) {
+    case "status": {
+      const s = await vscode.window.showQuickPick(STATUS_PICKS, { placeHolder: "New status" });
+      if (s) await saveTaskChange(cfg, prev, { status: s.status }, `status → ${s.status}`);
+      return;
+    }
+    case "startDate": {
+      const v = await askDay("Start date — empty to clear", prev.startDate, (x) =>
+        startDateError(x, prev.dueDate),
+      );
+      if (v === undefined) return;
+      const startDate = v.trim() || undefined;
+      await saveTaskChange(cfg, prev, { startDate }, startDate ? `starts ${startDate}` : "start date cleared");
+      return;
+    }
+    case "dueDate": {
+      // A legacy free-text due date is shown as-is; it must become an ISO date or
+      // be cleared to save, the rule RepoStore.saveTask applies to any change.
+      const v = await askDay(
+        `${milestone ? "Milestone" : "Due"} date — empty to clear`,
+        prev.dueDate,
+        (x) => dueDateError(x, prev.startDate),
+      );
+      if (v === undefined) return;
+      const dueDate = v.trim() || undefined;
+      await saveTaskChange(cfg, prev, { dueDate }, dueDate ? `due ${dueDate}` : "due date cleared");
+      return;
+    }
+    case "dependsOn": {
+      const dependsOn = await askDependsOn(tasks, prev.id, prev.dependsOn);
+      if (!dependsOn) return;
+      const cycle = cycleWith(tasks, prev, dependsOn);
+      if (cycle) {
+        const go = await vscode.window.showWarningMessage(
+          `This makes a dependency cycle: ${cycle}. Nothing in it can finish first, and forward validate will warn. Save anyway?`,
+          { modal: true },
+          "Save anyway",
+        );
+        if (go !== "Save anyway") return;
+      }
+      await saveTaskChange(cfg, prev, { dependsOn }, `depends on ${dependsOn.length} task${dependsOn.length === 1 ? "" : "s"}`);
+      return;
+    }
+    case "priority": {
+      const p = await vscode.window.showQuickPick(
+        enumPicks(TaskPriority.options, PRIORITY_LABELS, prev.priority, "current"),
+        { placeHolder: "Priority" },
+      );
+      if (p) await saveTaskChange(cfg, prev, { priority: p.value }, `priority → ${PRIORITY_LABELS[p.value]}`);
+      return;
+    }
+    case "type": {
+      const t = await vscode.window.showQuickPick(
+        enumPicks(TaskType.options, TYPE_LABELS, prev.type, "current"),
+        { placeHolder: "Type — a milestone is a single date on the timeline" },
+      );
+      if (t) await saveTaskChange(cfg, prev, { type: t.value }, `type → ${TYPE_LABELS[t.value]}`);
+      return;
+    }
   }
+}
+
+/** Open the canvas on its task timeline (Gantt), or switch an open one to it. */
+async function showTaskTimeline(context: vscode.ExtensionContext): Promise<void> {
+  await openCanvas(context, "timeline");
 }
 
 // ==========================================================================
@@ -1315,17 +1552,6 @@ async function catchUp(): Promise<void> {
   await showMarkdownDoc(renderDigest(windowPick.label, d));
 }
 
-/** Read design elements, swallowing offline errors into an empty list. */
-async function safeListElements(
-  cfg: ApiConfig,
-): Promise<Array<{ id: string; name: string; type: string }>> {
-  try {
-    return await listElements(cfg);
-  } catch {
-    return [];
-  }
-}
-
 /** The messages the canvas webview's bridge posts to the host. */
 interface BridgeMessage {
   kind?: "sub" | "unsub" | "rpc";
@@ -1335,18 +1561,34 @@ interface BridgeMessage {
   args?: unknown[];
 }
 
+/** The canvas task tracker's layout (forward-canvas's `TasksMode`). */
+type TasksMode = "list" | "timeline";
+
+/** The open canvas panel. There is one per window, so its refreshes never double up. */
+let canvasPanel: vscode.WebviewPanel | undefined;
+
 /**
- * Open the design canvas in a webview. Rather than a bespoke viewer, this mounts
- * the real `forward-canvas` editor — identical toolbar and full authoring
- * (Layers / Data / Flows / Tasks / Infra / checkpoints) to the canvas `forward serve` opens —
- * and drives it through a postMessage bridge. The webview's CanvasSource forwards
- * every subscription and mutation here; the host answers them against the Forward
- * server. The access token never leaves the extension process (the webview makes
- * no network calls of its own) and the CSP forbids remote connections.
+ * Open the design canvas in a webview, or reveal the one already open. Rather
+ * than a bespoke viewer, this mounts the real `forward-canvas` editor — identical
+ * toolbar and full authoring (Layers / Data / Flows / Tasks / Infra / checkpoints)
+ * to the canvas `forward serve` opens — and drives it through a postMessage
+ * bridge. The webview's CanvasSource forwards every subscription and mutation
+ * here, and the host answers them from the workspace's `.forward/` files. The
+ * webview makes no requests of its own; the CSP forbids remote connections.
+ * `tasksMode` opens (or switches) it to the task tracker in that layout.
  */
-async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
+async function openCanvas(
+  context: vscode.ExtensionContext,
+  tasksMode?: TasksMode,
+): Promise<void> {
+  if (canvasPanel) {
+    canvasPanel.reveal();
+    if (tasksMode) void canvasPanel.webview.postMessage({ kind: "show-tasks", mode: tasksMode });
+    return;
+  }
   const cfg = await readConfig();
-  if (!cfg) return;
+  const root = activeRepoRoot();
+  if (!cfg || !root) return;
 
   const panel = vscode.window.createWebviewPanel(
     "forward.canvas",
@@ -1354,27 +1596,30 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
     vscode.ViewColumn.Active,
     { enableScripts: true, retainContextWhenHidden: true },
   );
+  canvasPanel = panel;
 
   const scriptUri = panel.webview.asWebviewUri(
     vscode.Uri.joinPath(context.extensionUri, "dist", "webview.js"),
   );
   // The breadcrumb wants the project's display name; fall back silently to the id.
   let projectName: string | null = null;
-  const root = activeRepoRoot();
   try {
-    projectName = root ? new RepoStore(root).manifest().name : null;
+    projectName = new RepoStore(root).manifest().name;
   } catch {
     /* unreadable manifest — the canvas still mounts with the id */
   }
-  panel.webview.html = canvasHtml(panel.webview, scriptUri, cfg.projectId, projectName);
+  panel.webview.html = canvasHtml(panel.webview, scriptUri, {
+    projectId: cfg.projectId,
+    projectName,
+    tasksMode: tasksMode ?? null,
+  });
 
-  let disposed = false;
-
-  // --- read side: one poller per subscribed channel ----------------------
-  // The canvas subscribes to each data channel once; we poll the server and post
-  // a `snap` only when that channel's snapshot actually changed (mirroring
-  // ServerSource), so an in-progress edit isn't clobbered. Polling pauses while
-  // the tab is hidden and resumes when it returns.
+  // --- read side: refresh the subscribed channels when the files change -----
+  // The canvas subscribes to each data channel once; the refresher posts a `snap`
+  // only for a channel whose snapshot changed. Refreshes follow changes to
+  // `.forward/` and to git's HEAD (the project timeline is git log) rather than a
+  // fast poll: the timeline runs git synchronously, which blocks every extension
+  // in the host while it runs.
   type Channel =
     | "elements"
     | "infra"
@@ -1409,40 +1654,26 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
     timeline: () => fetchProjectTimeline(cfg),
   };
 
-  interface Poller {
-    timer?: ReturnType<typeof setTimeout>;
-    lastJson: string;
+  const refresher = createRefresher<Channel>({
+    read: (channel) => fetchers[channel](),
+    post: (channel, data) => void panel.webview.postMessage({ kind: "snap", channel, data }),
+    visible: () => panel.visible,
+    debounceMs: REFRESH_DEBOUNCE_MS,
+    onError: (channel, err) => console.warn(`[canvas] ${channel} refresh failed:`, err),
+  });
+  const schedule = refresher.schedule;
+
+  const watchers = [
+    vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, `${FORWARD_DIR}/**`)),
+    // A commit, checkout or reset appends to HEAD's reflog.
+    vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(root, ".git/logs/HEAD")),
+  ];
+  for (const w of watchers) {
+    w.onDidCreate(schedule);
+    w.onDidChange(schedule);
+    w.onDidDelete(schedule);
   }
-  const pollers = new Map<Channel, Poller>();
-
-  const pollChannel = async (channel: Channel): Promise<void> => {
-    const poller = pollers.get(channel);
-    if (!poller || disposed) return;
-    poller.timer = undefined; // mark idle so a resume can re-arm it
-    try {
-      const data = await fetchers[channel]();
-      const json = JSON.stringify(data);
-      if (json !== poller.lastJson) {
-        poller.lastJson = json;
-        void panel.webview.postMessage({ kind: "snap", channel, data });
-      }
-    } catch (err) {
-      console.warn(`[canvas] ${channel} poll failed:`, err);
-    }
-    if (disposed || !panel.visible) return;
-    poller.timer = setTimeout(() => void pollChannel(channel), POLL_MS);
-  };
-
-  const startChannel = (channel: Channel): void => {
-    if (pollers.has(channel)) return;
-    pollers.set(channel, { lastJson: "" });
-    void pollChannel(channel);
-  };
-  const stopChannel = (channel: Channel): void => {
-    const poller = pollers.get(channel);
-    if (poller?.timer) clearTimeout(poller.timer);
-    pollers.delete(channel);
-  };
+  const fallback = setInterval(schedule, FALLBACK_POLL_MS);
 
   // --- write side: dispatch a bridge RPC to the matching server call ------
   const rpcHandlers: Record<string, (args: unknown[]) => Promise<unknown>> = {
@@ -1450,12 +1681,12 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
     documentElement: ([id, binding, version]) =>
       bindApiToElement(cfg, id as string, binding as ApiBinding, {
         ...(version as { version: string; changeLog: string; action: "created" | "modified" }),
-        author: process.env.USER ?? "unknown",
+        author: currentAuthor(),
       }),
     undocumentElement: ([id, version]) =>
       unbindApiFromElement(cfg, id as string, {
         ...(version as { version: string; changeLog: string; title?: string }),
-        author: process.env.USER ?? "unknown",
+        author: currentAuthor(),
       }),
     deleteElement: ([id]) => deleteElement(cfg, id as string),
     saveInfraNode: ([n]) => saveInfraNode(cfg, n as InfraNode),
@@ -1480,12 +1711,12 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
   };
 
   panel.webview.onDidReceiveMessage(async (msg: BridgeMessage) => {
-    if (msg?.kind === "sub" && msg.channel) {
-      startChannel(msg.channel as Channel);
+    if (msg?.kind === "sub" && msg.channel && Object.hasOwn(fetchers, msg.channel)) {
+      refresher.subscribe(msg.channel as Channel);
       return;
     }
     if (msg?.kind === "unsub" && msg.channel) {
-      stopChannel(msg.channel as Channel);
+      refresher.unsubscribe(msg.channel as Channel);
       return;
     }
     if (msg?.kind !== "rpc" || typeof msg.id !== "number" || !msg.method) return;
@@ -1510,34 +1741,33 @@ async function openCanvas(context: vscode.ExtensionContext): Promise<void> {
         error: (err as Error).message,
       });
     }
+    // Echo the stored result (stamped updatedAt, cascades) without waiting on a
+    // watcher event.
+    schedule();
   });
 
-  // Resume the active channels' polling when the tab returns to the foreground
-  // (it pauses itself while hidden, since pollChannel bails on !panel.visible).
-  panel.onDidChangeViewState(() => {
-    if (disposed || !panel.visible) return;
-    for (const [channel, poller] of pollers) {
-      if (!poller.timer) void pollChannel(channel);
-    }
-  });
+  // Catch up on what changed while the tab was hidden.
+  panel.onDidChangeViewState(() => refresher.resume());
 
   panel.onDidDispose(() => {
-    disposed = true;
-    for (const channel of [...pollers.keys()]) stopChannel(channel);
+    canvasPanel = undefined;
+    clearInterval(fallback);
+    for (const w of watchers) w.dispose();
+    refresher.dispose();
   });
 }
 
 /**
  * The webview shell: a full-bleed mount point plus the bundled canvas script.
- * The project id/name are injected as a global so the editor mounts immediately
- * without an extra round-trip. The CSP allows the canvas's inline Shadow-DOM
- * styles and Mermaid's `eval`, but no remote origins — all I/O is bridged.
+ * The mount config (project id/name, the task layout to open on) is injected as
+ * a global so the editor mounts immediately without an extra round-trip. The
+ * CSP allows the canvas's inline Shadow-DOM styles and Mermaid's `eval`, but no
+ * remote origins — all I/O is bridged.
  */
 function canvasHtml(
   webview: vscode.Webview,
   scriptUri: vscode.Uri,
-  projectId: string,
-  projectName: string | null,
+  mount: { projectId: string; projectName: string | null; tasksMode: TasksMode | null },
 ): string {
   const nonce = Array.from({ length: 24 }, () =>
     Math.floor(Math.random() * 36).toString(36),
@@ -1549,7 +1779,7 @@ function canvasHtml(
     `style-src ${webview.cspSource} 'unsafe-inline'; ` +
     `script-src 'nonce-${nonce}' 'unsafe-eval';`;
   // Escape `<` so the JSON can't break out of the inline <script>.
-  const config = JSON.stringify({ projectId, projectName }).replace(/</g, "\\u003c");
+  const config = JSON.stringify(mount).replace(/</g, "\\u003c");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -1581,12 +1811,8 @@ async function pickElement(
   cfg: ApiConfig,
   placeHolder = "Select the design element to annotate with this endpoint",
 ): Promise<PickedElement | undefined> {
-  let elements: PickedElement[] = [];
-  try {
-    elements = await listElements(cfg);
-  } catch {
-    /* offline / unreachable */
-  }
+  const elements = await load("the design elements", () => listElements(cfg));
+  if (!elements) return;
 
   if (!elements.length) {
     vscode.window.showWarningMessage(
