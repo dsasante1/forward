@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      try {
+        var t = localStorage.getItem("forward-theme");
+        if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="description" content="How to set up and use Forward: the canvas, API docs, infrastructure, data models, tasks, history, the VS Code extension, AI agents (MCP), designs from code and the GitHub Action." />
     <meta property="og:title" content="Docs — Forward" />

@@ -1,11 +1,8 @@
 :root {
   /* Warm editorial palette — matches the landing page (landing.css).
-     This block is the LIGHT theme and the shared base. The dark theme (below)
-     only re-declares the colour tokens; everything downstream reads these vars.
-     `--ink-rgb` is the raw ink channel used to compose subtle overlays
-     (hover fills, faint backgrounds, dashed borders) so they invert with the
-     theme; `--shadow-rgb` is kept separate so shadows stay dark, not glowing. */
-  --bg: #efe8da;
+     The page tokens live on .landing / .docs as light-dark() pairs; only the
+     body behind them reads --bg / --text from here. */
+  --bg: light-dark(#efe8da, #15130f);
   --panel: #faf6ee;
   --panel-bright: #fffdf8;
   --bar: #f3ede1;
@@ -13,7 +10,7 @@
   --shadow-rgb: 28, 26, 22;
   --border: rgba(var(--ink-rgb), 0.14);
   --hair: rgba(var(--ink-rgb), 0.1);
-  --text: #1c1a15;
+  --text: light-dark(#1c1a15, #ece5d6);
   --muted: #57514a;
   --faint: #9c9488;
   --accent: #bf5a36;
@@ -22,8 +19,10 @@
   --owner: #8a6db0;
   /* Foreground for fills painted in `--text` (buttons, active pills). */
   --btn-fg: #f1ece1;
-  /* Drives native controls (date picker, scrollbars) light/dark. */
-  color-scheme: light;
+  /* Follows the OS preference unless the theme toggle pinned one (data-theme,
+     set before first paint by the inline script in each page's <head>). Drives
+     every light-dark() token and native controls (scrollbars). */
+  color-scheme: light dark;
 
   --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -34,6 +33,13 @@
 
   font-family: var(--sans);
   -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 /* Inline brand glyph — the fast-forward mark used in place of arrow
@@ -103,6 +109,53 @@
     bottom: 16px;
     width: 40px;
     height: 40px;
+  }
+}
+
+/* Light/dark switch in the landing + docs navs. Both icons are rendered and CSS
+   shows the one for the theme you'd switch to, so the prerendered markup never
+   depends on the reader's preference (no hydration mismatch). */
+.theme-toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  flex: none;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.theme-toggle:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-toggle svg {
+  width: 16px;
+  height: 16px;
+}
+.theme-icon-sun {
+  display: none;
+}
+:root[data-theme="dark"] .theme-icon-sun {
+  display: block;
+}
+:root[data-theme="dark"] .theme-icon-moon {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-icon-sun {
+    display: block;
+  }
+  :root:not([data-theme="light"]) .theme-icon-moon {
+    display: none;
   }
 }
 

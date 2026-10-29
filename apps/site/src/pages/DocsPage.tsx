@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { BackToTop } from "../components/BackToTop.js";
+import { ThemeToggle } from "../components/ThemeToggle.js";
 import { DEMO_PATH, GITHUB_URL, MARKETPLACE_URL, NPM_URL } from "../site.js";
 import "../docs.css";
 
@@ -112,6 +113,7 @@ export function DocsPage() {
             <a className="d-nav-link d-nav-hide" href={GITHUB_URL}>
               GitHub
             </a>
+            <ThemeToggle />
             <a href={DEMO_PATH} className="d-btn">
               Live demo <span className="ff-mark" aria-hidden />
             </a>
@@ -947,7 +949,7 @@ export function DocsPage() {
               <code className="d-code">milestone</code>,{" "}
               <code className="d-code">checkpoint</code> or{" "}
               <code className="d-code">wip</code>, and its card shows per-layer
-              change counts (e.g. <span className="d-pill" style={{ background: "rgba(28,26,21,0.06)", color: "var(--soft)" }}>DESIGN +8</span>{" "}
+              change counts (e.g. <span className="d-pill" style={{ background: "color-mix(in srgb, var(--ink) 6%, transparent)", color: "var(--soft)" }}>DESIGN +8</span>{" "}
               <span className="d-pill" style={{ background: "color-mix(in srgb, var(--accent) 14%, transparent)", color: "var(--accent)" }}>API +3</span>).
               Checkpoints are files too (<code className="d-code">.forward/checkpoints/</code>),
               so they're committed and shared like everything else.
@@ -1838,20 +1840,21 @@ function Figure({
 
 /*
  * Hand-drawn SVG figures, one per major section. Same idiom as the landing
- * page's InfraGraph: JetBrains Mono labels, #fffdf8 boxes on the warm rail,
- * and the per-layer colours from docs.css (design #3a6ea8, api var(--accent),
- * infra #8a6db0, tasks #a98f5e).
+ * page's InfraGraph: JetBrains Mono labels, --panel-bright boxes on the warm
+ * rail, and the per-layer colours from docs.css. Colours are docs.css tokens so
+ * the figures follow the light/dark theme; the terminal and VS Code panels are
+ * dark in both.
  */
 const FONT = "'JetBrains Mono', ui-monospace, monospace";
-const INK = "#1c1a15";
-const FAINT = "#9c9488";
-const EDGE = "#b9af9c";
-const BOX = "#fffdf8";
-const BORDER = "#cdbfa6";
-const DESIGN = "#3a6ea8";
-const INFRA = "#8a6db0";
-const TASKS = "#a98f5e";
-const GREEN = "#4a9d6b";
+const INK = "var(--ink)";
+const FAINT = "var(--faint)";
+const EDGE = "var(--edge)";
+const BOX = "var(--panel-bright)";
+const BORDER = "var(--swatch)";
+const DESIGN = "var(--layer-design)";
+const INFRA = "var(--layer-infra)";
+const TASKS = "var(--layer-tasks)";
+const GREEN = "var(--fig-ok)";
 
 function LayersFigure() {
   const label = "Seven layers: the design layer is primary; the API binding attaches to an element; infrastructure, entities and tasks are project-scoped and link by id";
@@ -1874,14 +1877,14 @@ function LayersFigure() {
       <text x="52" y="192" fontSize="11.5" fill={DESIGN}>design — the primary layer</text>
       <rect x="52" y="204" width="150" height="68" rx="4" fill="none" stroke={BORDER} />
       <text x="60" y="218" fontSize="9" fill={FAINT}>frame</text>
-      <rect x="64" y="234" width="92" height="24" rx="5" fill="#e7ecf4" stroke={DESIGN} />
+      <rect x="64" y="234" width="92" height="24" rx="5" fill="var(--design-tint)" stroke={DESIGN} />
       <text x="110" y="250" textAnchor="middle" fontSize="10.5" fill={INK}>Pay now</text>
       <ellipse cx="260" cy="238" rx="26" ry="18" fill="none" stroke={BORDER} />
       {/* api binding — attaches */}
       <rect x="76" y="44" width="210" height="70" rx="8" fill={BOX} stroke="var(--accent)" strokeWidth="1.6" />
       <text x="92" y="66" fontSize="12" fill={INK}>POST /api/checkout</text>
-      <rect x="92" y="76" width="150" height="5" rx="2.5" fill="rgba(28,26,21,0.12)" />
-      <rect x="92" y="87" width="110" height="5" rx="2.5" fill="rgba(28,26,21,0.12)" />
+      <rect x="92" y="76" width="150" height="5" rx="2.5" fill="color-mix(in srgb, var(--ink) 12%, transparent)" />
+      <rect x="92" y="87" width="110" height="5" rx="2.5" fill="color-mix(in srgb, var(--ink) 12%, transparent)" />
       <text x="92" y="106" fontSize="9.5" fill="var(--accent)">apiBinding · markdown · versioned</text>
       <path d="M150 114 L112 230" fill="none" stroke="var(--accent)" strokeWidth="1.4" markerEnd="url(#f-arrA)" />
       <text x="146" y="170" fontSize="10" fill="var(--accent)">attaches</text>
@@ -1913,14 +1916,14 @@ function CanvasFigure() {
       <title>{label}</title>
       <rect x="8" y="8" width="744" height="324" rx="10" fill={BOX} stroke={BORDER} />
       {/* top bar */}
-      <path d="M8 40 H752" stroke="rgba(28,26,21,0.1)" />
+      <path d="M8 40 H752" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <text x="24" y="30" fontSize="11" fill={FAINT}>forward / canvas</text>
       <circle cx="200" cy="26" r="3" fill={GREEN} />
       <text x="210" y="30" fontSize="9" fill={GREEN} letterSpacing="0.08em">LIVE SYNC</text>
-      <rect x="600" y="15" width="138" height="20" rx="4" fill="#f5efe3" stroke="rgba(28,26,21,0.1)" />
+      <rect x="600" y="15" width="138" height="20" rx="4" fill="var(--rail)" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <text x="669" y="29" textAnchor="middle" fontSize="10" fill={FAINT}>−  100%  +  Fit</text>
       {/* toolbar rail */}
-      <path d="M44 40 V332" stroke="rgba(28,26,21,0.1)" />
+      <path d="M44 40 V332" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       {[56, 84, 112, 140, 168, 196, 224, 252].map((y, i) => (
         <rect
           key={y}
@@ -1934,19 +1937,19 @@ function CanvasFigure() {
         />
       ))}
       {/* layers tree */}
-      <path d="M180 40 V332" stroke="rgba(28,26,21,0.1)" />
+      <path d="M180 40 V332" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <text x="56" y="62" fontSize="9" fill={FAINT} letterSpacing="0.14em">LAYERS</text>
       <text x="56" y="86" fontSize="10.5" fill={INK}>▾ Checkout</text>
-      <text x="66" y="108" fontSize="10.5" fill="#57514a">frame</text>
-      <text x="76" y="130" fontSize="10.5" fill="#57514a">Pay now</text>
+      <text x="66" y="108" fontSize="10.5" fill="var(--muted)">frame</text>
+      <text x="76" y="130" fontSize="10.5" fill="var(--muted)">Pay now</text>
       <circle cx="138" cy="126" r="3" fill="var(--accent)" />
       <text x="76" y="152" fontSize="10.5" fill={FAINT}>total-label</text>
       {/* canvas area: frame with nested elements */}
       <text x="220" y="72" fontSize="10" fill={FAINT}>Checkout</text>
-      <rect x="220" y="80" width="240" height="180" rx="6" fill="#faf6ee" stroke={BORDER} />
-      <rect x="240" y="104" width="120" height="8" rx="4" fill="rgba(28,26,21,0.18)" />
+      <rect x="220" y="80" width="240" height="180" rx="6" fill="var(--panel)" stroke={BORDER} />
+      <rect x="240" y="104" width="120" height="8" rx="4" fill="color-mix(in srgb, var(--ink) 18%, transparent)" />
       <rect x="240" y="130" width="200" height="26" rx="5" fill={BOX} stroke={BORDER} />
-      <rect x="240" y="172" width="110" height="30" rx="6" fill="#e7ecf4" stroke={DESIGN} strokeWidth="1.6" />
+      <rect x="240" y="172" width="110" height="30" rx="6" fill="var(--design-tint)" stroke={DESIGN} strokeWidth="1.6" />
       <text x="295" y="191" textAnchor="middle" fontSize="11" fill={INK}>Pay now</text>
       {[[237, 169], [347, 169], [237, 199], [347, 199]].map(([x, y]) => (
         <rect key={`${x}-${y}`} x={x} y={y} width="6" height="6" fill={BOX} stroke={DESIGN} />
@@ -1954,15 +1957,15 @@ function CanvasFigure() {
       <rect x="358" y="180" width="30" height="14" rx="7" fill="var(--accent)" />
       <text x="373" y="190" textAnchor="middle" fontSize="8" fill="#fff" letterSpacing="0.06em">API</text>
       {/* api drawer */}
-      <path d="M600 40 V332" stroke="rgba(28,26,21,0.1)" />
+      <path d="M600 40 V332" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <text x="614" y="62" fontSize="9" fill={FAINT} letterSpacing="0.14em">API DRAWER</text>
       <text x="614" y="86" fontSize="10.5" fill="var(--accent)">POST /api/checkout</text>
-      <rect x="614" y="98" width="118" height="5" rx="2.5" fill="rgba(28,26,21,0.12)" />
-      <rect x="614" y="110" width="96" height="5" rx="2.5" fill="rgba(28,26,21,0.12)" />
-      <rect x="614" y="122" width="108" height="5" rx="2.5" fill="rgba(28,26,21,0.12)" />
+      <rect x="614" y="98" width="118" height="5" rx="2.5" fill="color-mix(in srgb, var(--ink) 12%, transparent)" />
+      <rect x="614" y="110" width="96" height="5" rx="2.5" fill="color-mix(in srgb, var(--ink) 12%, transparent)" />
+      <rect x="614" y="122" width="108" height="5" rx="2.5" fill="color-mix(in srgb, var(--ink) 12%, transparent)" />
       <text x="614" y="158" fontSize="9" fill={FAINT}>history · v4</text>
-      <rect x="614" y="168" width="52" height="15" rx="4" fill="rgba(74,157,107,0.15)" />
-      <text x="640" y="179" textAnchor="middle" fontSize="9" fill="#3f7f52">+3 −1</text>
+      <rect x="614" y="168" width="52" height="15" rx="4" fill="color-mix(in srgb, var(--fig-ok) 15%, transparent)" />
+      <text x="640" y="179" textAnchor="middle" fontSize="9" fill="var(--fig-ok-text)">+3 −1</text>
     </svg>
   );
 }
@@ -1977,7 +1980,7 @@ function BindingFigure() {
           <path d="M0 0 L6 3 L0 6 Z" fill="var(--accent)" />
         </marker>
       </defs>
-      <rect x="48" y="64" width="140" height="42" rx="8" fill="#e7ecf4" stroke={DESIGN} strokeWidth="1.6" />
+      <rect x="48" y="64" width="140" height="42" rx="8" fill="var(--design-tint)" stroke={DESIGN} strokeWidth="1.6" />
       <text x="118" y="90" textAnchor="middle" fontSize="12.5" fill={INK}>Pay now</text>
       <text x="48" y="130" fontSize="10" fill={FAINT}>design element</text>
       <path d="M188 85 H296" fill="none" stroke="var(--accent)" strokeWidth="1.6" markerEnd="url(#b-arrA)" />
@@ -1986,10 +1989,10 @@ function BindingFigure() {
       <text x="318" y="50" fontSize="13" fill={INK}>POST /api/checkout</text>
       <rect x="650" y="36" width="34" height="16" rx="4" fill="color-mix(in srgb, var(--accent) 14%, transparent)" />
       <text x="667" y="48" textAnchor="middle" fontSize="9.5" fill="var(--accent)">v4</text>
-      <path d="M300 62 H700" stroke="rgba(28,26,21,0.1)" />
-      <rect x="318" y="76" width="330" height="6" rx="3" fill="rgba(28,26,21,0.1)" />
-      <rect x="318" y="90" width="280" height="6" rx="3" fill="rgba(28,26,21,0.1)" />
-      <rect x="318" y="104" width="300" height="6" rx="3" fill="rgba(28,26,21,0.1)" />
+      <path d="M300 62 H700" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
+      <rect x="318" y="76" width="330" height="6" rx="3" fill="color-mix(in srgb, var(--ink) 10%, transparent)" />
+      <rect x="318" y="90" width="280" height="6" rx="3" fill="color-mix(in srgb, var(--ink) 10%, transparent)" />
+      <rect x="318" y="104" width="300" height="6" rx="3" fill="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <rect x="318" y="118" width="200" height="22" rx="4" fill="#201d18" />
       <text x="328" y="132" fontSize="9" fill="#d98a5f">{"{ amount, currency }"}</text>
     </svg>
@@ -2003,7 +2006,7 @@ function FlowFigure() {
       <title>{label}</title>
       <defs>
         <marker id="w-arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0 0 L6 3 L0 6 Z" fill="#57514a" />
+          <path d="M0 0 L6 3 L0 6 Z" fill="var(--muted)" />
         </marker>
       </defs>
       {/* nodes */}
@@ -2020,25 +2023,25 @@ function FlowFigure() {
       <text x="650" y="169" textAnchor="middle" fontSize="12" fill={INK}>events-queue</text>
       <text x="650" y="184" textAnchor="middle" fontSize="9.5" fill={INFRA}>queue</text>
       {/* hops */}
-      <path d="M170 54 H296" fill="none" stroke="#57514a" strokeWidth="1.5" markerEnd="url(#w-arr)" />
+      <path d="M170 54 H296" fill="none" stroke="var(--muted)" strokeWidth="1.5" markerEnd="url(#w-arr)" />
       <circle cx="233" cy="54" r="9" fill="var(--accent)" />
       <text x="233" y="58" textAnchor="middle" fontSize="10" fill="#fff">1</text>
-      <path d="M440 62 H576" fill="none" stroke="#57514a" strokeWidth="1.5" markerEnd="url(#w-arr)" />
+      <path d="M440 62 H576" fill="none" stroke="var(--muted)" strokeWidth="1.5" markerEnd="url(#w-arr)" />
       <circle cx="508" cy="62" r="9" fill="var(--accent)" />
       <text x="508" y="66" textAnchor="middle" fontSize="10" fill="#fff">2</text>
       <text x="508" y="86" textAnchor="middle" fontSize="9" fill="var(--accent)">ties to POST /orders</text>
-      <path d="M380 84 C400 140 480 172 576 172" fill="none" stroke="#57514a" strokeWidth="1.5" strokeDasharray="5 4" markerEnd="url(#w-arr)" />
+      <path d="M380 84 C400 140 480 172 576 172" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="5 4" markerEnd="url(#w-arr)" />
       <circle cx="466" cy="146" r="9" fill="var(--accent)" />
       <text x="466" y="150" textAnchor="middle" fontSize="10" fill="#fff">3</text>
-      <path d="M300 76 H174" fill="none" stroke="#57514a" strokeWidth="1.5" strokeDasharray="2 3" markerEnd="url(#w-arr)" />
+      <path d="M300 76 H174" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="2 3" markerEnd="url(#w-arr)" />
       <circle cx="233" cy="76" r="9" fill={FAINT} />
       <text x="233" y="80" textAnchor="middle" fontSize="10" fill="#fff">4</text>
       {/* legend */}
-      <path d="M40 224 H80" stroke="#57514a" strokeWidth="1.5" />
+      <path d="M40 224 H80" stroke="var(--muted)" strokeWidth="1.5" />
       <text x="88" y="228" fontSize="10" fill={FAINT}>sync</text>
-      <path d="M150 224 H190" stroke="#57514a" strokeWidth="1.5" strokeDasharray="5 4" />
+      <path d="M150 224 H190" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="5 4" />
       <text x="198" y="228" fontSize="10" fill={FAINT}>async</text>
-      <path d="M270 224 H310" stroke="#57514a" strokeWidth="1.5" strokeDasharray="2 3" />
+      <path d="M270 224 H310" stroke="var(--muted)" strokeWidth="1.5" strokeDasharray="2 3" />
       <text x="318" y="228" fontSize="10" fill={FAINT}>reply</text>
       <text x="720" y="228" textAnchor="end" fontSize="10" fill={FAINT}>flow: place order → Mermaid sequenceDiagram</text>
     </svg>
@@ -2051,7 +2054,7 @@ function ErFigure() {
     <svg viewBox="0 0 760 210" fontFamily={FONT} role="img" aria-label={label}>
       <title>{label}</title>
       {/* USER */}
-      <rect x="60" y="36" width="240" height="26" fill="rgba(58,110,168,0.12)" stroke={BORDER} />
+      <rect x="60" y="36" width="240" height="26" fill="color-mix(in srgb, var(--layer-design) 12%, transparent)" stroke={BORDER} />
       <text x="180" y="53" textAnchor="middle" fontSize="12" fontWeight="600" fill={INK}>USER</text>
       <rect x="60" y="62" width="240" height="72" fill={BOX} stroke={BORDER} />
       <text x="76" y="82" fontSize="10.5" fill={INK}>id</text>
@@ -2063,7 +2066,7 @@ function ErFigure() {
       <text x="76" y="122" fontSize="10.5" fill={INK}>name</text>
       <text x="160" y="122" fontSize="10.5" fill={FAINT}>varchar</text>
       {/* ORDER */}
-      <rect x="460" y="36" width="240" height="26" fill="rgba(58,110,168,0.12)" stroke={BORDER} />
+      <rect x="460" y="36" width="240" height="26" fill="color-mix(in srgb, var(--layer-design) 12%, transparent)" stroke={BORDER} />
       <text x="580" y="53" textAnchor="middle" fontSize="12" fontWeight="600" fill={INK}>ORDER</text>
       <rect x="460" y="62" width="240" height="72" fill={BOX} stroke={BORDER} />
       <text x="476" y="82" fontSize="10.5" fill={INK}>id</text>
@@ -2108,17 +2111,17 @@ function HistoryFigure() {
       {/* diff card */}
       <rect x="400" y="40" width="320" height="150" rx="8" fill={BOX} stroke={BORDER} />
       <text x="416" y="64" fontSize="11.5" fill={INK}>POST /orders</text>
-      <rect x="648" y="50" width="56" height="16" rx="4" fill="rgba(74,157,107,0.15)" />
-      <text x="676" y="62" textAnchor="middle" fontSize="9" fill="#3f7f52">+3 −1</text>
-      <path d="M400 76 H720" stroke="rgba(28,26,21,0.1)" />
+      <rect x="648" y="50" width="56" height="16" rx="4" fill="color-mix(in srgb, var(--fig-ok) 15%, transparent)" />
+      <text x="676" y="62" textAnchor="middle" fontSize="9" fill="var(--fig-ok-text)">+3 −1</text>
+      <path d="M400 76 H720" stroke="color-mix(in srgb, var(--ink) 10%, transparent)" />
       <text x="418" y="95" fontSize="10" fill={GREEN}>+</text>
-      <rect x="432" y="88" width="230" height="7" rx="3" fill="rgba(74,157,107,0.35)" />
+      <rect x="432" y="88" width="230" height="7" rx="3" fill="color-mix(in srgb, var(--fig-ok) 35%, transparent)" />
       <text x="418" y="109" fontSize="10" fill={GREEN}>+</text>
-      <rect x="432" y="102" width="190" height="7" rx="3" fill="rgba(74,157,107,0.35)" />
-      <text x="418" y="123" fontSize="10" fill="#bf4636">−</text>
-      <rect x="432" y="116" width="160" height="7" rx="3" fill="rgba(191,70,54,0.3)" />
+      <rect x="432" y="102" width="190" height="7" rx="3" fill="color-mix(in srgb, var(--fig-ok) 35%, transparent)" />
+      <text x="418" y="123" fontSize="10" fill="var(--fig-bad)">−</text>
+      <rect x="432" y="116" width="160" height="7" rx="3" fill="color-mix(in srgb, var(--fig-bad) 30%, transparent)" />
       <text x="418" y="137" fontSize="10" fill={GREEN}>+</text>
-      <rect x="432" y="130" width="210" height="7" rx="3" fill="rgba(74,157,107,0.35)" />
+      <rect x="432" y="130" width="210" height="7" rx="3" fill="color-mix(in srgb, var(--fig-ok) 35%, transparent)" />
       <rect x="416" y="150" width="150" height="24" rx="4" fill="color-mix(in srgb, var(--accent) 12%, transparent)" />
       <text x="428" y="166" fontSize="9.5" fill="var(--accent)">⚠ breaking change</text>
     </svg>

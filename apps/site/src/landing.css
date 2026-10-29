@@ -7,24 +7,39 @@
 
 .landing {
   /* tokens (scoped — do not leak into the app) */
-  --bg: #efe8da;
-  --panel: #faf6ee;
-  --panel-bright: #fffdf8;
-  --bar: #f3ede1;
-  --rail: #f5efe3;
-  --ink: #1c1a15;
-  --muted: #57514a;
-  --soft: #6a6358;
-  --faint: #9c9488;
-  --hair: rgba(28, 26, 21, 0.1);
-  --line: rgba(28, 26, 21, 0.14);
-  --line-strong: rgba(28, 26, 21, 0.18);
-  --accent: #bf5a36;
-  --accent2: #3a6ea8;
-  --layer-design: #3a6ea8;
-  --layer-api: #bf5a36;
-  --layer-infra: #8a6db0;
-  --layer-tasks: #a98f5e;
+  /* light-dark(light, dark): resolved by the inherited color-scheme (styles.css
+     sets it from the OS preference, or the theme toggle's data-theme). */
+  --bg: light-dark(#efe8da, #15130f);
+  --panel: light-dark(#faf6ee, #1d1a15);
+  --panel-bright: light-dark(#fffdf8, #24201a);
+  --bar: light-dark(#f3ede1, #1a1813);
+  --rail: light-dark(#f5efe3, #1b1914);
+  --ink: light-dark(#1c1a15, #ece5d6);
+  --muted: light-dark(#57514a, #b4ac9d);
+  --soft: light-dark(#6a6358, #a39b8c);
+  --faint: light-dark(#9c9488, #7f7869);
+  --hair: color-mix(in srgb, var(--ink) 10%, transparent);
+  --line: color-mix(in srgb, var(--ink) 14%, transparent);
+  --line-strong: color-mix(in srgb, var(--ink) 18%, transparent);
+  --accent: light-dark(#bf5a36, #e07a52);
+  --accent2: light-dark(#3a6ea8, #7aa5dc);
+  --layer-design: light-dark(#3a6ea8, #7aa5dc);
+  --layer-api: light-dark(#bf5a36, #e07a52);
+  --layer-infra: light-dark(#8a6db0, #a98fd0);
+  --layer-tasks: light-dark(#a98f5e, #c9ad78);
+  /* text on fills painted in --ink (dark buttons, entity headers) */
+  --on-ink: light-dark(#f1ece1, #15130f);
+  /* the closing CTA / AI bands stay dark in both themes */
+  --band: light-dark(#1c1a15, #24201a);
+  --band-edge: light-dark(transparent, rgba(236, 229, 214, 0.1));
+  /* shadows stay dark rather than inverting with --ink */
+  --shadow: light-dark(#1c1a16, #000);
+  --rule: light-dark(#b6ab97, #5a5347);
+  --swatch: light-dark(#cdbfa6, #4d473d);
+  --edge: light-dark(#b9af9c, #5f584b);
+  --check-idle: light-dark(#c2b8a4, #5a5347);
+  --ok: light-dark(#5b8c6e, #7fbf95);
+  --bad: light-dark(#b34a3a, #e8806c);
 
   --sans: "Space Grotesk", -apple-system, "Helvetica Neue", Arial, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
@@ -44,7 +59,7 @@
 .l-dotgrid {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(28, 26, 21, 0.045) 1px, transparent 1.4px);
+  background-image: radial-gradient(color-mix(in srgb, var(--ink) 4.5%, transparent) 1px, transparent 1.4px);
   background-size: 26px 26px;
   pointer-events: none;
   opacity: 0.7;
@@ -116,7 +131,7 @@
 }
 .l-btn-dark {
   background: var(--ink);
-  color: #f1ece1;
+  color: var(--on-ink);
 }
 .l-btn-dark:hover {
   transform: translateY(-1px);
@@ -124,10 +139,10 @@
 .l-btn-outline {
   background: transparent;
   color: var(--ink);
-  border-color: rgba(28, 26, 21, 0.22);
+  border-color: color-mix(in srgb, var(--ink) 22%, transparent);
 }
 .l-btn-outline:hover {
-  background: rgba(28, 26, 21, 0.04);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 .l-btn-accent {
   background: var(--accent);
@@ -144,8 +159,8 @@
 
 /* ---------- nav ---------- */
 .l-nav-bar {
-  border-bottom: 1px solid rgba(28, 26, 21, 0.08);
-  background: rgba(239, 232, 218, 0.78);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -218,7 +233,7 @@
   content: "";
   width: 26px;
   height: 1px;
-  background: #b6ab97;
+  background: var(--rule);
 }
 .l-hero h1 {
   margin: 0 auto;
@@ -252,10 +267,10 @@
   overflow: hidden;
 }
 .l-mock-shadow {
-  box-shadow: 0 30px 70px -30px rgba(28, 26, 21, 0.35);
+  box-shadow: 0 30px 70px -30px color-mix(in srgb, var(--shadow) 35%, transparent);
 }
 .l-mock-soft {
-  box-shadow: 0 24px 54px -30px rgba(28, 26, 21, 0.3);
+  box-shadow: 0 24px 54px -30px color-mix(in srgb, var(--shadow) 30%, transparent);
 }
 .l-winbar {
   display: flex;
@@ -273,7 +288,7 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #cdbfa6;
+  background: var(--swatch);
 }
 .l-winbar-url {
   margin: 0 auto;
@@ -374,7 +389,7 @@
   position: relative;
   flex: 1;
   min-width: 0;
-  background-image: radial-gradient(rgba(28, 26, 21, 0.07) 1px, transparent 1px);
+  background-image: radial-gradient(color-mix(in srgb, var(--ink) 7%, transparent) 1px, transparent 1px);
   background-size: 22px 22px;
   padding: 40px;
 }
@@ -392,7 +407,7 @@
 }
 .l-hr {
   height: 1px;
-  background: rgba(28, 26, 21, 0.08);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   margin: 14px 0;
 }
 .l-row {
@@ -412,7 +427,7 @@
 }
 .l-paybtn {
   background: var(--ink);
-  color: #f1ece1;
+  color: var(--on-ink);
   text-align: center;
   font-size: 14px;
   font-weight: 500;
@@ -439,14 +454,14 @@
   background: var(--panel-bright);
   border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: 0 20px 44px -20px rgba(28, 26, 21, 0.4);
+  box-shadow: 0 20px 44px -20px color-mix(in srgb, var(--shadow) 40%, transparent);
 }
 .l-pop-head {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 13px 16px;
-  border-bottom: 1px solid rgba(28, 26, 21, 0.08);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .l-pop-head i {
   width: 8px;
@@ -506,7 +521,7 @@
   color: var(--accent2);
 }
 .l-tag-muted {
-  background: rgba(28, 26, 21, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--soft);
 }
 .l-pop-by {
@@ -588,10 +603,10 @@
 }
 .l-layer {
   padding: 30px 26px;
-  border-left: 1px solid rgba(28, 26, 21, 0.12);
+  border-left: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
 }
 .l-layer:last-child {
-  border-right: 1px solid rgba(28, 26, 21, 0.12);
+  border-right: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
 }
 .l-layer-dot {
   width: 9px;
@@ -700,7 +715,7 @@
   align-items: center;
   gap: 14px;
   padding: 14px 22px;
-  border-bottom: 1px solid rgba(28, 26, 21, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
 }
 .l-task:last-child {
   border-bottom: none;
@@ -718,7 +733,7 @@
   border: 1.5px solid var(--accent);
 }
 .l-check.idle {
-  border: 1.5px solid #c2b8a4;
+  border: 1.5px solid var(--check-idle);
 }
 .l-check.checked {
   background: var(--ink);
@@ -749,8 +764,8 @@
 .l-vscode {
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid rgba(28, 26, 21, 0.2);
-  box-shadow: 0 30px 64px -28px rgba(28, 26, 21, 0.45);
+  border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent);
+  box-shadow: 0 30px 64px -28px color-mix(in srgb, var(--shadow) 45%, transparent);
   background: #1d1c20;
 }
 .l-vscode-bar {
@@ -871,7 +886,7 @@
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: #cdbfa6;
+  background: var(--swatch);
   box-shadow: 0 0 0 4px var(--panel);
 }
 .l-event-node.accent {
@@ -914,8 +929,8 @@
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 1px;
-  background: rgba(28, 26, 21, 0.12);
-  border: 1px solid rgba(28, 26, 21, 0.12);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 10px;
   overflow: hidden;
   margin-top: 56px;
@@ -950,7 +965,8 @@
 .l-cta {
   position: relative;
   border-radius: 16px;
-  background: var(--ink);
+  background: var(--band);
+  box-shadow: inset 0 0 0 1px var(--band-edge);
   color: #f1ece1;
   padding: 72px 56px;
   overflow: hidden;
@@ -1225,7 +1241,7 @@
 }
 .l-task-mock {
   min-width: 0;
-  border: 1px solid rgba(28, 26, 21, 0.12);
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
   border-radius: 10px;
   background: var(--panel-bright);
   overflow: hidden;
@@ -1248,7 +1264,7 @@
 .l-er-export {
   letter-spacing: 0;
   font-size: 10.5px;
-  background: rgba(28, 26, 21, 0.06);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   color: var(--soft);
   padding: 4px 9px;
   border-radius: 4px;
@@ -1267,7 +1283,7 @@
 }
 .l-entity-name {
   background: var(--ink);
-  color: #f1ece1;
+  color: var(--on-ink);
   font-family: var(--mono);
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -1282,7 +1298,7 @@
   display: flex;
   justify-content: space-between;
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(28, 26, 21, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--ink) 6%, transparent);
 }
 .l-entity-fields > div:last-child {
   border-bottom: none;
@@ -1366,10 +1382,10 @@
   color: var(--faint);
 }
 .l-diff-add {
-  color: #5b8c6e;
+  color: var(--ok);
 }
 .l-diff-del {
-  color: #b34a3a;
+  color: var(--bad);
 }
 .l-diff-title {
   display: flex;
@@ -1406,21 +1422,21 @@
   user-select: none;
 }
 .l-diff-line.add {
-  background: color-mix(in srgb, #5b8c6e 12%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
   color: var(--ink);
 }
 .l-diff-line.add .g {
-  color: #5b8c6e;
+  color: var(--ok);
 }
 .l-diff-line.del {
-  background: color-mix(in srgb, #b34a3a 11%, transparent);
+  background: color-mix(in srgb, var(--bad) 11%, transparent);
   color: var(--ink);
 }
 .l-diff-line.del .g {
-  color: #b34a3a;
+  color: var(--bad);
 }
 .l-diff-code {
-  background: rgba(28, 26, 21, 0.07);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
   padding: 0 4px;
   border-radius: 3px;
 }
@@ -1440,7 +1456,8 @@
 .l-aiband {
   position: relative;
   border-radius: 16px;
-  background: var(--ink);
+  background: var(--band);
+  box-shadow: inset 0 0 0 1px var(--band-edge);
   color: #f1ece1;
   padding: 52px 56px;
   display: grid;
