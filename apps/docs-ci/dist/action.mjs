@@ -4389,7 +4389,21 @@ var Task = external_exports.object({
   assignees: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
   /** uid of the member who filed the task. */
   reporter: external_exports.string().max(SHORT_TEXT_MAX).optional(),
-  /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
+  /**
+   * Optional planned start, a calendar date `YYYY-MM-DD`. The timeline (Gantt)
+   * view starts the task's bar here; without it the bar starts on the day the
+   * task was created. Strict, unlike `dueDate`, so every stored value plots.
+   */
+  startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be an ISO date (YYYY-MM-DD).").refine((s) => {
+    const ms = Date.parse(`${s}T00:00:00Z`);
+    return !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(s);
+  }, "Start date must be a real calendar date.").optional(),
+  /**
+   * Due date, `YYYY-MM-DD`. Read leniently on purpose: tasks filed before due
+   * dates had to be ISO may hold a label like "Jun 24", and a stricter schema
+   * would make the store skip those files entirely. `RepoStore.saveTask`
+   * rejects a new or changed non-ISO value; `forward validate` warns on old ones.
+   */
   dueDate: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the design element this task concerns. */
   elementId: external_exports.string().max(SHORT_TEXT_MAX).optional(),
@@ -4699,6 +4713,27 @@ function nextTaskKey(existing) {
       max = Math.max(max, parseInt(m[1], 10));
   }
   return `FWD-${max + 1}`;
+}
+
+// ../../packages/shared/dist/gantt.js
+var DAY_MS = 864e5;
+var MAX_PAST_DAYS = 2 * 366;
+var MAX_FUTURE_DAYS = 3 * 366;
+function parseTaskDay(value) {
+  const m = value?.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
+  if (!m)
+    return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const back = /* @__PURE__ */ new Date(0);
+  back.setUTCFullYear(y, mo - 1, d);
+  const ms = back.getTime();
+  if (back.getUTCFullYear() !== y || back.getUTCMonth() !== mo - 1 || back.getUTCDate() !== d) {
+    return null;
+  }
+  return Math.round(ms / DAY_MS);
+}
+function isIsoDay(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && parseTaskDay(value) !== null;
 }
 
 // ../../packages/shared/dist/api-rest.js
@@ -5540,10 +5575,19 @@ var RepoStore = class {
   listTasks() {
     return this.readAll("tasks", Task);
   }
-  /** Upsert a task. `createdAt` survives, `updatedAt` is stamped, a missing key is assigned. */
+  /**
+   * Upsert a task. `createdAt` survives, `updatedAt` is stamped, a missing key is assigned.
+   * A new or changed `dueDate` must be an ISO date (or empty, to clear it); a free-form
+   * label written before that rule is kept as long as the write leaves it unchanged, so
+   * old tasks stay readable and editable (`forward validate` warns about them).
+   */
   saveTask(input) {
     const parsed = this.parse(Task, input, "task");
     const prior = this.readOne("tasks", parsed.id, Task);
+    const due = parsed.dueDate?.trim();
+    if (due && due !== prior?.dueDate?.trim() && !isIsoDay(due)) {
+      throw new RepoError(400, `Invalid task at dueDate: Due date must be an ISO date (YYYY-MM-DD), got "${due}".`);
+    }
     const now = this.iso();
     const next = {
       ...parsed,

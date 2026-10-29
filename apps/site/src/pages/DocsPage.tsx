@@ -834,7 +834,8 @@ export function DocsPage() {
                   <tr><td>description</td><td>Free-form Markdown detail.</td></tr>
                   <tr><td>labels</td><td>Free-form label names (e.g. "backend").</td></tr>
                   <tr><td>assignees, reporter</td><td>The people doing the work, and who filed it.</td></tr>
-                  <tr><td>dueDate</td><td>An ISO date or a short label like "Jun 24".</td></tr>
+                  <tr><td>startDate</td><td>Optional planned start, an ISO date (<code className="d-code">2026-11-02</code>). Without it the timeline starts the task on the day it was filed.</td></tr>
+                  <tr><td>dueDate</td><td>An ISO date (<code className="d-code">2026-11-06</code>); for a milestone, its target date. A free-form label is rejected. Tasks filed before this rule keep their old label until it's changed, and <code className="d-code">forward validate</code> warns about them.</td></tr>
                   <tr><td>dependsOn</td><td>Ids of tasks that should finish before this one starts (finish-to-start).</td></tr>
                   <tr><td>elementId</td><td>Optional link to the design element the task concerns.</td></tr>
                   <tr><td>flowId</td><td>Optional link to the narrated flow it implements.</td></tr>
@@ -862,6 +863,18 @@ export function DocsPage() {
               use <code className="d-code">create_task</code>,{" "}
               <code className="d-code">update_task</code> and{" "}
               <code className="d-code">comment_task</code> on the same tracker.
+            </p>
+            <p>
+              Switch the panel to <b>Timeline</b> for a Gantt chart: each task is a
+              bar from its start date to its due date, grouped by status and
+              filled by progress; milestones are diamonds; and dependencies are
+              connectors, drawn red when a task starts before something it depends
+              on is due. The exported read-only site shows the same timeline.{" "}
+              <code className="d-code">get_task_timeline</code> returns the
+              schedule as a Mermaid <code className="d-code">gantt</code> chart
+              with its warnings, and the PR digest lists tasks whose dates moved.{" "}
+              <code className="d-code">forward validate</code> warns about
+              dependency cycles.
             </p>
           </Section>
 
@@ -1163,10 +1176,10 @@ export function DocsPage() {
             id="agents"
             kicker="Surface · AI agents"
             title="AI agents (MCP server)"
-            sub="Give any AI assistant full parity with the canvas and the extension: 39 tools over the same .forward/ files, over MCP or from the shell."
+            sub="Give any AI assistant full parity with the canvas and the extension: 40 tools over the same .forward/ files, over MCP or from the shell."
           >
             <p>
-              The <code className="d-code">forward-mcp</code> server exposes 39
+              The <code className="d-code">forward-mcp</code> server exposes 40
               tools so an agent can create and maintain every artifact
               (documentation, architecture, data models, tasks, even the design)
               exactly as a human contributor does. It runs over stdio from the
@@ -1236,7 +1249,7 @@ export function DocsPage() {
             </p>
             <pre className="d-pre">
               <code>
-                forward tools <span className="c"># list all 39 tools</span>
+                forward tools <span className="c"># list all 40 tools</span>
                 {"\n"}forward tools write_documentation <span className="c"># one tool's arguments</span>
                 {"\n"}forward call write_infra_node <span className="t">'{"{"}"kind":"cache","label":"Redis"{"}"}'</span>
                 {"\n"}forward call get_changes_since_ref <span className="t">'{"{"}"ref":"origin/main"{"}"}'</span>
@@ -1442,7 +1455,7 @@ export function DocsPage() {
                 <tbody>
                   <tr><td>path</td><td>Repository root that contains .forward/ (defaults to the checked-out repository).</td></tr>
                   <tr><td>validate</td><td>Run <code className="d-code">forward validate</code> and fail on schema errors (default true).</td></tr>
-                  <tr><td>strict</td><td>Also fail on warnings, i.e. dangling cross-layer links (default false).</td></tr>
+                  <tr><td>strict</td><td>Also fail on warnings: dangling cross-layer links, task due dates that aren't ISO dates, dependency cycles (default false).</td></tr>
                   <tr><td>comment</td><td>On pull requests, post or update one comment with the catch-up digest (default true).</td></tr>
                   <tr><td>base</td><td>Git ref to diff against; defaults to the pull request's base commit.</td></tr>
                   <tr><td>export</td><td>Directory to write the static canvas into, for GitHub Pages; empty skips it.</td></tr>
@@ -1539,7 +1552,7 @@ export function DocsPage() {
                   </tr>
                   <tr>
                     <td>{"forward validate "}</td>
-                    <td>Check every file (CI runs this); exits 1 on errors. Flags: <code className="d-code">--format text|json|github</code>, <code className="d-code">--strict</code>.</td>
+                    <td>Check every file (CI runs this); exits 1 on errors, or on warnings too with <code className="d-code">--strict</code>. Flags: <code className="d-code">--format text|json|github</code>, <code className="d-code">--strict</code>.</td>
                   </tr>
                   <tr>
                     <td>forward diff &lt;git-ref&gt;</td>
@@ -1668,7 +1681,7 @@ export function DocsPage() {
 
             <h3>MCP tools</h3>
             <p>
-              The 39 tools the Forward MCP server exposes to an agent, by area.{" "}
+              The 40 tools the Forward MCP server exposes to an agent, by area.{" "}
               <code className="d-code">forward tools &lt;tool&gt;</code> shows any
               one's arguments.
             </p>
@@ -1754,6 +1767,7 @@ export function DocsPage() {
                     <td>
                       <code className="d-code">list_tasks</code>{" "}
                       <code className="d-code">get_task</code>{" "}
+                      <code className="d-code">get_task_timeline</code>{" "}
                       <code className="d-code">create_task</code>{" "}
                       <code className="d-code">update_task</code>{" "}
                       <code className="d-code">comment_task</code>{" "}
@@ -2196,7 +2210,7 @@ function McpFigure() {
       {/* mcp server */}
       <rect x="290" y="30" width="200" height="102" rx="8" fill={BOX} stroke="var(--accent)" strokeWidth="1.6" />
       <text x="390" y="52" textAnchor="middle" fontSize="12" fill={INK}>forward-mcp</text>
-      <text x="390" y="68" textAnchor="middle" fontSize="9.5" fill="var(--accent)">39 tools · stdio</text>
+      <text x="390" y="68" textAnchor="middle" fontSize="9.5" fill="var(--accent)">40 tools · stdio</text>
       <text x="306" y="96" fontSize="8.5" fill={FAINT}>FORWARD_AGENT=claude</text>
       <text x="306" y="110" fontSize="8.5" fill={FAINT}>FORWARD_REPO (optional)</text>
       {/* repository */}
@@ -2253,7 +2267,7 @@ function SyncFigure() {
       <text x="380" y="62" textAnchor="middle" fontSize="9.5" fill={FAINT}>extension · in-process</text>
       <rect x="520" y="28" width="180" height="44" rx="7" fill={BOX} stroke={BORDER} />
       <text x="610" y="47" textAnchor="middle" fontSize="12" fill={INK}>AI agent</text>
-      <text x="610" y="62" textAnchor="middle" fontSize="9.5" fill={FAINT}>MCP · CLI · 39 tools</text>
+      <text x="610" y="62" textAnchor="middle" fontSize="9.5" fill={FAINT}>MCP · CLI · 40 tools</text>
       <path d="M150 72 C170 105 240 122 292 130" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#s-arrS)" markerEnd="url(#s-arr)" />
       <path d="M380 72 V126" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#s-arrS)" markerEnd="url(#s-arr)" />
       <path d="M610 72 C590 105 520 122 468 130" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#s-arrS)" markerEnd="url(#s-arr)" />

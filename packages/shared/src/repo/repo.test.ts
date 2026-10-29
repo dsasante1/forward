@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -223,6 +223,86 @@ describe("validateRepo", () => {
       ".forward/design/renamed.json",
     ]);
     expect(issues.find((i) => i.level === "warning")?.message).toMatch(/parentId "ghost"/);
+  });
+
+  it("warns on an unplottable due date and on dependency cycles", async () => {
+    const t = (id: string, extra: Partial<Task>) => ({ id, title: id, createdAt: T, updatedAt: T, ...extra }) as Task;
+    await api.saveTask(cfg, t("a", { dependsOn: ["b"], dueDate: "2026-02-01" }));
+    await api.saveTask(cfg, t("b", { dependsOn: ["a"] }));
+    // Written before due dates had to be ISO: the store no longer accepts it.
+    writeFileSync(join(root, ".forward/tasks/c.json"), JSON.stringify(t("c", { dueDate: "Jun 24" })));
+    await api.saveTask(cfg, t("d", { dependsOn: ["d"] }));
+    const warnings = validateRepo(root).map((i) => `${i.level} ${i.file}: ${i.message}`);
+    expect(warnings).toEqual([
+      expect.stringMatching(/^warning \.forward\/tasks\/c\.json: Due date "Jun 24" isn't an ISO date/),
+      expect.stringMatching(/^warning \.forward\/tasks\/a\.json: Dependency cycle: FWD-\d+ → FWD-\d+ → FWD-\d+\.$/),
+      expect.stringMatching(/^warning \.forward\/tasks\/b\.json: Dependency cycle/),
+      expect.stringMatching(/^warning \.forward\/tasks\/d\.json: Dependency cycle: (FWD-\d+) → \1\.$/),
+    ]);
+  });
+});
+
+describe("task start dates and the schedule digest", () => {
+  const t = (id: string, extra: Partial<Task> = {}) =>
+    ({ id, title: id, createdAt: T, updatedAt: T, ...extra }) as Task;
+
+  it("round-trips startDate and rejects a non-ISO one with a readable 400", async () => {
+    await api.saveTask(cfg, t("a", { startDate: "2026-03-02" }));
+    expect((await api.fetchTasks(cfg))[0]?.startDate).toBe("2026-03-02");
+    expect(JSON.parse(readFileSync(join(root, ".forward/tasks/a.json"), "utf8")).startDate).toBe("2026-03-02");
+    await expect(api.saveTask(cfg, t("b", { startDate: "next week" }))).rejects.toThrow(/Invalid task.*ISO date/s);
+    expect(validateRepo(root)).toEqual([]);
+  });
+
+  it("rejects a new or changed free-form due date but keeps an old one readable and editable", async () => {
+    await expect(api.saveTask(cfg, t("new", { dueDate: "next week" }))).rejects.toThrow(
+      /Invalid task at dueDate: Due date must be an ISO date \(YYYY-MM-DD\), got "next week"/,
+    );
+    await expect(api.saveTask(cfg, t("dt", { dueDate: "2026-03-02T10:00:00Z" }))).rejects.toThrow(/ISO date/);
+    await expect(api.saveTask(cfg, t("bad", { dueDate: "2026-02-30" }))).rejects.toThrow(/ISO date/);
+    expect((await api.fetchTasks(cfg)).map((x) => x.id)).toEqual([]);
+
+    // A task written before the rule: it still loads, and edits that leave the date alone save.
+    mkdirSync(join(root, ".forward/tasks"), { recursive: true });
+    writeFileSync(join(root, ".forward/tasks/old.json"), JSON.stringify(t("old", { key: "FWD-1", dueDate: "Jun 24" })));
+    const [old] = await api.fetchTasks(cfg);
+    expect(old?.dueDate).toBe("Jun 24");
+    await api.saveTask(cfg, { ...old!, status: "done" });
+    expect((await api.fetchTasks(cfg))[0]).toMatchObject({ status: "done", dueDate: "Jun 24" });
+
+    // Changing it must give an ISO date; clearing it is fine.
+    await expect(api.saveTask(cfg, { ...old!, dueDate: "Jun 25" })).rejects.toThrow(/ISO date/);
+    await api.saveTask(cfg, { ...old!, dueDate: "2026-06-24" });
+    expect((await api.fetchTasks(cfg))[0]?.dueDate).toBe("2026-06-24");
+    await api.saveTask(cfg, { ...old!, dueDate: "" });
+    expect((await api.fetchTasks(cfg))[0]?.dueDate).toBe("");
+  });
+
+  it("reports moved and newly dated tasks with the head's gantt", async () => {
+    await api.saveTask(cfg, t("moved", { startDate: "2026-03-02", dueDate: "2026-03-04" }));
+    await api.saveTask(cfg, t("still", { dueDate: "2026-03-10" }));
+    const before = loadBundle(root, { timeline: false });
+    await api.saveTask(cfg, { ...(await api.fetchTasks(cfg)).find((x) => x.id === "moved")!, dueDate: "2026-03-09" });
+    await api.saveTask(cfg, { ...(await api.fetchTasks(cfg)).find((x) => x.id === "still")!, title: "renamed" });
+    await api.saveTask(cfg, t("ship", { type: "milestone", dueDate: "2026-03-20" }));
+    await api.saveTask(cfg, t("undated"));
+
+    const diff = diffProjects(before, loadBundle(root, { timeline: false }));
+    expect(diff.schedule).toEqual([
+      expect.objectContaining({ before: { start: "2026-03-02", end: "2026-03-04" }, after: { start: "2026-03-02", end: "2026-03-09" } }),
+      expect.objectContaining({ milestone: true, after: { start: "2026-03-20", end: "2026-03-20" } }),
+    ]);
+    expect(diff.schedule[1]?.before).toBeUndefined();
+    const md = renderDiffMarkdown(diff);
+    expect(md).toContain("### Schedule");
+    expect(md).toMatch(/moved \(moved\)\*\* · 2026-03-02 – 2026-03-04 → 2026-03-02 – 2026-03-09/);
+    expect(md).toMatch(/ship \(ship\)\*\* ◆ · new · 2026-03-20/);
+    expect(md).toContain("```mermaid\ngantt\n  title Demo App");
+
+    // Nothing moved: no schedule section and no gantt.
+    const same = diffProjects(loadBundle(root, { timeline: false }), loadBundle(root, { timeline: false }));
+    expect(same.schedule).toEqual([]);
+    expect(same.gantt).toBeUndefined();
   });
 });
 

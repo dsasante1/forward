@@ -12,6 +12,7 @@ import {
 import { dirname, join } from "node:path";
 import type { z } from "zod";
 import { diffBindings } from "../api-diff.js";
+import { isIsoDay } from "../gantt.js";
 import {
   MAX_IMPORT_ELEMENTS,
   designHash,
@@ -867,10 +868,19 @@ export class RepoStore {
     return this.readAll("tasks", Task);
   }
 
-  /** Upsert a task. `createdAt` survives, `updatedAt` is stamped, a missing key is assigned. */
+  /**
+   * Upsert a task. `createdAt` survives, `updatedAt` is stamped, a missing key is assigned.
+   * A new or changed `dueDate` must be an ISO date (or empty, to clear it); a free-form
+   * label written before that rule is kept as long as the write leaves it unchanged, so
+   * old tasks stay readable and editable (`forward validate` warns about them).
+   */
   saveTask(input: unknown): Task {
     const parsed = this.parse(Task, input, "task");
     const prior = this.readOne("tasks", parsed.id, Task);
+    const due = parsed.dueDate?.trim();
+    if (due && due !== prior?.dueDate?.trim() && !isIsoDay(due)) {
+      throw new RepoError(400, `Invalid task at dueDate: Due date must be an ISO date (YYYY-MM-DD), got "${due}".`);
+    }
     const now = this.iso();
     const next: Task = {
       ...parsed,

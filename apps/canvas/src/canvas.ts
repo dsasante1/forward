@@ -37,7 +37,7 @@ import {
   renderPanel,
 } from "./panel.js";
 import { renderTimelineView } from "./timeline-view.js";
-import { renderTasksView } from "./tasks-view.js";
+import { renderTasksView, type TasksMode } from "./tasks-view.js";
 import { renderMemberView } from "./member-view.js";
 import {
   type CanvasTheme,
@@ -428,6 +428,7 @@ let showTimeline = false; // show/hide the project endpoint-timeline panel
 let showTasks = false; // show/hide the project task-tracker panel
 let showTheme = false; // show/hide the theme editor drawer
 let taskFilterLinked = false; // restrict the task list to the current selection
+let taskMode: TasksMode = "list"; // the task panel's layout: list or timeline (Gantt)
 
 // The rail behaves as a set of mutually-exclusive workspace modes. `view` is the
 // single source of truth; the legacy `show*`/`flowOpen` booleans above are derived
@@ -882,8 +883,8 @@ function subscribeAll(): void {
     if (flowOpen) void renderFlowPanel(); // keep an open wiring diagram in sync
   });
   if (unsubAgents) disposers.push(unsubAgents);
-  // Tasks (pillar 4) — present only on sources that can persist them; the panel
-  // toggle is gated on saveTask, so a read-only source simply never shows it.
+  // Tasks (pillar 4) — present on sources that can list them; a read-only
+  // source (no saveTask) shows them without write controls.
   const unsubTasks = source.subscribeTasks?.((next) => {
     tasks.clear();
     for (const t of next) tasks.set(t.id, t);
@@ -973,9 +974,9 @@ function buildToolbar(): void {
   tlBtn.dataset.toggle = "timeline";
   tlBtn.classList.toggle("active", showTimeline);
   toolbar.append(tlBtn);
-  // The task tracker only shows when the source can persist tasks (offline
-  // fixture, mock and live all can; a read-only source omits saveTask).
-  if (source.saveTask) {
+  // The task tracker shows when the source can list tasks; a read-only source
+  // (the static export omits saveTask) gets it view-only.
+  if (source.subscribeTasks) {
     const tasksBtn = iconButton(tasksIcon(), "Tasks", toggleTasks);
     tasksBtn.dataset.toggle = "tasks";
     tasksBtn.classList.toggle("active", showTasks);
@@ -4341,6 +4342,13 @@ function saveGlyph(): SVGElement {
   return svg;
 }
 
+/** The viewer's calendar date as `YYYY-MM-DD` (local time, not UTC). */
+function localToday(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 /**
  * Render the task tracker. The list links into the design/infra layers: when an
  * element or flow is selected it offers a "only linked to selection" filter, and
@@ -4349,7 +4357,8 @@ function saveGlyph(): SVGElement {
  */
 function renderTasksPanel(): void {
   tasksEl.hidden = !showTasks;
-  if (!showTasks || !source.saveTask) return;
+  if (!showTasks || !source.subscribeTasks) return;
+  tasksEl.classList.toggle("tk-wide", taskMode === "timeline");
 
   // Derive the current focus (a selected element or flow) for filtering + the
   // pre-link on new tasks.
@@ -4387,9 +4396,16 @@ function renderTasksPanel(): void {
       filterLinked: hasFocus && taskFilterLinked,
       elementName: (id) => elements.get(id)?.name || elements.get(id)?.id,
       flowName: (id) => infraFlows.get(id)?.name,
+      mode: taskMode,
+      readOnly: !source.saveTask,
+      today: localToday(),
     },
     {
       onClose: toggleTasks,
+      onSetMode: (mode) => {
+        taskMode = mode;
+        renderTasksPanel();
+      },
       onToggleFilter: () => {
         taskFilterLinked = !taskFilterLinked;
         renderTasksPanel();

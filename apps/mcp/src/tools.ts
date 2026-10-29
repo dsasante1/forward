@@ -19,14 +19,18 @@ import {
   agentsToComponentMermaid,
   applyTaskChange,
   commentOnTask,
+  dayToIso,
   digest,
   entityToMermaid,
+  findDependencyCycles,
   flattenTimelines,
   flowToMermaid,
   infraToComponentMermaid,
   mapSnapshot,
   newTask,
   placeSnapshots,
+  taskSpan,
+  tasksToMermaidGantt,
   withoutBinding,
   type CaptureNode,
   type CurrentLabel,
@@ -249,7 +253,9 @@ server.registerTool(
     description:
       "Checks every file in .forward/ against the Forward schema, that file " +
       "names match record ids, that ids are unique, and (as warnings) that cross-layer links " +
-      "resolve. Run it before committing; CI runs the same check on pull requests.",
+      "resolve, that task due dates are ISO dates, and that task dependencies have no cycles. " +
+      "Run it before committing; CI runs the same check on pull requests (`forward validate " +
+      "--strict` fails on warnings too).",
     inputSchema: {},
   },
   async () => {
@@ -1660,8 +1666,8 @@ server.registerTool(
     description:
       "Read the project's task tracker — work items that stand apart from the design elements " +
       "but optionally link into them. Each task carries a type (bug / feature / task / milestone), status " +
-      "(todo / in_progress / blocked / done), priority, labels, assignees, a reporter, an optional " +
-      "due date, dependencies on other tasks, a running activity/comment feed, and optional links: " +
+      "(todo / in_progress / blocked / done), priority, labels, assignees, a reporter, optional " +
+      "start and due dates, dependencies on other tasks, a running activity/comment feed, and optional links: " +
       "elementId (a design element), flowId (a narrated infra flow), and endpointId (a documented " +
       "endpoint element). Filter by any " +
       "of these to answer e.g. \"what high-priority bugs are left for the signup flow?\". Returns a " +
@@ -1724,6 +1730,73 @@ server.registerTool(
   },
 );
 
+// --- read: the task timeline (Gantt) -----------------------------------------
+server.registerTool(
+  "get_task_timeline",
+  {
+    title: "Get the task timeline",
+    description:
+      "The project's tasks laid out on a calendar, the same schedule the canvas Timeline view " +
+      "draws: each task runs from its startDate (else the day it was created) to its ISO dueDate " +
+      "(else a single day); a milestone is one date. Returns `ganttDiagram`, a Mermaid gantt chart " +
+      "ready to paste into docs or a PR, the per-task spans, and `warnings` for schedule problems: " +
+      "due dates that aren't ISO dates, dependency cycles, missing dependencies, and tasks that " +
+      "start before a task they depend on is due. Use it to plan, or to check a schedule you set.",
+    inputSchema: {
+      title: z.string().optional().describe("Optional chart title."),
+    },
+  },
+  async ({ title }) => {
+    try {
+      const tasks = await fetchTasks(getConfig());
+      const byId = new Map(tasks.map((t) => [t.id, t]));
+      const name = (t: { id: string; key?: string }) => t.key ?? t.id;
+      const warnings: string[] = [];
+      const spans = tasks.map((t) => {
+        const s = taskSpan(t);
+        if (s.dueUnparsed) {
+          warnings.push(`${name(t)}: due date "${t.dueDate}" isn't an ISO date (YYYY-MM-DD), so it can't be plotted.`);
+        }
+        return s;
+      });
+      const spanById = new Map(spans.map((s) => [s.task.id, s]));
+      for (const s of spans) {
+        for (const d of s.task.dependsOn) {
+          const dep = spanById.get(d);
+          if (!dep) warnings.push(`${name(s.task)}: dependency "${d}" not found.`);
+          else if (d !== s.task.id && dep.end > s.start) {
+            warnings.push(
+              `${name(s.task)} starts ${dayToIso(s.start)}, before ${name(dep.task)} is due (${dayToIso(dep.end)}).`,
+            );
+          }
+        }
+      }
+      for (const cycle of findDependencyCycles(tasks)) {
+        const keys = cycle.map((id) => name(byId.get(id)!));
+        warnings.push(`Dependency cycle: ${[...keys, keys[0]].join(" → ")}.`);
+      }
+      return ok({
+        count: tasks.length,
+        ganttDiagram: tasksToMermaidGantt(tasks, title ? { title } : {}),
+        tasks: spans.map((s) => ({
+          id: s.task.id,
+          key: s.task.key,
+          title: s.task.title,
+          type: s.task.type,
+          status: s.task.status,
+          start: dayToIso(s.start),
+          end: dayToIso(s.end),
+          milestone: s.milestone,
+          dependsOn: s.task.dependsOn,
+        })),
+        warnings,
+      });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
 // --- write: create a task --------------------------------------------------
 server.registerTool(
   "create_task",
@@ -1745,8 +1818,12 @@ server.registerTool(
       priority: Task.shape.priority.describe("low, medium (default), high, or urgent."),
       labels: Task.shape.labels.describe("Free-form label names, e.g. backend, bug."),
       assignees: Task.shape.assignees.describe("uids from the project roster to assign."),
+      startDate: Task.shape.startDate.describe(
+        "Planned start, ISO yyyy-mm-dd. Without it the timeline starts the task on the day it was created.",
+      ),
       dueDate: Task.shape.dueDate.describe(
-        "Due date — for a milestone, its target date (ISO yyyy-mm-dd or a short label).",
+        "Due date, ISO yyyy-mm-dd — for a milestone, its target date. A free-form label like " +
+          "\"next week\" is rejected.",
       ),
       dependsOn: Task.shape.dependsOn.describe(
         "Task ids this one depends on (finish-to-start) — drives the timeline connectors.",
@@ -1776,7 +1853,7 @@ server.registerTool(
     title: "Update a task",
     description:
       "Change fields of an existing task without touching the rest — e.g. move it to in_progress " +
-      "or done, retype/reprioritize it, reassign it, relabel it, set a due date, edit the " +
+      "or done, retype/reprioritize it, reassign it, relabel it, set start/due dates, edit the " +
       "title/description, or set a link. Only the fields you pass change; the rest (and createdAt) " +
       "are preserved, and each change is recorded in the task's activity feed attributed to the " +
       "agent. The most common call is just flipping status.",
@@ -1789,7 +1866,14 @@ server.registerTool(
       priority: Task.shape.priority.optional().describe("New priority."),
       labels: Task.shape.labels.optional().describe("Replace the label list."),
       assignees: Task.shape.assignees.optional().describe("Replace the assignee uid list."),
-      dueDate: Task.shape.dueDate.describe("New due date."),
+      startDate: z
+        .string()
+        .optional()
+        .describe("New start date, ISO yyyy-mm-dd; an empty string clears it."),
+      dueDate: Task.shape.dueDate.describe(
+        "New due date, ISO yyyy-mm-dd; an empty string clears it. A task filed before due dates had " +
+          "to be ISO keeps its old label until you change it.",
+      ),
       dependsOn: Task.shape.dependsOn.optional().describe("Replace the dependency task-id list."),
       elementId: z.string().optional().describe("Link to a design element id."),
       flowId: z.string().optional().describe("Link to an infra flow id."),
@@ -1802,9 +1886,11 @@ server.registerTool(
       const prev = (await fetchTasks(cfg)).find((t) => t.id === taskId);
       if (!prev) return fail(`No task with id "${taskId}".`);
       // Drop keys the caller omitted so they don't clobber existing values.
-      const clean = Object.fromEntries(
+      const clean: Record<string, unknown> = Object.fromEntries(
         Object.entries(patch).filter(([, v]) => v !== undefined),
       );
+      // An empty start date clears it (the key stays so the change is logged).
+      if (patch.startDate === "") clean.startDate = undefined;
       const next = applyTaskChange(prev, clean, AGENT);
       await saveTask(cfg, next);
       return ok({ id: next.id, status: next.status, action: "updated" });

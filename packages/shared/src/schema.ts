@@ -702,7 +702,25 @@ export const Task = z.object({
   assignees: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
   /** uid of the member who filed the task. */
   reporter: z.string().max(SHORT_TEXT_MAX).optional(),
-  /** Free-form due-date label (an ISO date or a short label like "Jun 24"). */
+  /**
+   * Optional planned start, a calendar date `YYYY-MM-DD`. The timeline (Gantt)
+   * view starts the task's bar here; without it the bar starts on the day the
+   * task was created. Strict, unlike `dueDate`, so every stored value plots.
+   */
+  startDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Start date must be an ISO date (YYYY-MM-DD).")
+    .refine((s) => {
+      const ms = Date.parse(`${s}T00:00:00Z`);
+      return !Number.isNaN(ms) && new Date(ms).toISOString().startsWith(s);
+    }, "Start date must be a real calendar date.")
+    .optional(),
+  /**
+   * Due date, `YYYY-MM-DD`. Read leniently on purpose: tasks filed before due
+   * dates had to be ISO may hold a label like "Jun 24", and a stricter schema
+   * would make the store skip those files entirely. `RepoStore.saveTask`
+   * rejects a new or changed non-ISO value; `forward validate` warns on old ones.
+   */
   dueDate: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Optional link to the design element this task concerns. */
   elementId: z.string().max(SHORT_TEXT_MAX).optional(),

@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { z } from "zod";
+import { findDependencyCycles, parseTaskDay } from "../gantt.js";
 import {
   AgentNode,
   Checkpoint,
@@ -144,6 +145,15 @@ export function validateRepo(root: string): ValidationIssue[] {
     for (const d of t.dependsOn as string[]) {
       if (!has("tasks", d)) warn(file, `Dependency "${d}" not found.`);
     }
+    if (t.dueDate?.trim() && parseTaskDay(t.dueDate) === null) {
+      warn(file, `Due date "${t.dueDate}" isn't an ISO date (YYYY-MM-DD), so the timeline can't plot it.`);
+    }
+  }
+  const tasks = [...loaded.tasks.values()];
+  for (const cycle of findDependencyCycles(tasks.map((t) => t.value))) {
+    const keys = cycle.map((id) => loaded.tasks.get(id)!.value.key || id);
+    const path = [...keys, keys[0]].join(" → ");
+    for (const id of cycle) warn(loaded.tasks.get(id)!.file, `Dependency cycle: ${path}.`);
   }
   return issues;
 }

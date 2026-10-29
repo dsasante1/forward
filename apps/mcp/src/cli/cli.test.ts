@@ -113,6 +113,40 @@ describe("tools through the in-memory client (repo mode)", () => {
     const valid = JSON.parse((await callTool("validate_project", {})).text);
     expect(valid.valid).toBe(true);
   });
+
+  it("schedules tasks and reports them as a gantt timeline", async () => {
+    const { callTool } = await import("./call.js");
+    const create = async (args: Record<string, unknown>) => {
+      const res = await callTool("create_task", args);
+      expect(res.isError, res.text).toBe(false);
+      return JSON.parse(res.text) as { id: string; key: string };
+    };
+    const api = await create({ title: "Build: the API", startDate: "2026-11-02", dueDate: "2026-11-06" });
+    const ui = await create({ title: "UI", startDate: "2026-11-04", dueDate: "2026-11-10", dependsOn: [api.id] });
+    for (const dates of [{ startDate: "next week" }, { dueDate: "Nov 20" }]) {
+      const bad = await callTool("create_task", { title: "Nope", ...dates });
+      expect(bad.isError).toBe(true);
+      expect(bad.text).toMatch(/ISO date/);
+    }
+    // A milestone filed before due dates had to be ISO still loads, with a warning.
+    const legacy = { id: "legacy", key: "FWD-9", title: "Launch", type: "milestone", dueDate: "Nov 20" };
+    const stamp = "2026-10-01T00:00:00.000Z";
+    writeFileSync(join(root, ".forward/tasks/legacy.json"), JSON.stringify({ ...legacy, createdAt: stamp, updatedAt: stamp }));
+
+    const timeline = JSON.parse((await callTool("get_task_timeline", {})).text);
+    expect(timeline.ganttDiagram).toMatch(new RegExp(`\\n  ${api.key} Build꞉ the API :t\\d, 2026-11-02, 5d\\n`));
+    expect(timeline.tasks.find((t: { id: string }) => t.id === ui.id)).toMatchObject({ start: "2026-11-04", end: "2026-11-10" });
+    expect(timeline.warnings).toEqual([
+      expect.stringMatching(/due date "Nov 20" isn't an ISO date/),
+      `${ui.key} starts 2026-11-04, before ${api.key} is due (2026-11-06).`,
+    ]);
+
+    // An empty start date clears it, and the change is logged.
+    expect((await callTool("update_task", { taskId: ui.id, startDate: "" })).isError).toBe(false);
+    const task = JSON.parse((await callTool("get_task", { taskId: ui.id })).text).task;
+    expect(task.startDate).toBeUndefined();
+    expect(task.activity.at(-1)).toMatchObject({ verb: "cleared the start date" });
+  });
 });
 
 const BUILT_CLI = join(import.meta.dirname, "../../dist/cli.js");
