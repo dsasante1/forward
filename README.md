@@ -9,7 +9,7 @@ integrate, change or remove.
 
 - **Lives in git.** The whole project is plain JSON in `.forward/`, one file per record. It is
   versioned, reviewed and merged with the code it describes. No server and no account are needed.
-- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 39 tools with full
+- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 40 tools with full
   parity with the canvas. Agents without MCP use the same tools through the `forward` CLI.
 - **GitHub native.** One workflow validates `.forward/` on pull requests, posts a catch-up digest
   as a PR comment, and publishes a read-only canvas to GitHub Pages.
@@ -55,7 +55,7 @@ configuration is needed: the server finds the nearest `.forward/` and works on t
 **Without MCP**, the CLI calls the very same tool code in-process:
 
 ```bash
-forward tools                                   # list all 39 tools
+forward tools                                   # list all 40 tools
 forward tools write_documentation               # one tool's arguments
 forward find_element --query "login button"
 forward write_documentation --element-id el_123 --title "POST /login" --description "Body: email, password"
@@ -195,7 +195,7 @@ stays in sync.
 | **Infrastructure** | A project-scoped graph of `InfraNode`s + `InfraEdge`s (frontend, backend, db, cache, queue, service, devops, external, group), rendered as an overlay | project |
 | **Flows** | Narrated `InfraFlow`s — ordered hops over the infra nodes — that serialize to a Mermaid `sequenceDiagram` and can tie a hop to an endpoint | infra graph |
 | **Entities (ER/UML)** | A project-scoped data model of `Entity` tables + crow's-foot `EntityRelation`s, serialized to a Mermaid `erDiagram` | project |
-| **Tasks** | A work tracker (`Task`: status/priority/type, assignees, `dependsOn`, activity feed) that *optionally links* into a design element / flow / endpoint | project (soft links) |
+| **Tasks** | A work tracker (`Task`: status/priority/type, assignees, start/due dates, `dependsOn`, activity feed) that *optionally links* into a design element / flow / endpoint, with a timeline (Gantt) view | project (soft links) |
 | **Checkpoints** | Named, restorable snapshots of the whole canvas (design + infra) — a deliberate save with a note | project |
 
 On top of these sits the **History timeline**: a per-element append-only API-doc history

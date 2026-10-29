@@ -71,12 +71,17 @@ prefer these tools over guessing state.
 2. **`get_task`** to read one task in full *including its activity/comment feed* — do this to
    catch up before you change or comment on a task, so you act on the current state.
 3. **`create_task`** to file work (title + optional type/status/priority/labels/assignees/
-   dueDate/links). A sequential `FWD-NN` key and the agent as reporter are assigned for you.
-4. **`update_task`** to change fields (status, type, priority, labels, assignees, dueDate,
-   title/description, links). Only the fields you pass change; each is logged in the feed.
+   startDate/dueDate/dependsOn/links). Dates must be ISO `yyyy-mm-dd`; a label like
+   "next week" is rejected. A sequential `FWD-NN` key and the agent as reporter are assigned for you.
+4. **`update_task`** to change fields (status, type, priority, labels, assignees, startDate,
+   dueDate, dependsOn, title/description, links). Only the fields you pass change; each is
+   logged in the feed. Pass `startDate: ""` to clear a start date.
 5. **`comment_task`** to post into the discussion thread humans use — report progress, ask a
    question, or record a decision. Read with `get_task` first so it lands in context.
 6. **`delete_task`** to remove a work item (its linked layers are untouched).
+7. **`get_task_timeline`** for the schedule: per-task start/end, a Mermaid `gantt` chart to
+   paste into docs or a PR, and `warnings` (unplottable due dates, dependency cycles, tasks
+   starting before a dependency is due). Check it after you set dates or dependencies.
 
 ## Workflow 5 — A screen exists in code but has no design
 

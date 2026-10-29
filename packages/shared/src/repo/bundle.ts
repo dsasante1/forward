@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { diffBindings } from "../api-diff.js";
+import { dayToIso, parseTaskDay, taskSpan, tasksToMermaidGantt } from "../gantt.js";
 import type {
   AgentNode,
   Checkpoint,
@@ -78,9 +79,22 @@ export interface LayerChange {
   removed: string[];
 }
 
+/** A task whose place on the timeline changed (or a new task with dates). */
+export interface ScheduleChange {
+  task: string;
+  milestone: boolean;
+  /** Its span before (`YYYY-MM-DD`, inclusive); absent for a new task. */
+  before?: { start: string; end: string };
+  after: { start: string; end: string };
+}
+
 export interface ProjectDiff {
   api: { toIntegrate: EndpointChange[]; toModify: EndpointChange[]; toRemove: EndpointChange[] };
   layers: LayerChange[];
+  /** Tasks that moved on the timeline. Removed tasks are in `layers`. */
+  schedule: ScheduleChange[];
+  /** The head's task timeline as a Mermaid `gantt`, when `schedule` is non-empty. */
+  gantt?: string;
   /**
    * Drafts generated from code that were adopted (their `origin` removed):
    * the design, not the code, is now the source of truth for them. Kept out
@@ -135,7 +149,39 @@ export function diffProjects(before: ProjectBundle | undefined, after: ProjectBu
     .filter((e) => !e.origin && prevEls.get(e.id)?.origin)
     .map((e) => label(e));
 
-  return { api, layers, adopted };
+  const schedule = scheduleChanges(before?.tasks ?? [], after.tasks);
+  return {
+    api,
+    layers,
+    schedule,
+    ...(schedule.length ? { gantt: tasksToMermaidGantt(after.tasks, { title: after.project.name }) } : {}),
+    adopted,
+  };
+}
+
+/**
+ * Tasks whose span moved, plus new tasks the author actually dated (an undated
+ * new task is just "created today", already counted in the Tasks layer row).
+ */
+function scheduleChanges(before: Task[], after: Task[]): ScheduleChange[] {
+  const prev = byId(before);
+  const span = (t: Task) => {
+    const s = taskSpan(t);
+    return { start: dayToIso(s.start), end: dayToIso(s.end) };
+  };
+  const out: ScheduleChange[] = [];
+  for (const t of after) {
+    const a = prev.get(t.id);
+    const next = span(t);
+    const milestone = t.type === "milestone";
+    if (!a) {
+      if (t.startDate || parseTaskDay(t.dueDate) !== null) out.push({ task: label(t), milestone, after: next });
+      continue;
+    }
+    const was = span(a);
+    if (was.start !== next.start || was.end !== next.end) out.push({ task: label(t), milestone, before: was, after: next });
+  }
+  return out;
 }
 
 function entryKey(e: VersionEntry): string {
@@ -184,7 +230,12 @@ export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; vi
   const { toIntegrate, toModify, toRemove } = diff.api;
   const lines: string[] = [DIGEST_MARKER, `## ${opts.title ?? "Forward catch-up"}`, ""];
   const empty =
-    !toIntegrate.length && !toModify.length && !toRemove.length && !diff.layers.length && !diff.adopted.length;
+    !toIntegrate.length &&
+    !toModify.length &&
+    !toRemove.length &&
+    !diff.layers.length &&
+    !diff.schedule.length &&
+    !diff.adopted.length;
   if (empty) {
     lines.push("No changes to the design, API docs, infrastructure or data model.");
     return lines.join("\n") + "\n";
@@ -220,6 +271,20 @@ export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; vi
     lines.push("### Other layers", "", "| Layer | Added | Changed | Removed |", "|---|---|---|---|");
     for (const l of diff.layers) {
       lines.push(`| ${l.layer} | ${cell(l.added)} | ${cell(l.modified)} | ${cell(l.removed)} |`);
+    }
+    lines.push("");
+  }
+  if (diff.schedule.length) {
+    const when = (s: { start: string; end: string }, milestone: boolean) =>
+      milestone || s.start === s.end ? s.start : `${s.start} – ${s.end}`;
+    lines.push("### Schedule", "");
+    for (const c of diff.schedule) {
+      const now = when(c.after, c.milestone);
+      const moved = c.before ? `${when(c.before, c.milestone)} → ${now}` : `new · ${now}`;
+      lines.push(`- **${escapeMd(c.task)}**${c.milestone ? " ◆" : ""} · ${moved}`);
+    }
+    if (diff.gantt) {
+      lines.push("", "<details><summary>Task timeline</summary>", "", "```mermaid", diff.gantt, "```", "", "</details>");
     }
     lines.push("");
   }

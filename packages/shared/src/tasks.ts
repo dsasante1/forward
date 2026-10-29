@@ -82,6 +82,7 @@ export interface NewTaskInput {
   labels?: string[];
   assignees?: string[];
   reporter?: string;
+  startDate?: string;
   dueDate?: string;
   elementId?: string;
   flowId?: string;
@@ -120,6 +121,7 @@ export type TaskPatch = Partial<
     | "priority"
     | "labels"
     | "assignees"
+    | "startDate"
     | "dueDate"
     | "elementId"
     | "flowId"
@@ -139,7 +141,7 @@ const LINK_LABEL: Record<"elementId" | "flowId" | "endpointId", string> = {
  * actually changed produce an event; a no-op patch still re-stamps updatedAt.
  * Pass a field as `undefined` (e.g. `{ elementId: undefined }`) to CLEAR it —
  * the key's presence in the patch, not its value, signals intent for nullable
- * fields (links, dueDate).
+ * fields (links, startDate, dueDate).
  */
 export function applyTaskChange(
   prev: Task,
@@ -170,6 +172,13 @@ export function applyTaskChange(
     ev({
       verb: prev.description.trim() ? "edited the description" : "added a description",
     });
+  }
+  if ("startDate" in patch && (patch.startDate ?? "") !== (prev.startDate ?? "")) {
+    ev(
+      patch.startDate
+        ? { verb: "set start date", target: patch.startDate }
+        : { verb: "cleared the start date" },
+    );
   }
   if ("dueDate" in patch && (patch.dueDate ?? "") !== (prev.dueDate ?? "")) {
     ev(

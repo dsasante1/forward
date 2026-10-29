@@ -1374,6 +1374,87 @@ code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-
 }
 button.tk-chip:hover { border-color: var(--accent); color: #fff; }
 .tk-chip-stale { opacity: .5; text-decoration: line-through; }
+span.tk-dot { cursor: default; }
+span.tk-dot:hover { filter: none; }
+
+/* layout toggle (List | Timeline) */
+.tk-modes {
+  display: flex; margin-left: auto; margin-right: 6px; padding: 2px; gap: 2px;
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 8px;
+}
+.tk-mode {
+  border: none; background: transparent; color: var(--muted); font: inherit; font-size: 12px;
+  padding: 4px 10px; border-radius: 6px; cursor: pointer;
+}
+.tk-mode:hover { color: var(--text); }
+.tk-mode[aria-pressed="true"] { background: var(--surface-4); color: var(--text); }
+
+/* timeline (Gantt): the panel widens to the whole canvas area */
+#tasks.tk-wide { left: 12px; width: auto; }
+.tk-gantt {
+  overflow: auto; max-height: calc(100vh - 220px);
+  border: 1px solid var(--line-2); border-radius: 10px; background: var(--surface);
+  --tk-feature: var(--ok); --tk-bug: var(--err); --tk-task: var(--infra); --tk-milestone: var(--flow);
+}
+.tk-g-grid { display: grid; position: relative; }
+.tk-g-corner {
+  position: sticky; top: 0; left: 0; z-index: 4;
+  background: var(--surface); border-right: 1px solid var(--line-2); border-bottom: 1px solid var(--line-2);
+}
+.tk-g-axis {
+  position: sticky; top: 0; z-index: 3;
+  background: var(--surface); border-bottom: 1px solid var(--line-2);
+}
+.tk-g-week, .tk-g-day {
+  position: absolute; display: flex; align-items: center;
+  font-family: var(--mono); font-size: 10px; color: var(--faint);
+}
+.tk-g-week { padding-left: 6px; border-left: 1px solid var(--line-2); letter-spacing: .08em; text-transform: uppercase; }
+.tk-g-day { justify-content: center; }
+.tk-g-weekend { opacity: .55; }
+.tk-g-today-num { color: var(--accent); font-weight: 700; }
+.tk-g-labels {
+  position: sticky; left: 0; z-index: 2;
+  background: var(--surface); border-right: 1px solid var(--line-2);
+}
+.tk-g-sec, .tk-g-label { position: absolute; display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.tk-g-sec {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
+  background: var(--surface-2);
+}
+.tk-g-label {
+  border: none; background: transparent; color: var(--text); font: inherit; font-size: 12.5px; text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+button.tk-g-label { cursor: pointer; }
+button.tk-g-label:hover .tk-g-title { color: var(--accent); }
+.tk-g-key { flex: none; font-family: var(--mono); font-size: 10px; color: var(--muted-2); }
+.tk-g-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-g-done .tk-g-title { text-decoration: line-through; color: var(--muted-2); }
+.tk-g-body { position: relative; overflow: hidden; }
+.tk-g-body > div { position: absolute; }
+.tk-g-stripe { background: var(--line); }
+.tk-g-secband { background: var(--surface-2); }
+.tk-g-today { background: var(--accent); opacity: .8; z-index: 1; }
+.tk-g-links { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; overflow: visible; }
+.tk-g-link { fill: none; stroke: var(--muted-2); stroke-width: 1.4; }
+.tk-g-linkdot { fill: var(--muted-2); }
+.tk-g-link.tk-g-conflict { stroke: var(--err); stroke-dasharray: 4 3; }
+.tk-g-linkdot.tk-g-conflict { fill: var(--err); }
+.tk-g-bar {
+  z-index: 2; overflow: hidden; border-radius: 5px;
+  border: 1px solid var(--tk-type); background: color-mix(in srgb, var(--tk-type) 22%, transparent);
+}
+.tk-g-fill { height: 100%; background: var(--tk-type); opacity: .75; }
+.tk-g-done { opacity: .55; }
+.tk-g-blocked { border-style: dashed; }
+.tk-g-unplotted { border-right-style: dotted; }
+.tk-g-clipped { border-left-style: dotted; border-right-style: dotted; }
+.tk-g-milestone { z-index: 2; transform: rotate(45deg); border-radius: 2px; background: var(--tk-type); }
+.tk-type-feature { --tk-type: var(--tk-feature); }
+.tk-type-bug { --tk-type: var(--tk-bug); }
+.tk-type-task { --tk-type: var(--tk-task); }
+.tk-type-milestone { --tk-type: var(--tk-milestone); }
 
 /* --- theme drawer --- */
 .th-head {

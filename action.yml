@@ -15,7 +15,9 @@ inputs:
     description: Run `forward validate` and fail on schema errors.
     default: "true"
   strict:
-    description: Also fail on warnings (dangling cross-layer links).
+    description: >-
+      Also fail on warnings (dangling cross-layer links, task due dates that aren't ISO dates,
+      task dependency cycles).
     default: "false"
   comment:
     description: On pull requests, post or update one comment with the catch-up digest.
