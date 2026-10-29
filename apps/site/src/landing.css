@@ -1,5 +1,5 @@
 /*
- * Landing page — warm editorial / technical aesthetic.
+ * Landing page — mono & lime editorial / technical aesthetic.
  * Everything is scoped under `.landing` so the docs page keeps its own
  * look (docs.css). Typeset in Space Grotesk + JetBrains Mono (loaded from
  * Google Fonts in index.html). Ported from the "Forward Platform" design.
@@ -9,35 +9,41 @@
   /* tokens (scoped — do not leak into the app) */
   /* light-dark(light, dark): resolved by the inherited color-scheme (styles.css
      sets it from the OS preference, or the theme toggle's data-theme). */
-  --bg: light-dark(#efe8da, #15130f);
-  --panel: light-dark(#faf6ee, #1d1a15);
-  --panel-bright: light-dark(#fffdf8, #24201a);
-  --bar: light-dark(#f3ede1, #1a1813);
-  --rail: light-dark(#f5efe3, #1b1914);
-  --ink: light-dark(#1c1a15, #ece5d6);
-  --muted: light-dark(#57514a, #b4ac9d);
-  --soft: light-dark(#6a6358, #a39b8c);
-  --faint: light-dark(#9c9488, #7f7869);
+  --bg: light-dark(#f5f5f2, #0a0a0a);
+  --panel: light-dark(#fbfbf9, #121212);
+  --panel-bright: light-dark(#ffffff, #181818);
+  --bar: light-dark(#f8f8f6, #0e0e0e);
+  --rail: light-dark(#f9f9f7, #0f0f0f);
+  --ink: light-dark(#111111, #f0f0ec);
+  --muted: light-dark(#4f4f4c, #b0b0aa);
+  --soft: light-dark(#696965, #969690);
+  --faint: light-dark(#8f8f8a, #6e6e6a);
   --hair: color-mix(in srgb, var(--ink) 10%, transparent);
   --line: color-mix(in srgb, var(--ink) 14%, transparent);
   --line-strong: color-mix(in srgb, var(--ink) 18%, transparent);
-  --accent: light-dark(#bf5a36, #e07a52);
-  --accent2: light-dark(#3a6ea8, #7aa5dc);
-  --layer-design: light-dark(#3a6ea8, #7aa5dc);
-  --layer-api: light-dark(#bf5a36, #e07a52);
-  --layer-infra: light-dark(#8a6db0, #a98fd0);
-  --layer-tasks: light-dark(#a98f5e, #c9ad78);
+  --accent: light-dark(#4d7c0f, #b5f23d);
+  --accent2: light-dark(#3b5bdb, #7c9bff);
+  --layer-design: light-dark(#3b5bdb, #7c9bff);
+  --layer-api: light-dark(#4d7c0f, #b5f23d);
+  --layer-infra: light-dark(#9c4fd6, #c69cf5);
+  --layer-tasks: light-dark(#b06f17, #e8a64c);
   /* text on fills painted in --ink (dark buttons, entity headers) */
-  --on-ink: light-dark(#f1ece1, #15130f);
+  --on-ink: light-dark(#ffffff, #0a0a0a);
+  /* text on fills painted in --accent (and the layer colours): lime needs dark text */
+  --on-accent: light-dark(#ffffff, #0a0a0a);
   /* the closing CTA / AI bands stay dark in both themes */
-  --band: light-dark(#1c1a15, #24201a);
-  --band-edge: light-dark(transparent, rgba(236, 229, 214, 0.1));
+  --band: light-dark(#111111, #181818);
+  --band-edge: light-dark(transparent, rgba(240, 240, 236, 0.1));
+  --band-text: #f0f0ec;
+  --band-muted: #b0b0aa;
+  --band-faint: #8f8f8a;
+  --band-accent: #b5f23d;
   /* shadows stay dark rather than inverting with --ink */
-  --shadow: light-dark(#1c1a16, #000);
-  --rule: light-dark(#b6ab97, #5a5347);
-  --swatch: light-dark(#cdbfa6, #4d473d);
-  --edge: light-dark(#b9af9c, #5f584b);
-  --check-idle: light-dark(#c2b8a4, #5a5347);
+  --shadow: light-dark(#111111, #000);
+  --rule: light-dark(#b5b5b3, #4a4a49);
+  --swatch: light-dark(#c7c7c5, #383837);
+  --edge: light-dark(#babab7, #464645);
+  --check-idle: light-dark(#bebebc, #414140);
   --ok: light-dark(#5b8c6e, #7fbf95);
   --bad: light-dark(#b34a3a, #e8806c);
 
@@ -52,7 +58,7 @@
   overflow-x: hidden;
 }
 .landing ::selection {
-  background: rgba(191, 90, 54, 0.22);
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 /* dotted blueprint backdrop */
@@ -146,7 +152,7 @@
 }
 .l-btn-accent {
   background: var(--accent);
-  color: #fff7f0;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .l-btn-accent:hover {
@@ -535,7 +541,7 @@
 }
 .l-avatar {
   border-radius: 50%;
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
   display: flex;
   align-items: center;
@@ -798,11 +804,11 @@
   line-height: 1.85;
 }
 .l-code .ln { color: #7d7a86; }
-.l-code .kw { color: #c98a6b; }
+.l-code .kw { color: var(--band-accent); }
 .l-code .fn { color: #9db4d6; }
 .l-code .cm { color: #6f6c78; }
 .l-code .hl {
-  background: rgba(191, 90, 54, 0.16);
+  background: color-mix(in srgb, var(--band-accent) 12%, transparent);
   margin: 0 -18px;
   padding: 0 18px;
 }
@@ -834,11 +840,11 @@
 .l-fpanel-ep { font-size: 12px; color: #e6e2ea; margin-bottom: 14px; }
 .l-fpanel-hr { height: 1px; background: #322f38; margin-bottom: 13px; }
 .l-fpanel-doc { font-size: 11px; color: #8b8893; line-height: 1.7; }
-.l-fpanel-doc .kw { color: #c98a6b; }
+.l-fpanel-doc .kw { color: var(--band-accent); }
 .l-fpanel-save {
   margin-top: 16px;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   text-align: center;
   font-size: 11.5px;
   padding: 8px;
@@ -963,11 +969,14 @@
   padding-bottom: 100px;
 }
 .l-cta {
+  /* the band is dark in both themes, so it takes the dark theme's accent */
+  --accent: var(--band-accent);
+  --on-accent: #0a0a0a;
   position: relative;
   border-radius: 16px;
   background: var(--band);
   box-shadow: inset 0 0 0 1px var(--band-edge);
-  color: #f1ece1;
+  color: var(--band-text);
   padding: 72px 56px;
   overflow: hidden;
   text-align: center;
@@ -975,7 +984,7 @@
 .l-cta-dots {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(241, 236, 225, 0.06) 1px, transparent 1.4px);
+  background-image: radial-gradient(color-mix(in srgb, var(--band-text) 6%, transparent) 1px, transparent 1.4px);
   background-size: 24px 24px;
   pointer-events: none;
 }
@@ -995,7 +1004,7 @@
   max-width: 46ch;
   font-size: 17px;
   line-height: 1.6;
-  color: #c2bbac;
+  color: var(--band-muted);
 }
 .l-cta-actions {
   display: flex;
@@ -1007,18 +1016,18 @@
 }
 .l-btn-ghost-light {
   background: transparent;
-  color: #f1ece1;
-  border-color: rgba(241, 236, 225, 0.28);
+  color: var(--band-text);
+  border-color: color-mix(in srgb, var(--band-text) 28%, transparent);
 }
 .l-btn-ghost-light:hover {
-  background: rgba(241, 236, 225, 0.08);
+  background: color-mix(in srgb, var(--band-text) 8%, transparent);
 }
 .l-cta-fine {
   margin-top: 26px;
   font-family: var(--mono);
   font-size: 12px;
   letter-spacing: 0.08em;
-  color: #8b8478;
+  color: var(--band-faint);
 }
 
 /* copyable install command inside the closing CTA */
@@ -1029,12 +1038,12 @@
   max-width: 100%;
   margin-top: 34px;
   padding: 10px 10px 10px 18px;
-  border: 1px solid rgba(241, 236, 225, 0.2);
+  border: 1px solid color-mix(in srgb, var(--band-text) 20%, transparent);
   border-radius: 8px;
-  background: rgba(241, 236, 225, 0.06);
+  background: color-mix(in srgb, var(--band-text) 6%, transparent);
   font-family: var(--mono);
   font-size: 14px;
-  color: #f1ece1;
+  color: var(--band-text);
 }
 .l-install code {
   min-width: 0;
@@ -1053,13 +1062,13 @@
   font-size: 12px;
   padding: 6px 12px;
   border-radius: 5px;
-  border: 1px solid rgba(241, 236, 225, 0.28);
+  border: 1px solid color-mix(in srgb, var(--band-text) 28%, transparent);
   background: transparent;
-  color: #f1ece1;
+  color: var(--band-text);
   cursor: pointer;
 }
 .l-install-copy:hover {
-  background: rgba(241, 236, 225, 0.08);
+  background: color-mix(in srgb, var(--band-text) 8%, transparent);
 }
 
 /* ---------- footer ---------- */
@@ -1454,11 +1463,14 @@
 
 /* ---------- AI-native band ---------- */
 .l-aiband {
+  /* the band is dark in both themes, so it takes the dark theme's accent */
+  --accent: var(--band-accent);
+  --on-accent: #0a0a0a;
   position: relative;
   border-radius: 16px;
   background: var(--band);
   box-shadow: inset 0 0 0 1px var(--band-edge);
-  color: #f1ece1;
+  color: var(--band-text);
   padding: 52px 56px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1469,7 +1481,7 @@
 .l-aiband-dots {
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(241, 236, 225, 0.05) 1px, transparent 1.4px);
+  background-image: radial-gradient(color-mix(in srgb, var(--band-text) 5%, transparent) 1px, transparent 1.4px);
   background-size: 24px 24px;
   pointer-events: none;
 }
@@ -1489,7 +1501,7 @@
   max-width: 60ch;
   font-size: 16px;
   line-height: 1.65;
-  color: #c2bbac;
+  color: var(--band-muted);
 }
 .l-aiband-stat {
   position: relative;
@@ -1506,7 +1518,7 @@
   font-family: var(--mono);
   font-size: 11px;
   letter-spacing: 0.16em;
-  color: #8b8478;
+  color: var(--band-faint);
   text-transform: uppercase;
   margin-top: 10px;
 }

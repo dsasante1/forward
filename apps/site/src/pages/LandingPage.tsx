@@ -9,7 +9,8 @@ import "../landing.css";
  * is plain JSON in `.forward/` inside the team's own repository, so there is
  * nothing to sign into here, only docs, the live demo and the source.
  *
- * Aesthetic: warm editorial / technical — a cream canvas in Space Grotesk +
+ * Aesthetic: mono & lime editorial / technical — near-black on off-white (or
+ * the reverse in dark mode) with a lime accent, in Space Grotesk +
  * JetBrains Mono with hand-built product mockups (canvas, VS Code panel,
  * capture terminal, infra graph, ER model, timeline).
  */
