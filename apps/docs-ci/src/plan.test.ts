@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { BindingInput, EntityInput, McpServerInput, Plan } from "./plan.js";
+import { GridPlacer } from "./layout.js";
+import { AgentInput, BindingInput, EntityInput, InfraNodeInput, McpServerInput, Plan } from "./plan.js";
 
 describe("forward-docs plan contract", () => {
   it("defaults every layer to empty and the version to 1", () => {
@@ -46,6 +47,21 @@ describe("forward-docs plan contract", () => {
     expect(() =>
       McpServerInput.parse({ id: "mcp_1", label: "forward-mcp" }),
     ).not.toThrow();
+  });
+
+  it("leaves omitted geometry unset so a re-run never resizes or reparents an existing box", () => {
+    const inputs = [
+      EntityInput.parse({ id: "ent_user", name: "User" }),
+      InfraNodeInput.parse({ id: "n1", kind: "backend", label: "API" }),
+      McpServerInput.parse({ id: "mcp_1", label: "forward-mcp" }),
+      AgentInput.parse({ id: "ag_1", label: "Reviewer" }),
+    ];
+    for (const input of inputs) {
+      for (const k of ["x", "y", "width", "height", "parentId"]) expect(input).not.toHaveProperty(k);
+    }
+    // What that protects: a box someone resized and nested keeps its geometry.
+    const previous = { x: 40, y: 50, width: 333, height: 222, parentId: "frame_1" };
+    expect(new GridPlacer([]).place(inputs[0]!, previous, 180, 120)).toEqual(previous);
   });
 
   it("rejects an unknown infra kind (still bound by the canonical schema)", () => {

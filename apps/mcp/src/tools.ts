@@ -1673,9 +1673,11 @@ server.registerTool(
       "of these to answer e.g. \"what high-priority bugs are left for the signup flow?\". Returns a " +
       "summary per task; call get_task for one task's full body + activity. Start here to reuse ids.",
     inputSchema: {
-      status: Task.shape.status.optional().describe("Only tasks in this status."),
-      type: Task.shape.type.optional().describe("Only tasks of this type."),
-      priority: Task.shape.priority.optional().describe("Only tasks at this priority."),
+      // unwrap() drops the field's default: zod 4 would fill it into an omitted
+      // optional filter, so a bare list_tasks would list only todo tasks.
+      status: Task.shape.status.unwrap().optional().describe("Only tasks in this status."),
+      type: Task.shape.type.unwrap().optional().describe("Only tasks of this type."),
+      priority: Task.shape.priority.unwrap().optional().describe("Only tasks at this priority."),
       label: z.string().optional().describe("Only tasks carrying this label."),
       assignee: z.string().optional().describe("Only tasks assigned to this uid."),
       elementId: z.string().optional().describe("Only tasks linked to this design element id."),
@@ -1861,11 +1863,13 @@ server.registerTool(
       taskId: z.string().min(1).describe("The task id to update (from list_tasks)."),
       title: z.string().min(1).optional().describe("New title."),
       description: z.string().optional().describe("New Markdown description."),
-      type: Task.shape.type.optional().describe("New type (incl. milestone)."),
-      status: Task.shape.status.optional().describe("New status."),
-      priority: Task.shape.priority.optional().describe("New priority."),
-      labels: Task.shape.labels.optional().describe("Replace the label list."),
-      assignees: Task.shape.assignees.optional().describe("Replace the assignee uid list."),
+      // unwrap() drops each field's default: zod 4 would fill it into an omitted
+      // optional field, so every update would reset what it didn't mention.
+      type: Task.shape.type.unwrap().optional().describe("New type (incl. milestone)."),
+      status: Task.shape.status.unwrap().optional().describe("New status."),
+      priority: Task.shape.priority.unwrap().optional().describe("New priority."),
+      labels: Task.shape.labels.unwrap().optional().describe("Replace the label list."),
+      assignees: Task.shape.assignees.unwrap().optional().describe("Replace the assignee uid list."),
       startDate: z
         .string()
         .optional()
@@ -1874,7 +1878,7 @@ server.registerTool(
         "New due date, ISO yyyy-mm-dd; an empty string clears it. A task filed before due dates had " +
           "to be ISO keeps its old label until you change it.",
       ),
-      dependsOn: Task.shape.dependsOn.optional().describe("Replace the dependency task-id list."),
+      dependsOn: Task.shape.dependsOn.unwrap().optional().describe("Replace the dependency task-id list."),
       elementId: z.string().optional().describe("Link to a design element id."),
       flowId: z.string().optional().describe("Link to an infra flow id."),
       endpointId: z.string().optional().describe("Link to an endpoint element id."),

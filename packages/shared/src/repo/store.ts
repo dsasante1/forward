@@ -77,7 +77,7 @@ export interface RepoStoreOptions {
   now?: () => Date;
 }
 
-type Schema<T> = z.ZodType<T, z.ZodTypeDef, unknown>;
+type Schema<T> = z.ZodType<T, unknown>;
 
 /**
  * The file-backed store behind repo mode. It mirrors the central server's

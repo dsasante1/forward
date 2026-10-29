@@ -10,6 +10,7 @@ import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } fr
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { thirdPartyNotices } from "../../../scripts/third-party-notices.mjs";
+import { zodEnglishOnly } from "../../../scripts/zod-english-only.mjs";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const out = here("../pkg/");
@@ -29,6 +30,7 @@ const { metafile } = await build({
   sourcemap: false,
   legalComments: "eof",
   metafile: true,
+  plugins: [zodEnglishOnly],
   // Live capture drives an installed browser with built-in code (src/browser/),
   // or loads Playwright from the user's project at runtime; Playwright is never
   // bundled and never a dependency of the package.
@@ -104,6 +106,7 @@ const companion = await build({
   sourcemap: false,
   legalComments: "eof",
   metafile: true,
+  plugins: [zodEnglishOnly],
   external: ["playwright-core"],
   banner: {
     js: "import { createRequire as __fwdCreateRequire } from 'node:module';\nconst require = __fwdCreateRequire(import.meta.url);",
