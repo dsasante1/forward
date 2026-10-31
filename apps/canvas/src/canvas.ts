@@ -27,7 +27,7 @@ import type {
   AgentSnapshot,
   CanvasSource,
   ElementSnapshot,
-  RosterMember,
+  Roster,
 } from "./source.js";
 import { descendants, findParent, sameRect, snap, type Rect } from "./geometry.js";
 import {
@@ -456,8 +456,9 @@ type PrimaryView =
   | "tasks"
   | "member";
 let view: PrimaryView = "design";
-// Member roster (the Member view), loaded lazily on entry from source.listMembers.
-let members: RosterMember[] = [];
+// Contributor roster (the Contributors view), loaded lazily on entry from
+// source.listMembers and refreshed while the view is open.
+let roster: Roster = { members: [], shallow: false };
 let membersLoading = false;
 let membersError: string | undefined;
 
@@ -467,7 +468,8 @@ let membersError: string | undefined;
 let theme: CanvasTheme = { ...DEFAULT_THEME };
 let themeStorageKey: string | null = null;
 const tasks = new Map<string, Task>();
-// The canvas has no signed-in user; activity it writes is attributed to "canvas".
+// The canvas has no signed-in user. The backend stamps who really wrote a task
+// (RepoStore.saveTask), so this only fills the field until the next read.
 const TASK_ACTOR = "canvas";
 // Manual canvas checkpoints (pillar 5), newest first — populated only when the
 // source can persist them (otherwise the Save button + History cards stay hidden).
@@ -914,6 +916,8 @@ function subscribeAll(): void {
   const unsubTimeline = source.subscribeProjectTimeline?.((next) => {
     projectTimeline = next;
     if (showTimeline) renderTimelinePanel();
+    // A new commit is what can change the roster.
+    if (view === "member") void loadMembers(true);
   });
   if (unsubTimeline) disposers.push(unsubTimeline);
 }
@@ -1000,7 +1004,7 @@ function buildToolbar(): void {
   // The contributor roster needs a source that can list it (the live repo
   // source); a static snapshot omits listMembers and the tool doesn't appear.
   if (source.listMembers) {
-    const memberBtn = iconButton(memberIcon(), "Member", toggleMember);
+    const memberBtn = iconButton(memberIcon(), "Contributors", toggleMember);
     memberBtn.dataset.toggle = "member";
     toolbar.append(memberBtn);
   }
@@ -1008,10 +1012,6 @@ function buildToolbar(): void {
   syncRailActive();
 }
 
-/**
- * Enrol another collaborator by uid. They get their uid from the access banner
- * shown when they're locked out of the project; pasting it here grants access.
- */
 /**
  * Switch the active workspace mode. The one place mutual exclusivity lives: it
  * derives the legacy `show*`/`flowOpen` booleans from `next`, clears the transient
@@ -1078,7 +1078,7 @@ function setView(next: PrimaryView): void {
     flowPanelEl.replaceChildren();
   }
 
-  // The Member view loads its roster lazily on entry.
+  // The Contributors view loads its roster lazily on entry.
   if (next === "member") void loadMembers();
 
   if (canvasRootEl) canvasRootEl.dataset.view = next;
@@ -1134,7 +1134,7 @@ function toggleTasks(): void {
   setView(view === "tasks" ? "design" : "tasks");
 }
 
-/** Open the full-area member roster (or return to design). */
+/** Open the full-area contributor roster (or return to design). */
 function toggleMember(): void {
   setView(view === "member" ? "design" : "member");
 }
@@ -3784,26 +3784,31 @@ function renderViewTools(): void {
 }
 
 // ========================================================================
-// Member roster (the Member view)
+// Contributor roster (the Contributors view)
 // ========================================================================
 
-/** Fetch the project's member roster for the Member view. */
-async function loadMembers(): Promise<void> {
-  if (!source.listMembers) {
-    members = [];
+/**
+ * Fetch the contributor roster. `quiet` is a background refresh: no spinner, a
+ * redraw only when something changed, and a failure leaves the list up (like
+ * the poll loops, which stay quiet on error).
+ */
+async function loadMembers(quiet = false): Promise<void> {
+  if (!source.listMembers || (quiet && membersLoading)) return;
+  const shown = () => JSON.stringify([roster, membersError]);
+  const before = shown();
+  if (!quiet) {
+    membersLoading = true;
+    membersError = undefined;
     renderMemberPanel();
-    return;
   }
-  membersLoading = true;
-  membersError = undefined;
-  renderMemberPanel();
   try {
-    members = await source.listMembers();
+    roster = await source.listMembers();
+    membersError = undefined;
   } catch (err) {
-    membersError = (err as Error).message;
+    if (!quiet) membersError = (err as Error).message;
   } finally {
-    membersLoading = false;
-    renderMemberPanel();
+    if (!quiet) membersLoading = false;
+    if (!quiet || shown() !== before) renderMemberPanel();
   }
 }
 
@@ -3818,7 +3823,8 @@ function renderMemberPanel(): void {
   renderMemberView(
     memberEl,
     {
-      members,
+      members: roster.members,
+      shallow: roster.shallow,
       loading: membersLoading,
       error: membersError,
     },
@@ -4426,7 +4432,7 @@ function renderTasksPanel(): void {
           { title, ...(elementId ? { elementId } : {}), ...(flowId ? { flowId } : {}) },
           { actor: TASK_ACTOR, existingKeys: [...tasks.values()].map((t) => t.key) },
         );
-        // Optimistic insert; if the write is rejected (offline / locked DB),
+        // Optimistic insert; if the write is rejected (e.g. the server went away),
         // undo it and tell the user rather than leaving a phantom task.
         tasks.set(task.id, task);
         saveTaskOptimistic(task, () => tasks.delete(task.id), "create");
@@ -4468,7 +4474,7 @@ function renderTasksPanel(): void {
 
 /**
  * Persist a task that's already been applied optimistically to the local map.
- * On a rejected write (offline / membership-locked database) it runs `rollback`
+ * On a rejected write (e.g. the server went away) it runs `rollback`
  * to restore the prior state, notifies, and re-renders — so the panel never
  * silently claims a save that didn't land.
  */
@@ -5627,13 +5633,13 @@ function delIcon(): SVGElement {
     line(14, 11, 14, 17),
   ]);
 }
-// Add member: a user with a plus.
+// Contributors: two people.
 function memberIcon(): SVGElement {
   return lineIcon([
     path("M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"),
     circle(9, 7, 4),
-    line(19, 8, 19, 14),
-    line(16, 11, 22, 11),
+    path("M22 21v-2a4 4 0 0 0-3-3.87"),
+    path("M16 3.13a4 4 0 0 1 0 7.75"),
   ]);
 }
 // Document with text lines.

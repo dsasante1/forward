@@ -10,16 +10,15 @@ import type {
   InfraFlow,
   InfraNode,
   McpServerNode,
-  ProjectRole,
   ProjectTimelineEvent,
   RealtimeResource,
   SaveableElement,
   Task,
   VersionEntry,
 } from "forward-core";
-import type { RosterMember } from "forward-core/api";
+import type { Roster, RosterMember } from "forward-core/api";
 
-export type { ProjectRole, RosterMember };
+export type { Roster, RosterMember };
 
 /**
  * The data contract the canvas editor renders against. `ServerSource` talks to
@@ -145,8 +144,8 @@ export interface CanvasSource {
   saveMcpServer?(server: McpServerNode): Promise<void>;
   /** Remove one MCP server, dropping it from any agent's `mcpServerIds`. */
   deleteMcpServer?(serverId: string): Promise<void>;
-  /** The contributor roster (from git history); drives the read-only Member view. */
-  listMembers?(): Promise<RosterMember[]>;
+  /** The contributor roster (from git history); drives the read-only Contributors view. */
+  listMembers?(): Promise<Roster>;
   /** Subscribe to the project's tasks (pillar 4); fires on every change. */
   subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
   /** Create or update one task. */

@@ -253,7 +253,8 @@ server.registerTool(
     description:
       "Checks every file in .forward/ against the Forward schema, that file " +
       "names match record ids, that ids are unique, and (as warnings) that cross-layer links " +
-      "resolve, that task due dates are ISO dates, and that task dependencies have no cycles. " +
+      "resolve, that task due dates are ISO dates, that task dependencies have no cycles, and that " +
+      "task assignees are on the contributor roster. " +
       "Run it before committing; CI runs the same check on pull requests (`forward validate " +
       "--strict` fails on warnings too).",
     inputSchema: {},
@@ -1807,7 +1808,7 @@ server.registerTool(
     description:
       "File a new work item on the project's task tracker. title is the core; description is " +
       "free-form Markdown. type defaults to task, status to todo, priority to medium. The reporter " +
-      "is recorded as the agent and a sequential FWD-NN key is assigned. The optional links tie the " +
+      "is recorded as you (the git author, via this agent) and a sequential FWD-NN key is assigned. The optional links tie the " +
       "task to what it's about: elementId (the design element), flowId (an infra flow it implements), " +
       "endpointId (the documented endpoint element) — pass any, all, or none. Returns the new task id.",
     inputSchema: {
@@ -1819,7 +1820,7 @@ server.registerTool(
       status: Task.shape.status.describe("todo (default), in_progress, blocked, or done."),
       priority: Task.shape.priority.describe("low, medium (default), high, or urgent."),
       labels: Task.shape.labels.describe("Free-form label names, e.g. backend, bug."),
-      assignees: Task.shape.assignees.describe("uids from the project roster to assign."),
+      assignees: Task.shape.assignees.describe("uids from list_members to assign."),
       startDate: Task.shape.startDate.describe(
         "Planned start, ISO yyyy-mm-dd. Without it the timeline starts the task on the day it was created.",
       ),
@@ -1962,7 +1963,9 @@ server.registerTool(
     title: "List contributors",
     description:
       "Read who has worked on the project: everyone who has committed to .forward/, from git " +
-      "history. Access itself is managed by the git host (repository permissions), not here.",
+      "history, with .mailmap applied. A member's uid is what a task's assignees hold; bot marks an " +
+      "automation account. shallow means this is a shallow clone, so the list may be missing people. " +
+      "Access itself is managed by the git host (repository permissions), not here.",
     inputSchema: {},
   },
   async () => {

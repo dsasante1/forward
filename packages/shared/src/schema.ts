@@ -658,7 +658,7 @@ export type TaskActivityKind = z.infer<typeof TaskActivityKind>;
 export const TaskActivity = z.object({
   id: z.string().min(1).max(SHORT_TEXT_MAX),
   kind: TaskActivityKind,
-  /** uid of who did it (resolved to a display name on read against the roster). */
+  /** Who did it, stamped by the backend (the git author, plus `via <agent>`). */
   actor: z.string().max(SHORT_TEXT_MAX),
   /** ISO-8601 timestamp of the entry. */
   at: z.string().datetime(),
@@ -698,9 +698,9 @@ export const Task = z.object({
   priority: TaskPriority.default("medium"),
   /** Free-form label names (e.g. "bug", "backend"). */
   labels: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
-  /** uids from the project's `project_members` roster doing the work. */
+  /** uids from the contributor roster (`list_members`) doing the work. */
   assignees: z.array(z.string().max(SHORT_TEXT_MAX)).default([]),
-  /** uid of the member who filed the task. */
+  /** Who filed the task, stamped by the backend like `TaskActivity.actor`. */
   reporter: z.string().max(SHORT_TEXT_MAX).optional(),
   /**
    * Optional planned start, a calendar date `YYYY-MM-DD`. The timeline (Gantt)
@@ -749,7 +749,7 @@ export type Task = z.infer<typeof Task>;
 // --------------------------------------------------------------------------
 //
 // Unlike the append-only endpoint `version_timeline` (automatic, per-element doc
-// history), a checkpoint is a deliberate, whole-canvas save a member takes from
+// history), a checkpoint is a deliberate, whole-canvas save someone takes from
 // the editor: a title + note describing *what changed and why*, and a frozen copy
 // of the design + infra graph so it can be restored later. It stands apart from
 // the design elements like the task tracker does — its own project-scoped subtree.
@@ -784,7 +784,7 @@ export const Checkpoint = z.object({
   /** Free-form Markdown note (same subset as task/apiBinding descriptions). */
   description: z.string().max(LONG_TEXT_MAX).default(""),
   tag: CheckpointTag.default("checkpoint"),
-  /** uid of the member who saved it — stamped by the server from the session. */
+  /** Who saved it, stamped by the backend. */
   author: z.string().max(SHORT_TEXT_MAX).optional(),
   /** Per-layer change counts, for the card chips. */
   changes: z.array(CheckpointChange).default([]),
@@ -926,15 +926,3 @@ export const ProjectTimelineEvent = z.object({
 });
 export type ProjectTimelineEvent = z.infer<typeof ProjectTimelineEvent>;
 
-// --------------------------------------------------------------------------
-// Contributor roster
-// --------------------------------------------------------------------------
-
-/**
- * A contributor's role, shown on the canvas Member view. In repo mode access is
- * whatever the git host grants; the roster is derived from git history (the
- * current author is `owner`, other contributors `editor`), so this is a label,
- * not an enforcement mechanism.
- */
-export const ProjectRole = z.enum(["viewer", "editor", "owner"]);
-export type ProjectRole = z.infer<typeof ProjectRole>;

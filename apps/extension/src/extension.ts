@@ -235,8 +235,8 @@ async function load<T>(what: string, read: () => Promise<T>): Promise<T | undefi
 
 /**
  * Who is writing: the identity the store stamps on every write (`$FORWARD_AUTHOR`,
- * then git `user.name`, then the OS user). A task's activity feed credits it; a
- * history entry's `author` is re-stamped by the store regardless.
+ * then git `user.name`, then the OS user). The store re-stamps a task's reporter
+ * and activity, and a history entry's `author`, regardless.
  */
 function currentAuthor(): string {
   const root = activeRepoRoot();

@@ -84,7 +84,7 @@ export function createRepoRouter(store: RepoStore) {
   });
 
   // contributor roster, derived from git history (read-only)
-  on("GET", "/members", () => contributors(store.root, store.author));
+  on("GET", "/members", () => contributors(store.root));
 
   return async function handle(req: ApiRequest): Promise<ApiResponse> {
     const url = new URL(req.path, "http://repo.local");

@@ -441,7 +441,7 @@ export class ServerSource implements CanvasSource {
     await api.deleteTask(await this.cfg(), taskId);
   }
 
-  async listMembers(): Promise<api.RosterMember[]> {
+  async listMembers(): Promise<api.Roster> {
     return api.listMembers(await this.cfg());
   }
 

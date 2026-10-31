@@ -18,13 +18,12 @@ import type {
   InfraFlow,
   InfraNode,
   McpServerNode,
-  ProjectRole,
   ProjectTimelineEvent,
   Task,
   VersionEntry,
 } from "forward-core";
 import type { RealtimeResource } from "forward-core";
-import type { RosterMember } from "forward-core/api";
+import type { Roster } from "forward-core/api";
 
 export type TokenProvider = () => Promise<string | null | undefined>;
 
@@ -85,7 +84,7 @@ export interface CanvasSource {
   deleteAgentNode?(agentId: string): Promise<void>;
   saveMcpServer?(server: McpServerNode): Promise<void>;
   deleteMcpServer?(serverId: string): Promise<void>;
-  listMembers?(): Promise<RosterMember[]>;
+  listMembers?(): Promise<Roster>;
   subscribeTasks?(onChange: (tasks: Task[]) => void): () => void;
   saveTask?(task: Task): Promise<void>;
   deleteTask?(taskId: string): Promise<void>;

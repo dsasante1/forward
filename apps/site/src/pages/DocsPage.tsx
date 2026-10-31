@@ -511,7 +511,7 @@ export function DocsPage() {
                   <tr><td>History</td><td>The project timeline panel (see <a href="#history">History</a>).</td></tr>
                   <tr><td>Tasks</td><td>The task-tracker panel.</td></tr>
                   <tr><td>Theme</td><td>The view-theme editor: per-user, stored locally, never committed.</td></tr>
-                  <tr><td>Member</td><td>The read-only list of git contributors (see <a href="#access">Access &amp; sync</a>).</td></tr>
+                  <tr><td>Contributors</td><td>The read-only list of git contributors (see <a href="#access">Access &amp; sync</a>).</td></tr>
                 </tbody>
               </table>
             </div>
@@ -833,7 +833,7 @@ export function DocsPage() {
                   <tr><td>key, title</td><td>A short human key (e.g. <code className="d-code">FWD-12</code>) and the title.</td></tr>
                   <tr><td>description</td><td>Free-form Markdown detail.</td></tr>
                   <tr><td>labels</td><td>Free-form label names (e.g. "backend").</td></tr>
-                  <tr><td>assignees, reporter</td><td>The people doing the work, and who filed it.</td></tr>
+                  <tr><td>assignees, reporter</td><td>The people doing the work (contributor names from <code className="d-code">list_members</code>), and who filed it, stamped from your git identity.</td></tr>
                   <tr><td>startDate</td><td>Optional planned start, an ISO date (<code className="d-code">2026-11-02</code>). Without it the timeline starts the task on the day it was filed.</td></tr>
                   <tr><td>dueDate</td><td>An ISO date (<code className="d-code">2026-11-06</code>); for a milestone, its target date. A free-form label is rejected. Tasks filed before this rule keep their old label until it's changed, and <code className="d-code">forward validate</code> warns about them.</td></tr>
                   <tr><td>dependsOn</td><td>Ids of tasks that should finish before this one starts (finish-to-start).</td></tr>
@@ -874,7 +874,8 @@ export function DocsPage() {
               schedule as a Mermaid <code className="d-code">gantt</code> chart
               with its warnings, and the PR digest lists tasks whose dates moved.{" "}
               <code className="d-code">forward validate</code> warns about
-              dependency cycles.
+              dependency cycles, and about assignees who aren't on the
+              contributor roster.
             </p>
           </Section>
 
@@ -1366,10 +1367,13 @@ export function DocsPage() {
                 like any other path.
               </li>
               <li>
-                <strong>The roster comes from git.</strong> The canvas's Member
-                view and <code className="d-code">list_members</code> list
-                everyone who has committed to <code className="d-code">.forward/</code>.
-                It is read-only: there is nothing to add or remove.
+                <strong>The roster comes from git.</strong> The canvas's
+                Contributors view and <code className="d-code">list_members</code>{" "}
+                list everyone who has committed to{" "}
+                <code className="d-code">.forward/</code>, with{" "}
+                <code className="d-code">.mailmap</code> applied. It is read-only:
+                there is nothing to add or remove. A shallow clone sees only part
+                of the history, and says so.
               </li>
               <li>
                 <strong>Authorship is stamped, not claimed.</strong> An author a
@@ -1457,7 +1461,7 @@ export function DocsPage() {
                 <tbody>
                   <tr><td>path</td><td>Repository root that contains .forward/ (defaults to the checked-out repository).</td></tr>
                   <tr><td>validate</td><td>Run <code className="d-code">forward validate</code> and fail on schema errors (default true).</td></tr>
-                  <tr><td>strict</td><td>Also fail on warnings: dangling cross-layer links, task due dates that aren't ISO dates, dependency cycles (default false).</td></tr>
+                  <tr><td>strict</td><td>Also fail on warnings: dangling cross-layer links, assignees who haven't committed to <code className="d-code">.forward/</code>, task due dates that aren't ISO dates, dependency cycles (default false).</td></tr>
                   <tr><td>comment</td><td>On pull requests, post or update one comment with the catch-up digest (default true).</td></tr>
                   <tr><td>base</td><td>Git ref to diff against; defaults to the pull request's base commit.</td></tr>
                   <tr><td>export</td><td>Directory to write the static canvas into, for GitHub Pages; empty skips it.</td></tr>

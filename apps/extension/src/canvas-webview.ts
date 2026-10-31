@@ -23,7 +23,7 @@ import type {
   ProjectTimelineEvent,
   Task,
 } from "forward-core";
-import type { RosterMember } from "forward-core/api";
+import type { Roster } from "forward-core/api";
 
 /**
  * The VS Code canvas webview. Rather than re-implement the editor, this mounts
@@ -197,7 +197,7 @@ class BridgeSource implements CanvasSource {
   deleteMcpServer(serverId: string): Promise<void> {
     return rpc("deleteMcpServer", [serverId]);
   }
-  listMembers(): Promise<RosterMember[]> {
+  listMembers(): Promise<Roster> {
     return rpc("listMembers", []);
   }
 

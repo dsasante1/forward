@@ -12600,7 +12600,7 @@ var TaskActivityKind = external_exports.enum(["comment", "event"]);
 var TaskActivity = external_exports.object({
   id: external_exports.string().min(1).max(SHORT_TEXT_MAX),
   kind: TaskActivityKind,
-  /** uid of who did it (resolved to a display name on read against the roster). */
+  /** Who did it, stamped by the backend (the git author, plus `via <agent>`). */
   actor: external_exports.string().max(SHORT_TEXT_MAX),
   /** ISO-8601 timestamp of the entry. */
   at: external_exports.string().datetime(),
@@ -12625,9 +12625,9 @@ var Task = external_exports.object({
   priority: TaskPriority.default("medium"),
   /** Free-form label names (e.g. "bug", "backend"). */
   labels: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
-  /** uids from the project's `project_members` roster doing the work. */
+  /** uids from the contributor roster (`list_members`) doing the work. */
   assignees: external_exports.array(external_exports.string().max(SHORT_TEXT_MAX)).default([]),
-  /** uid of the member who filed the task. */
+  /** Who filed the task, stamped by the backend like `TaskActivity.actor`. */
   reporter: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /**
    * Optional planned start, a calendar date `YYYY-MM-DD`. The timeline (Gantt)
@@ -12682,7 +12682,7 @@ var Checkpoint = external_exports.object({
   /** Free-form Markdown note (same subset as task/apiBinding descriptions). */
   description: external_exports.string().max(LONG_TEXT_MAX).default(""),
   tag: CheckpointTag.default("checkpoint"),
-  /** uid of the member who saved it — stamped by the server from the session. */
+  /** Who saved it, stamped by the backend. */
   author: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   /** Per-layer change counts, for the card chips. */
   changes: external_exports.array(CheckpointChange).default([]),
@@ -12748,7 +12748,6 @@ var ProjectTimelineEvent = external_exports.object({
   /** Epoch ms the change landed. */
   timestamp: external_exports.number().int()
 });
-var ProjectRole = external_exports.enum(["viewer", "editor", "owner"]);
 
 // ../../packages/shared/dist/api-diff.js
 function diffBindings(prev, next) {
@@ -13820,6 +13819,10 @@ var RepoStore = class {
    * A new or changed `dueDate` must be an ISO date (or empty, to clear it); a free-form
    * label written before that rule is kept as long as the write leaves it unchanged, so
    * old tasks stay readable and editable (`forward validate` warns about them).
+   *
+   * The backend owns identity: a new task's `reporter` and every new activity entry's
+   * `actor` are this store's author, whatever the client sent; what is already stored
+   * keeps its attribution, including records written before this rule.
    */
   saveTask(input2) {
     const parsed = this.parse(Task, input2, "task");
@@ -13829,8 +13832,11 @@ var RepoStore = class {
       throw new RepoError(400, `Invalid task at dueDate: Due date must be an ISO date (YYYY-MM-DD), got "${due}".`);
     }
     const now = this.iso();
+    const actors = new Map(prior?.activity.map((a) => [a.id, a.actor]));
     const next = {
       ...parsed,
+      reporter: prior ? prior.reporter : this.author,
+      activity: parsed.activity.map((a) => ({ ...a, actor: actors.get(a.id) ?? this.author })),
       createdAt: prior?.createdAt || parsed.createdAt || now,
       updatedAt: now
     };
@@ -14099,28 +14105,43 @@ function resolveAuthor(root) {
     return "local";
   }
 }
-function contributors2(root, self) {
+var lastRoster;
+function contributors2(root) {
+  const state = git(root, ["rev-parse", "--is-shallow-repository", "--show-toplevel", "HEAD"]);
+  if (!state)
+    return { members: [], shallow: false };
+  const [shallow, top = root] = state.split("\n");
+  const key = [root, state, mtimeOf(join3(top, ".mailmap"))].join("\0");
+  if (lastRoster?.key === key)
+    return lastRoster.roster;
   const out = /* @__PURE__ */ new Map();
-  const log = git(root, ["log", "--reverse", "--format=%an%x1f%ae%x1f%at", "--", FORWARD_DIR]);
+  const log = git(root, ["log", "--reverse", "--format=%aN%x1f%aE%x1f%at", "--", FORWARD_DIR]);
   for (const line of (log ?? "").split("\n")) {
-    const [name, email3, at] = line.split("");
+    const fields = line.split("");
+    const when = new Date(Number(fields.pop()) * 1e3);
+    const email3 = fields.pop();
+    const name = fields.join("");
     if (!name || out.has(name))
       continue;
-    out.set(name, { name, email: email3 ?? "", first: Number(at) * 1e3 });
+    out.set(name, {
+      userId: name,
+      email: email3 || null,
+      name,
+      bot: /\[bot\]$/i.test(name),
+      addedAt: (Number.isNaN(when.getTime()) ? /* @__PURE__ */ new Date(0) : when).toISOString()
+    });
   }
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const rows = [...out.values()].map((c) => ({
-    userId: c.name,
-    email: c.email || null,
-    name: c.name,
-    imageUrl: null,
-    role: c.name === self ? "owner" : "editor",
-    addedAt: new Date(c.first).toISOString()
-  }));
-  if (!out.has(self)) {
-    rows.unshift({ userId: self, email: null, name: self, imageUrl: null, role: "owner", addedAt: now });
+  const roster = { members: [...out.values()], shallow: shallow === "true" };
+  if (log !== void 0)
+    lastRoster = { key, roster };
+  return roster;
+}
+function mtimeOf(file2) {
+  try {
+    return statSync(file2).mtimeMs;
+  } catch {
+    return 0;
   }
-  return rows;
 }
 var DOMAIN = {
   elements: "design",
@@ -14142,7 +14163,7 @@ function projectTimeline(root, limit = 500) {
     "log",
     `-n${limit}`,
     "--no-renames",
-    "--format=%x1e%an%x1f%at%x1f%s",
+    "--format=%x1e%aN%x1f%at%x1f%s",
     "--name-status",
     "--",
     FORWARD_DIR
@@ -14322,7 +14343,7 @@ function createRepoRouter(store) {
   on("POST", "/checkpoints/:id/restore", ([id]) => {
     store.restoreCheckpoint(id);
   });
-  on("GET", "/members", () => contributors2(store.root, store.author));
+  on("GET", "/members", () => contributors2(store.root));
   return async function handle(req) {
     const url2 = new URL(req.path, "http://repo.local");
     const method = req.method.toUpperCase();

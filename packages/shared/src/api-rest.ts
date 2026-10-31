@@ -11,7 +11,6 @@ import {
   InfraFlow,
   InfraNode,
   McpServerNode,
-  ProjectRole,
   ProjectTimelineEvent,
   type SaveableElement,
   Task,
@@ -279,39 +278,46 @@ export async function unbindApiFromElement(
 }
 
 // --------------------------------------------------------------------------
-// contributor roster (read-only: derived from git history in repo mode)
+// contributor roster (read-only: derived from git history)
 // --------------------------------------------------------------------------
 
 export interface RosterMember {
   uid: string;
   email: string | null;
-  /** Display name (the git author name). */
+  /** Display name (the git author name, after `.mailmap`). */
   name: string | null;
-  /** Avatar URL, when known. */
-  imageUrl: string | null;
-  role: ProjectRole;
+  /** A hosting-platform automation account, not a person. */
+  bot: boolean;
   addedAt: string;
 }
 
-export async function listMembers(cfg: ApiConfig): Promise<RosterMember[]> {
-  const rows = await get<
-    Array<{
+export interface Roster {
+  members: RosterMember[];
+  /** The clone has only part of the history, so `members` may be incomplete. */
+  shallow: boolean;
+}
+
+export async function listMembers(cfg: ApiConfig): Promise<Roster> {
+  const roster = await get<{
+    members: Array<{
       userId: string;
       email: string | null;
       name?: string | null;
-      imageUrl?: string | null;
-      role: ProjectRole;
+      bot: boolean;
       addedAt: string;
-    }>
-  >(cfg, "/members");
-  return (rows ?? []).map((m) => ({
-    uid: m.userId,
-    email: m.email ?? null,
-    name: m.name ?? null,
-    imageUrl: m.imageUrl ?? null,
-    role: m.role,
-    addedAt: m.addedAt,
-  }));
+    }>;
+    shallow: boolean;
+  }>(cfg, "/members");
+  return {
+    members: (roster?.members ?? []).map((m) => ({
+      uid: m.userId,
+      email: m.email ?? null,
+      name: m.name ?? null,
+      bot: m.bot,
+      addedAt: m.addedAt,
+    })),
+    shallow: roster?.shallow ?? false,
+  };
 }
 
 // --------------------------------------------------------------------------

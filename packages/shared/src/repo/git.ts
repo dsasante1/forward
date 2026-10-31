@@ -49,39 +49,69 @@ export function refExists(root: string, ref: string): boolean {
   return git(root, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]) !== undefined;
 }
 
-/**
- * Everyone who has committed to `.forward/`, as a member roster. In repo mode
- * access is whatever the repository grants, so the roster is informational:
- * the current author is listed as owner and every other contributor as editor.
- */
-export function contributors(root: string, self: string): Array<{
+export interface Contributor {
   userId: string;
   email: string | null;
-  name: string | null;
-  imageUrl: null;
-  role: "owner" | "editor";
+  name: string;
+  /** A hosting-platform automation account (`name[bot]`), not a person. */
+  bot: boolean;
+  /** When they first committed to `.forward/`. */
   addedAt: string;
-}> {
-  const out = new Map<string, { name: string; email: string; first: number }>();
-  const log = git(root, ["log", "--reverse", "--format=%an%x1f%ae%x1f%at", "--", FORWARD_DIR]);
+}
+
+export interface Roster {
+  members: Contributor[];
+  /** The clone has only part of the history, so `members` may be incomplete. */
+  shallow: boolean;
+}
+
+let lastRoster: { key: string; roster: Roster } | undefined;
+
+/**
+ * Everyone who has committed to `.forward/`, as a read-only roster. Identity is
+ * the git author name after `.mailmap`, the same one the project timeline shows;
+ * access is whatever the repository grants, so this grants nothing.
+ *
+ * It walks the whole history and the extension validates on every `.forward/`
+ * change, so the last answer is kept until HEAD, the clone depth or `.mailmap`
+ * moves.
+ */
+export function contributors(root: string): Roster {
+  const state = git(root, ["rev-parse", "--is-shallow-repository", "--show-toplevel", "HEAD"]);
+  if (!state) return { members: [], shallow: false }; // no git, or no commits yet
+  const [shallow, top = root] = state.split("\n");
+  const key = [root, state, mtimeOf(join(top, ".mailmap"))].join("\0");
+  if (lastRoster?.key === key) return lastRoster.roster;
+
+  const out = new Map<string, Contributor>();
+  const log = git(root, ["log", "--reverse", "--format=%aN%x1f%aE%x1f%at", "--", FORWARD_DIR]);
   for (const line of (log ?? "").split("\n")) {
-    const [name, email, at] = line.split("\x1f");
+    // From the end: nothing stops an author name holding the separator, and this
+    // history can be anyone's, so a malformed commit must not throw in `validate`.
+    const fields = line.split("\x1f");
+    const when = new Date(Number(fields.pop()) * 1000);
+    const email = fields.pop();
+    const name = fields.join("\x1f");
     if (!name || out.has(name)) continue;
-    out.set(name, { name, email: email ?? "", first: Number(at) * 1000 });
+    out.set(name, {
+      userId: name,
+      email: email || null,
+      name,
+      bot: /\[bot\]$/i.test(name),
+      addedAt: (Number.isNaN(when.getTime()) ? new Date(0) : when).toISOString(),
+    });
   }
-  const now = new Date().toISOString();
-  const rows = [...out.values()].map((c) => ({
-    userId: c.name,
-    email: c.email || null,
-    name: c.name,
-    imageUrl: null,
-    role: (c.name === self ? "owner" : "editor") as "owner" | "editor",
-    addedAt: new Date(c.first).toISOString(),
-  }));
-  if (!out.has(self)) {
-    rows.unshift({ userId: self, email: null, name: self, imageUrl: null, role: "owner", addedAt: now });
+  const roster = { members: [...out.values()], shallow: shallow === "true" };
+  if (log !== undefined) lastRoster = { key, roster };
+  return roster;
+}
+
+function mtimeOf(file: string): number {
+  try {
+    return statSync(file).mtimeMs;
+  } catch {
+    return 0;
   }
-  return rows;
 }
 
 const DOMAIN: Partial<Record<CollectionKey, TimelineDomain>> = {
@@ -116,7 +146,7 @@ export function projectTimeline(root: string, limit = 500): ProjectTimelineEvent
     "log",
     `-n${limit}`,
     "--no-renames",
-    "--format=%x1e%an%x1f%at%x1f%s",
+    "--format=%x1e%aN%x1f%at%x1f%s",
     "--name-status",
     "--",
     FORWARD_DIR,
