@@ -15,7 +15,7 @@
   "bugs": {
     "url": "https://github.com/dsasante1/forward/issues"
   },
-  "homepage": "https://github.com/dsasante1/forward#readme",
+  "homepage": "https://forward-rust-psi.vercel.app",
   "keywords": [
     "api",
     "api-documentation",
