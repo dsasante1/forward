@@ -1,15 +1,17 @@
 import type { RosterMember } from "./source.js";
 
 /**
- * The contributor roster (the Member view): a read-only panel listing who has
- * worked on the project. In repo mode access is managed by the git host, so the
- * roster comes from git history and there is nothing to add, change or remove.
+ * The contributor roster (the Contributors view): a read-only panel listing who
+ * has worked on the project. Access is managed by the git host, so the roster
+ * comes from git history and there is nothing to add, change or remove.
  *
  * This module only draws; the roster lives behind the CanvasSource.
  */
 
 export interface MemberViewState {
   members: RosterMember[];
+  /** A shallow clone: `members` may be missing people. */
+  shallow: boolean;
   loading: boolean;
   error?: string;
 }
@@ -60,6 +62,9 @@ export function renderMemberView(
     body.append(err);
     return;
   }
+  if (state.shallow) {
+    body.append(hEl("p", "This is a shallow clone, so this list may be incomplete.", "mb-warn"));
+  }
   if (!state.members.length) {
     body.append(hEl("p", "No contributors yet.", "mb-empty"));
     return;
@@ -78,6 +83,7 @@ function memberRow(m: RosterMember): HTMLElement {
     identity.append(hEl("span", m.email, "mb-sub"));
   }
   row.append(identity);
+  if (m.bot) row.append(hEl("span", "bot", "mb-badge"));
   return row;
 }
 

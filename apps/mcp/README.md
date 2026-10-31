@@ -65,7 +65,7 @@ and `forward agents` (agent configs for Claude Code, Cursor, VS Code and Codex).
 | `update_element` | Move / resize / rename / restyle / re-parent an element (partial update) |
 | `delete_element` | Remove an element (cascades to nested descendants by default) |
 | `import_design_from_code` | Generate design drafts from a running frontend (live with an installed Chromium-based browser or the project's Playwright, or DevTools snapshots); re-import updates untouched drafts only, re-matches drafts whose position shifted, and doesn't recreate deleted ones |
-| `list_members` | Read who has contributed to `.forward/`, from git history (access is your git host's) |
+| `list_members` | Read who has contributed to `.forward/`, from git history with `.mailmap` applied (access is your git host's) |
 
 These tools give an agent **parity with the canvas and extension** — every data
 pillar is reachable: the **design** layer (read + author), the **API

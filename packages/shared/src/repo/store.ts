@@ -873,6 +873,10 @@ export class RepoStore {
    * A new or changed `dueDate` must be an ISO date (or empty, to clear it); a free-form
    * label written before that rule is kept as long as the write leaves it unchanged, so
    * old tasks stay readable and editable (`forward validate` warns about them).
+   *
+   * The backend owns identity: a new task's `reporter` and every new activity entry's
+   * `actor` are this store's author, whatever the client sent; what is already stored
+   * keeps its attribution, including records written before this rule.
    */
   saveTask(input: unknown): Task {
     const parsed = this.parse(Task, input, "task");
@@ -882,8 +886,11 @@ export class RepoStore {
       throw new RepoError(400, `Invalid task at dueDate: Due date must be an ISO date (YYYY-MM-DD), got "${due}".`);
     }
     const now = this.iso();
+    const actors = new Map(prior?.activity.map((a) => [a.id, a.actor]));
     const next: Task = {
       ...parsed,
+      reporter: prior ? prior.reporter : this.author,
+      activity: parsed.activity.map((a) => ({ ...a, actor: actors.get(a.id) ?? this.author })),
       createdAt: prior?.createdAt || parsed.createdAt || now,
       updatedAt: now,
     };

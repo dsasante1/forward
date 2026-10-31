@@ -17,7 +17,8 @@ inputs:
   strict:
     description: >-
       Also fail on warnings (dangling cross-layer links, task due dates that aren't ISO dates,
-      task dependency cycles).
+      task dependency cycles, task assignees who haven't committed to .forward/; the assignee
+      check needs `fetch-depth: 0`).
     default: "false"
   comment:
     description: On pull requests, post or update one comment with the catch-up digest.

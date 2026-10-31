@@ -1691,7 +1691,7 @@ button.tk-g-label:hover .tk-g-title { color: var(--accent); }
 .ifp-edgedel:hover { color: var(--err); }
 
 /* ======================================================================
-   #member — the full-area project member roster (the Member view).
+   #member — the full-area contributor roster (the Contributors view).
    ====================================================================== */
 #member {
   position: absolute; inset: 0; z-index: 20;
@@ -1709,18 +1709,8 @@ button.tk-g-label:hover .tk-g-title { color: var(--accent); }
 }
 .mb-close:hover { color: var(--text); border-color: var(--line-2); }
 .mb-body { flex: 1; overflow: auto; padding: 18px 22px; max-width: 640px; }
-.mb-add { display: flex; gap: 8px; margin-bottom: 8px; }
-.mb-input {
-  flex: 1; min-width: 0; padding: 8px 11px; border-radius: 8px;
-  border: 1px solid var(--line); background: var(--bg-panel); color: var(--text); font-size: 13.5px;
-}
-.mb-input:focus { outline: none; border-color: var(--accent); }
-.mb-add-role { flex: 0 0 auto; }
-.mb-add-btn {
-  flex: 0 0 auto; padding: 0 16px; border-radius: 8px; border: none; cursor: pointer;
-  background: var(--accent); color: #fff; font-size: 13.5px; font-weight: 600;
-}
 .mb-hint { margin: 0 0 16px; font-size: 12px; color: var(--text-3); }
+.mb-warn { margin: 0 0 16px; font-size: 12px; color: var(--text-2); }
 .mb-empty { color: var(--text-3); font-size: 13.5px; }
 .mb-error { display: flex; align-items: center; gap: 12px; color: var(--task); font-size: 13.5px; }
 .mb-retry {
@@ -1738,20 +1728,10 @@ button.tk-g-label:hover .tk-g-title { color: var(--accent); }
   font-size: 12px; font-weight: 600; color: var(--text-2);
   background-size: cover; background-position: center;
 }
-.mb-avatar-img { border: none; }
 .mb-identity { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .mb-name { font-size: 14px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mb-sub { font-size: 12px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mb-role-select {
-  flex: 0 0 auto; padding: 5px 8px; border-radius: 7px;
-  border: 1px solid var(--line); background: var(--bg-panel); color: var(--text); font-size: 12.5px;
-}
-.mb-role-badge {
+.mb-badge {
   flex: 0 0 auto; padding: 3px 9px; border-radius: 999px;
   background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font-size: 12px;
 }
-.mb-del {
-  flex: 0 0 auto; width: 26px; height: 26px; border-radius: 7px;
-  border: 1px solid var(--line); background: transparent; color: var(--text-3); cursor: pointer; font-size: 13px;
-}
-.mb-del:hover { color: var(--task); border-color: var(--task); }

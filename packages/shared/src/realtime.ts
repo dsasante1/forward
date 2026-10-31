@@ -11,5 +11,4 @@ export type RealtimeResource =
   | "entities"
   | "agents"
   | "tasks"
-  | "checkpoints"
-  | "members";
+  | "checkpoints";

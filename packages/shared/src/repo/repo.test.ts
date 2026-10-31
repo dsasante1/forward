@@ -200,12 +200,194 @@ describe("git integration", () => {
     rmSync(baseRoot!, { recursive: true, force: true });
   });
 
-  it("lists git contributors as the roster", async () => {
-    await api.saveElement(cfg, el("a"));
+  describe("contributor roster", () => {
+    let n = 0;
+    /** One commit touching `.forward/`, authored by `name <email>`. */
+    async function commitAs(name: string, email: string, config: api.ApiConfig = cfg) {
+      await api.saveElement(config, el(`el${++n}`));
+      git("add", "-A");
+      git("-c", `user.name=${name}`, "-c", `user.email=${email}`, "commit", "-qm", "x");
+    }
+
+    it("lists who committed to .forward/, and nobody else", async () => {
+      await commitAs("Ada", "ada@example.com");
+      git("commit", "-q", "--allow-empty", "--author=Outsider <o@example.com>", "-m", "unrelated");
+      const { members, shallow } = await api.listMembers(cfg);
+      expect(shallow).toBe(false);
+      expect(members).toHaveLength(1);
+      expect(members[0]).toMatchObject({ uid: "Ada", name: "Ada", email: "ada@example.com", bot: false });
+      expect(Date.parse(members[0]!.addedAt)).not.toBeNaN();
+    });
+
+    it("has no row for the current author until they commit", async () => {
+      expect((await api.listMembers(cfg)).members).toEqual([]);
+      await commitAs("Ada", "ada@example.com");
+      expect((await api.listMembers(repoConfig(root, { author: "Newhire" }))).members.map((m) => m.uid)).toEqual(["Ada"]);
+    });
+
+    it("does not split an agent-tagged author from their git identity", async () => {
+      await commitAs("Ada", "ada@example.com");
+      const agent = repoConfig(root, { author: "Ada via claude" });
+      expect((await api.listMembers(agent)).members.map((m) => m.uid)).toEqual(["Ada"]);
+    });
+
+    it("carries no role or avatar", async () => {
+      await commitAs("Ada", "ada@example.com");
+      const [row] = (await api.listMembers(cfg)).members;
+      expect(Object.keys(row!).sort()).toEqual(["addedAt", "bot", "email", "name", "uid"]);
+    });
+
+    it("applies .mailmap to the roster and the timeline", async () => {
+      await commitAs("Bob", "bob@example.com");
+      await commitAs("bobby", "bob@personal.example");
+      writeFileSync(join(root, ".mailmap"), "Bob <bob@example.com> bobby <bob@personal.example>\n");
+      git("add", ".mailmap");
+      git("commit", "-qm", "mailmap");
+      const { members } = await api.listMembers(cfg);
+      expect(members.map((m) => [m.uid, m.email])).toEqual([["Bob", "bob@example.com"]]);
+      expect(new Set(projectTimeline(root).map((e) => e.author))).toEqual(new Set(["Bob"]));
+    });
+
+    it("picks up an uncommitted .mailmap edit", async () => {
+      await commitAs("bobby", "bob@example.com");
+      expect((await api.listMembers(cfg)).members.map((m) => m.uid)).toEqual(["bobby"]);
+      writeFileSync(join(root, ".mailmap"), "Bob <bob@example.com>\n");
+      expect((await api.listMembers(cfg)).members.map((m) => m.uid)).toEqual(["Bob"]);
+    });
+
+    it("marks bot commits", async () => {
+      await commitAs("Ada", "ada@example.com");
+      await commitAs("github-actions[bot]", "bot@users.noreply.github.com");
+      const { members } = await api.listMembers(cfg);
+      expect(members.map((m) => [m.uid, m.bot])).toEqual([["Ada", false], ["github-actions[bot]", true]]);
+    });
+
+    it("sees a new contributor on the next commit", async () => {
+      await commitAs("Ada", "ada@example.com");
+      expect((await api.listMembers(cfg)).members).toHaveLength(1);
+      await commitAs("Grace", "grace@example.com");
+      expect((await api.listMembers(cfg)).members.map((m) => m.uid)).toEqual(["Ada", "Grace"]);
+    });
+
+    it("survives an author name holding the field separator", async () => {
+      await commitAs("ev\x1fil", "evil@example.com");
+      const { members } = await api.listMembers(cfg);
+      expect(members.map((m) => [m.uid, m.email])).toEqual([["ev\x1fil", "evil@example.com"]]);
+      expect(Date.parse(members[0]!.addedAt)).not.toBeNaN();
+    });
+
+    it("survives a commit date beyond what a Date can hold", async () => {
+      await api.saveElement(cfg, el("future"));
+      git("add", "-A");
+      git("commit", "-qm", "x", "--date=@9999999999999 +0000");
+      const { members } = await api.listMembers(cfg);
+      expect(members.map((m) => m.uid)).toEqual(["Ada"]);
+      expect(Date.parse(members[0]!.addedAt)).not.toBeNaN();
+    });
+
+    it("reports a shallow clone as incomplete", async () => {
+      await commitAs("Ada", "ada@example.com");
+      await commitAs("Grace", "grace@example.com");
+      const clone = mkdtempSync(join(tmpdir(), "forward-shallow-"));
+      execFileSync("git", ["clone", "-q", "--depth", "1", `file://${root}`, clone], { stdio: "ignore", env: gitEnv });
+      const { members, shallow } = await api.listMembers(repoConfig(clone));
+      expect(shallow).toBe(true);
+      expect(members.map((m) => m.uid)).toEqual(["Grace"]);
+      rmSync(clone, { recursive: true, force: true });
+    });
+  });
+});
+
+describe("task identity", () => {
+  const client = { reporter: "spoofed", activity: [{ id: "a1", kind: "event" as const, actor: "spoofed", at: T, verb: "created this task" }] };
+  const task = (over: Partial<Task> = {}) => ({ id: "t1", key: "FWD-1", title: "T", createdAt: T, updatedAt: T, ...client, ...over }) as unknown as Task;
+
+  it("stamps reporter and activity from the backend's author", async () => {
+    await api.saveTask(cfg, task());
+    const [saved] = await api.fetchTasks(cfg);
+    expect(saved?.reporter).toBe("tester");
+    expect(saved?.activity.map((a) => a.actor)).toEqual(["tester"]);
+  });
+
+  it("keeps the stored reporter and past actors when someone else updates the task", async () => {
+    await api.saveTask(cfg, task());
+    const other = repoConfig(root, { author: "Ada via claude" });
+    const [prev] = await api.fetchTasks(other);
+    await api.saveTask(other, {
+      ...prev!,
+      reporter: "spoofed",
+      activity: [
+        { ...prev!.activity[0]!, actor: "spoofed" },
+        { id: "a2", kind: "comment", actor: "spoofed", at: T, body: "hi" },
+      ],
+    });
+    const [saved] = await api.fetchTasks(cfg);
+    expect(saved?.reporter).toBe("tester");
+    expect(saved?.activity.map((a) => a.actor)).toEqual(["tester", "Ada via claude"]);
+  });
+
+  it("leaves records written before stamping as they were", async () => {
+    await api.saveTask(cfg, task());
+    const file = join(root, ".forward", "tasks", `${fileNameForId("t1")}.json`);
+    const stored = JSON.parse(readFileSync(file, "utf8")) as Task;
+    writeFileSync(file, JSON.stringify({ ...stored, reporter: "canvas", activity: [{ ...stored.activity[0], actor: "canvas" }] }));
+    const [prev] = await api.fetchTasks(cfg);
+    await api.saveTask(cfg, { ...prev!, title: "Renamed" });
+    const [saved] = await api.fetchTasks(cfg);
+    expect(saved).toMatchObject({ title: "Renamed", reporter: "canvas" });
+    expect(saved?.activity[0]?.actor).toBe("canvas");
+  });
+});
+
+describe("validateRepo assignees", () => {
+  const assigned = (who: string) => api.saveTask(cfg, { id: "t1", key: "FWD-1", title: "T", assignees: [who], createdAt: T, updatedAt: T } as unknown as Task);
+  const warnings = () => validateRepo(root).filter((i) => i.message.includes("Assignee"));
+
+  function commit() {
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Ada");
+    git("config", "user.email", "ada@example.com");
+    git("config", "commit.gpgsign", "false");
     git("add", "-A");
     git("commit", "-qm", "x");
-    const members = await api.listMembers(cfg);
-    expect(members.map((m) => m.name)).toContain("Ada");
+  }
+
+  it("warns about an assignee who isn't a contributor", async () => {
+    await assigned("nobody");
+    commit();
+    expect(warnings()).toEqual([expect.objectContaining({ level: "warning", file: expect.stringContaining("tasks/") })]);
+  });
+
+  it("accepts a contributor", async () => {
+    await assigned("Ada");
+    commit();
+    expect(warnings()).toEqual([]);
+  });
+
+  it("reports instead of crashing on a malformed commit", async () => {
+    await assigned("Ada");
+    commit();
+    await api.saveElement(cfg, el("a"));
+    git("add", "-A");
+    git("-c", "user.name=ev\x1fil", "-c", "user.email=e@example.com", "commit", "-qm", "y");
+    expect(warnings()).toEqual([]);
+  });
+
+  it("stays quiet with no git history to compare against", async () => {
+    await assigned("nobody");
+    expect(warnings()).toEqual([]);
+  });
+
+  it("stays quiet in a shallow clone, where the roster is incomplete", async () => {
+    await assigned("nobody");
+    commit();
+    await api.saveElement(cfg, el("a"));
+    git("add", "-A");
+    git("commit", "-qm", "y");
+    const clone = mkdtempSync(join(tmpdir(), "forward-shallow-"));
+    execFileSync("git", ["clone", "-q", "--depth", "1", `file://${root}`, clone], { stdio: "ignore", env: gitEnv });
+    expect(validateRepo(clone).filter((i) => i.message.includes("Assignee"))).toEqual([]);
+    rmSync(clone, { recursive: true, force: true });
   });
 });
 

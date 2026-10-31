@@ -17,6 +17,7 @@ import {
   Task,
   VersionEntry,
 } from "../schema.js";
+import { contributors } from "./git.js";
 import {
   COLLECTIONS,
   FORWARD_DIR,
@@ -150,12 +151,34 @@ export function validateRepo(root: string): ValidationIssue[] {
     }
   }
   const tasks = [...loaded.tasks.values()];
+  warnUnknownAssignees(root, tasks, warn);
   for (const cycle of findDependencyCycles(tasks.map((t) => t.value))) {
     const keys = cycle.map((id) => loaded.tasks.get(id)!.value.key || id);
     const path = [...keys, keys[0]].join(" → ");
     for (const id of cycle) warn(loaded.tasks.get(id)!.file, `Dependency cycle: ${path}.`);
   }
   return issues;
+}
+
+/**
+ * Assignees are soft references to the contributor roster. With no history, or
+ * only part of it (a shallow CI checkout), there is nothing reliable to compare
+ * against, so stay quiet rather than warn about everyone.
+ */
+function warnUnknownAssignees(
+  root: string,
+  tasks: Array<{ file: string; value: { assignees: string[] } }>,
+  warn: (file: string, message: string) => void,
+): void {
+  if (!tasks.some((t) => t.value.assignees.length)) return;
+  const { members, shallow } = contributors(root);
+  if (shallow || !members.length) return;
+  const known = new Set(members.map((m) => m.userId));
+  for (const { file, value } of tasks) {
+    for (const uid of value.assignees) {
+      if (!known.has(uid)) warn(file, `Assignee "${uid}" hasn't committed to ${FORWARD_DIR}/, so isn't on the roster.`);
+    }
+  }
 }
 
 function readJson(file: string): unknown {
