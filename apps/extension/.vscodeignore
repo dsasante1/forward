@@ -8,4 +8,5 @@ esbuild.mjs
 tsconfig*.json
 vitest.config.ts
 .vscode-test/**
+e2e/**
 .gitignore
