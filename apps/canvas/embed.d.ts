@@ -148,9 +148,15 @@ export interface MountOptions {
   onNavigateProject?: () => void;
 }
 
+/** The task tracker's layout: a list, or the timeline (Gantt). */
+export type TasksMode = "list" | "timeline";
+
 /** Handle from mountCanvas; `destroy` stops polling and removes global listeners. */
 export interface CanvasHandle {
   destroy: () => void;
+  /** Open the task tracker in `mode` — a host's "show the task timeline"
+   * command. A no-op when the source can't list tasks. */
+  showTasks: (mode: TasksMode) => void;
 }
 
 export declare function mountCanvas(opts: MountOptions): CanvasHandle;

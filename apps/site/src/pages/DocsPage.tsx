@@ -1142,8 +1142,10 @@ export function DocsPage() {
               </li>
               <li>
                 <strong>Document.</strong> Use the Forward commands to document an
-                endpoint on an element, edit infra, flows and agents, and file or
-                update tasks, all from the editor.{" "}
+                endpoint on an element, edit infra, flows and agents, and file,
+                schedule or update tasks, all from the editor. What{" "}
+                <code className="d-code">forward validate</code> would flag in CI
+                shows in the Problems panel as you work.{" "}
                 <strong>Insert Anchor at Cursor</strong> drops an{" "}
                 <code className="d-code">@adc</code> comment (pick the element by
                 name) so the code↔element link lives in the source: the same
@@ -1668,8 +1670,11 @@ export function DocsPage() {
                   <tr><td>forward.removeMcpServer</td><td>Remove an MCP server.</td></tr>
                   <tr><td>forward.addAgent</td><td>Add an agent to the Agents layer.</td></tr>
                   <tr><td>forward.removeAgent</td><td>Remove an agent.</td></tr>
-                  <tr><td>forward.createTask</td><td>Create a task.</td></tr>
+                  <tr><td>forward.createTask</td><td>Create a task, with optional start and due dates, dependencies and an element link.</td></tr>
                   <tr><td>forward.updateTaskStatus</td><td>Update a task's status.</td></tr>
+                  <tr><td>forward.updateTask</td><td>Change a task's dates, dependencies, priority or type.</td></tr>
+                  <tr><td>forward.showTaskTimeline</td><td>Open the canvas on the task timeline (Gantt).</td></tr>
+                  <tr><td>forward.validate</td><td>Check <code className="d-code">.forward/</code> as <code className="d-code">forward validate</code> does; problems show in the Problems panel and update as files change.</td></tr>
                 </tbody>
               </table>
             </div>
