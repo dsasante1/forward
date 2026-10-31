@@ -27,7 +27,6 @@ import type {
   AgentSnapshot,
   CanvasSource,
   ElementSnapshot,
-  Roster,
 } from "./source.js";
 import { descendants, findParent, sameRect, snap, type Rect } from "./geometry.js";
 import {
@@ -39,6 +38,7 @@ import {
 import { renderTimelineView } from "./timeline-view.js";
 import { renderTasksView, type TasksMode } from "./tasks-view.js";
 import { renderMemberView } from "./member-view.js";
+import { createRosterLoader, type RosterLoader } from "./roster-loader.js";
 import {
   type CanvasTheme,
   type ThemePreset,
@@ -228,6 +228,9 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
 
   setBreadcrumb(opts.projectName ?? null, opts.onNavigateHome, opts.onNavigateProject);
   wireBackPill(opts.onBack);
+
+  const listMembers = source.listMembers?.bind(source);
+  rosterLoader = listMembers ? createRosterLoader(listMembers, renderMemberPanel) : undefined;
 
   applyTheme(); // push the loaded (or default) theme before the first paint
   buildToolbar();
@@ -458,9 +461,7 @@ type PrimaryView =
 let view: PrimaryView = "design";
 // Contributor roster (the Contributors view), loaded lazily on entry from
 // source.listMembers and refreshed while the view is open.
-let roster: Roster = { members: [], shallow: false };
-let membersLoading = false;
-let membersError: string | undefined;
+let rosterLoader: RosterLoader | undefined;
 
 // Local-only view theme (full UI palette + grid). Persisted to localStorage per
 // project — never written to the project data, and never touches canvas shapes.
@@ -917,7 +918,7 @@ function subscribeAll(): void {
     projectTimeline = next;
     if (showTimeline) renderTimelinePanel();
     // A new commit is what can change the roster.
-    if (view === "member") void loadMembers(true);
+    if (view === "member") void rosterLoader?.load(true);
   });
   if (unsubTimeline) disposers.push(unsubTimeline);
 }
@@ -1004,7 +1005,9 @@ function buildToolbar(): void {
   // The contributor roster needs a source that can list it (the live repo
   // source); a static snapshot omits listMembers and the tool doesn't appear.
   if (source.listMembers) {
-    const memberBtn = iconButton(memberIcon(), "Contributors", toggleMember);
+    // "Contributors" doesn't fit the rail; the tooltip and the panel use it.
+    const memberBtn = iconButton(memberIcon(), "People", toggleMember);
+    memberBtn.title = "Contributors";
     memberBtn.dataset.toggle = "member";
     toolbar.append(memberBtn);
   }
@@ -1079,7 +1082,7 @@ function setView(next: PrimaryView): void {
   }
 
   // The Contributors view loads its roster lazily on entry.
-  if (next === "member") void loadMembers();
+  if (next === "member") void rosterLoader?.load();
 
   if (canvasRootEl) canvasRootEl.dataset.view = next;
   // The Layers sidebar only applies in the design view.
@@ -3787,31 +3790,6 @@ function renderViewTools(): void {
 // Contributor roster (the Contributors view)
 // ========================================================================
 
-/**
- * Fetch the contributor roster. `quiet` is a background refresh: no spinner, a
- * redraw only when something changed, and a failure leaves the list up (like
- * the poll loops, which stay quiet on error).
- */
-async function loadMembers(quiet = false): Promise<void> {
-  if (!source.listMembers || (quiet && membersLoading)) return;
-  const shown = () => JSON.stringify([roster, membersError]);
-  const before = shown();
-  if (!quiet) {
-    membersLoading = true;
-    membersError = undefined;
-    renderMemberPanel();
-  }
-  try {
-    roster = await source.listMembers();
-    membersError = undefined;
-  } catch (err) {
-    if (!quiet) membersError = (err as Error).message;
-  } finally {
-    if (!quiet) membersLoading = false;
-    if (!quiet || shown() !== before) renderMemberPanel();
-  }
-}
-
 function renderMemberPanel(): void {
   if (!memberEl) return;
   const show = view === "member";
@@ -3820,17 +3798,16 @@ function renderMemberPanel(): void {
     memberEl.replaceChildren();
     return;
   }
+  const { roster, loading, error } = rosterLoader?.state ?? {
+    roster: { members: [], shallow: false },
+    loading: false,
+  };
   renderMemberView(
     memberEl,
-    {
-      members: roster.members,
-      shallow: roster.shallow,
-      loading: membersLoading,
-      error: membersError,
-    },
+    { members: roster.members, shallow: roster.shallow, loading, error },
     {
       onClose: () => setView("design"),
-      onReload: () => void loadMembers(),
+      onReload: () => void rosterLoader?.load(),
     },
   );
 }

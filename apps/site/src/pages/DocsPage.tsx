@@ -511,7 +511,7 @@ export function DocsPage() {
                   <tr><td>History</td><td>The project timeline panel (see <a href="#history">History</a>).</td></tr>
                   <tr><td>Tasks</td><td>The task-tracker panel.</td></tr>
                   <tr><td>Theme</td><td>The view-theme editor: per-user, stored locally, never committed.</td></tr>
-                  <tr><td>Contributors</td><td>The read-only list of git contributors (see <a href="#access">Access &amp; sync</a>).</td></tr>
+                  <tr><td>People</td><td>The read-only list of git contributors (see <a href="#access">Access &amp; sync</a>).</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1368,7 +1368,7 @@ export function DocsPage() {
               </li>
               <li>
                 <strong>The roster comes from git.</strong> The canvas's
-                Contributors view and <code className="d-code">list_members</code>{" "}
+                People view and <code className="d-code">list_members</code>{" "}
                 list everyone who has committed to{" "}
                 <code className="d-code">.forward/</code>, with{" "}
                 <code className="d-code">.mailmap</code> applied. It is read-only:

@@ -49,6 +49,39 @@ jobs:
           npm run pack -w apps/mcp
           npm run smoke:package -w apps/mcp
 
+  # The built extension in a real VS Code: the webview bridge, the Problems panel
+  # and file-driven refresh, none of which a unit test can reach.
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Cache VS Code
+        uses: actions/cache@v4
+        with:
+          path: apps/extension/.vscode-test
+          key: vscode-${{ runner.os }}-${{ hashFiles('apps/extension/e2e/run.mjs') }}
+
+      - name: Extension end-to-end test
+        run: xvfb-run -a npm run test:e2e -w apps/extension
+
+      - name: Keep the failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: extension-e2e
+          path: apps/extension/e2e/out
+          if-no-files-found: ignore
+
   # Dogfood the GitHub Action against a scratch project.
   action:
     runs-on: ubuntu-latest
