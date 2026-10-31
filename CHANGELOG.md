@@ -5,6 +5,17 @@ tag (see [docs/releasing.md](docs/releasing.md)): `forward-mcp` from `mcp-v*`, t
 extension from `v*`, the docs-ci Action from `docs-ci-v*`. The Forward GitHub Action is
 released with `forward-mcp` and shares its tag.
 
+## docs-ci 2.0.1 — 2026-10-31
+
+### Security
+
+- zod 4.6.7 (GHSA-mrhx-c7xc-m3w5) in the bundled action.
+
+### Changed
+
+- Bundles the current `forward-core`, so it knows the task `startDate` field. Tested on Node 20.
+  `apply` still keeps the position and size of existing boxes.
+
 ## forward-mcp 0.5.0 — 2026-10-31
 
 ### Breaking
