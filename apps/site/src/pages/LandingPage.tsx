@@ -60,12 +60,19 @@ export function LandingPage() {
       {/* ============ HERO ============ */}
       <header className="l-wrap l-hero">
         <div className="l-hero-eyebrow">Open source · lives in your repo</div>
-        <h1>Design. Document. Deliver. All in sync.</h1>
+        <h1>Design. Code. Document. Review. All in sync.</h1>
         <p className="l-hero-sub">
-          Designers draw the UI. Backend developers and their AI agents attach API
-          docs, architecture, data models and tasks to it. Everything is plain
-          JSON in <span className="l-code-chip">.forward/</span> inside your own
-          git repository, versioned and reviewed with the code it describes.
+          Use Forward with the AI agent of your choice and start wherever the
+          work is: designing, coding, or reviewing. Designers create the UI, or
+          frontend developers build it and use their agents to turn it into
+          design drafts. Backend developers and their agents add API
+          documentation, tasks, architecture, sequence diagrams, and ER/UML
+          diagrams around the same design. Forward also helps product teams
+          track tasks, review changes, and keep everyone aligned. Whether
+          you're working alone or collaborating as a team, Forward empowers you
+          to manage the entire process. Everything is stored as plain JSON
+          in <span className="l-code-chip">.forward/</span> inside your own Git
+          repository, versioned and reviewed alongside the code it describes.
         </p>
         <div className="l-hero-cta">
           <a className="l-btn l-btn-lg l-btn-dark" href={DEMO_PATH}>
