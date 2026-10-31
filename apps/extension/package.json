@@ -1,7 +1,7 @@
 {
   "name": "forward-vscode",
   "displayName": "Forward",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "type": "module",
   "publisher": "forward",
   "description": "Annotate a shared design canvas from VS Code — document any API (any language/framework), draw infrastructure & sequence-flow diagrams, track tasks, and browse endpoint history. Everything lives as plain JSON in your repository's .forward/ folder, so git is the sync and the history — and AI agents get the same tools through the Forward MCP server.",

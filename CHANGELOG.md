@@ -5,6 +5,78 @@ tag (see [docs/releasing.md](docs/releasing.md)): `forward-mcp` from `mcp-v*`, t
 extension from `v*`, the docs-ci Action from `docs-ci-v*`. The Forward GitHub Action is
 released with `forward-mcp` and shares its tag.
 
+## docs-ci 2.0.1 — 2026-10-31
+
+### Security
+
+- zod 4.6.7 (GHSA-mrhx-c7xc-m3w5) in the bundled action.
+
+### Changed
+
+- Bundles the current `forward-core`, so it knows the task `startDate` field. Tested on Node 20.
+  `apply` still keeps the position and size of existing boxes.
+
+## forward-mcp 0.5.0 — 2026-10-31
+
+### Breaking
+
+- **`list_members` and `GET /members` return `{ members, shallow }`** instead of an array, and
+  members no longer have `role` or `imageUrl`. `role` was only a label: whoever ran the command
+  was `owner`, so every machine gave a different answer. Access is still your git host's.
+- **A new or changed task `dueDate` must be an ISO date.** Tasks saved before this rule keep
+  their label until it changes, and `forward validate` warns about them.
+- **`strict` fails on new warnings** (off by default): non-ISO due dates, dependency cycles and,
+  with full git history, assignees who haven't committed to `.forward/`.
+
+### Added
+
+- **Task timeline.** The canvas Tasks view has a Gantt timeline, also shown on the exported
+  site. Tasks take an optional `startDate`, `get_task_timeline` returns the schedule as a Mermaid
+  `gantt` chart with its warnings, and the PR digest lists tasks whose dates moved.
+- `forward validate` warns about task assignees who aren't on the contributor roster. It stays
+  quiet with no git history or in a shallow clone, where the roster is incomplete.
+- `list_members` marks automation accounts with `bot` and reports a shallow clone with `shallow`.
+
+### Changed
+
+- The roster lists only people who have committed to `.forward/`; the current user no longer
+  gets a row of their own. An agent session no longer shows up as a separate person.
+- The roster and the project timeline apply `.mailmap`.
+- A task's `reporter` and activity `actor` are stamped by the backend from your git identity
+  (`FORWARD_AUTHOR` overrides, `FORWARD_AGENT` appends `via <agent>`), so the canvas no longer
+  writes `canvas` and agents no longer write `claude`. Existing tasks keep their attribution.
+- The canvas's Member tool is now **People**, and it refreshes while open.
+
+### Fixed
+
+- A commit with a malformed author name or date no longer breaks the contributor list.
+- `forward serve` and exported sites no longer log a favicon 404.
+
+### Security
+
+- zod 4.6.7 (GHSA-mrhx-c7xc-m3w5).
+
+## VS Code extension 0.5.0 — 2026-10-31
+
+### Added
+
+- **Create Task** asks for type, priority, start and due dates and dependencies; a milestone
+  takes one date. **Update Task** changes one field and warns before saving a dependency cycle.
+- **Show Task Timeline** opens the canvas on the Gantt view.
+- **Validate Project** runs `forward validate` into the Problems panel, and again on every
+  `.forward/` change.
+
+### Changed
+
+- The canvas refreshes on `.forward/` and git file events, plus a 15 s backstop, instead of
+  re-reading everything every second. There is one canvas panel per window.
+- Includes the forward-mcp 0.5.0 roster, task identity and People changes above.
+
+### Fixed
+
+- A failed read shows the error instead of "No tasks yet".
+- Tasks are credited to your git identity rather than `extension`.
+
 ## forward-mcp 0.4.0 — 2026-10-28
 
 ### Added
