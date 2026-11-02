@@ -353,6 +353,9 @@
 .fwd-text-editor:focus { outline: none; }
 #canvas {
   width: 100%; height: 100%; display: block; cursor: grab;
+  /* Pointer handlers own pan/drag, so a touch drag pans the stage instead of
+     scrolling or zooming the page. */
+  touch-action: none;
   background-color: var(--bg);
   background-image:
     linear-gradient(rgba(150, 160, 185, 0.045) 1px, transparent 1px),
@@ -590,6 +593,9 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 .flowview-body {
   flex: 1; min-height: 0; padding: 16px; overflow: auto;
   background: var(--bg); display: flex;
+  /* Touch is handled in JS (one-finger grab-to-pan, two-finger pinch-zoom), so
+     a pinch zooms the diagram rather than the whole page. */
+  touch-action: none;
 }
 /* Grab-to-pan is offered only when the diagram overflows the pane. */
 .flowview-body.pannable { cursor: grab; }
@@ -622,7 +628,9 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 }
 .flowview-mini:hover { border-color: var(--accent); color: #fff; }
 .flowview-mini:disabled { opacity: .3; cursor: default; }
-.flowview-body svg { display: block; margin: auto; }
+/* flex: none — fitFlowSvg sizes the svg in px to zoom it; as a shrinkable flex
+   item it was squeezed back to the pane width, so zooming only grew its height. */
+.flowview-body svg { display: block; margin: auto; flex: none; }
 .flowview-empty { padding: 24px; text-align: center; opacity: .55; }
 .flowview-error {
   margin: 0; padding: 18px; color: var(--err); white-space: pre-wrap;
@@ -1734,4 +1742,38 @@ button.tk-g-label:hover .tk-g-title { color: var(--accent); }
 .mb-badge {
   flex: 0 0 auto; padding: 3px 9px; border-radius: 999px;
   background: var(--bg); border: 1px solid var(--line); color: var(--text-2); font-size: 12px;
+}
+
+/* --- narrow screens (phones, small tablets) ---
+   The desktop grid (rail + 258px layers + stage + 344px inspector) leaves a
+   phone almost no stage. Below 900px the rail slims down and the Layers and
+   inspector drawers float over the stage instead of taking grid tracks. */
+@media (max-width: 900px) {
+  .fwd-canvas-root,
+  .fwd-canvas-root.layers-open,
+  .fwd-canvas-root.panel-collapsed,
+  .fwd-canvas-root.panel-collapsed.layers-open { grid-template-columns: 56px minmax(0, 1fr); }
+  #toolbar { padding: 8px 0; }
+  #toolbar button { width: 48px; height: 48px; }
+  #toolbar .icon-btn span { font-size: 8.5px; }
+  #layers, #panel {
+    position: absolute; top: 0; bottom: 0; z-index: 30;
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.55);
+  }
+  #layers { left: 56px; width: min(280px, calc(100% - 56px)); }
+  #panel { right: 0; width: min(344px, calc(100% - 56px)); box-sizing: border-box; }
+  .fwd-topstrip { gap: 10px; padding: 0 12px; }
+  .fwd-crumb { min-width: 0; overflow: hidden; white-space: nowrap; }
+  .fwd-crumb > * { flex: none; }
+  .fwd-live > :not(.fwd-live-dot) { display: none; }
+  .fwd-topright { gap: 8px; flex: none; }
+  .fwd-saved { display: none; }
+  #tasks, #tasks.tk-wide { top: 8px; right: 8px; bottom: 8px; left: 8px; width: auto; }
+  .tl2-head { flex-wrap: wrap; gap: 10px; padding: 12px 14px; }
+  .tl2-views { margin-left: 0; max-width: 100%; overflow-x: auto; }
+  .tl2-scroll { padding: 20px 10px 60px; }
+  .flowview-head { flex-wrap: wrap; }
+  .flowview-select { flex: 1 1 auto; max-width: 100%; }
+  .flowview-content { flex-direction: column; }
+  .flowview-editor { width: auto; max-height: 50%; border-left: none; border-top: 1px solid var(--line); }
 }

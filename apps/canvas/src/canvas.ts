@@ -222,9 +222,16 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   layersBodyEl = uiRoot.querySelector("#layersBody") as HTMLElement | null;
   layersCountEl = uiRoot.querySelector("#layersCount") as HTMLElement | null;
   // Reset view-only layer state on (re)mount so a reused container starts clean.
-  layersOpen = true;
+  // On a phone-width viewport the sidebar would cover the stage (see the
+  // narrow-screen block in canvas.css), so it starts closed there.
+  layersOpen = !isNarrowViewport();
+  canvasRootEl?.classList.toggle("layers-open", layersOpen);
+  // Likewise the infra/data inspectors start folded to their header there.
+  if (isNarrowViewport()) infraPanelCollapsed = entityPanelCollapsed = true;
   inspectorOpen = false;
   hiddenIds.clear();
+  touchPoints.clear();
+  pinch = null;
 
   setBreadcrumb(opts.projectName ?? null, opts.onNavigateHome, opts.onNavigateProject);
   wireBackPill(opts.onBack);
@@ -519,6 +526,11 @@ type Gesture =
   | { kind: "entity-pan"; startX: number; startY: number; origX: number; origY: number }
   | { kind: "entity-move"; id: string; startX: number; startY: number; origX: number; origY: number; moved: boolean };
 let gesture: Gesture | null = null;
+// Touch pointers currently down on the canvas, and the in-flight two-finger
+// pinch. A pinch takes over from any one-finger gesture and lasts until every
+// finger lifts, so the finger left behind doesn't turn into a stray pan or tap.
+const touchPoints = new Map<number, { x: number; y: number }>();
+let pinch: { startDist: number; startZoom: number; wx: number; wy: number } | null = null;
 let guides: { v: number[]; h: number[] } = { v: [], h: [] };
 
 // ---- edge auto-scroll ---------------------------------------------------
@@ -814,6 +826,14 @@ function subscribeAll(): void {
         focusApplied = true;
         select(focusElementId);
         centerOn(focusElementId);
+      } else if (!focusApplied && !focusElementId && isNarrowViewport()) {
+        // A phone can't show the design at 100%: frame the first top-level
+        // element so the opening view isn't a cropped corner of it.
+        const first = [...elements.values()].find((el) => !el.parentId);
+        if (first) {
+          focusApplied = true;
+          centerOn(first.id);
+        }
       }
     }),
   );
@@ -2540,6 +2560,7 @@ function applyGesture(
  * element, which is discarded when the Shadow DOM is cleared, so they need no
  * explicit removal. */
 function bindPointer(): void {
+bindPinch();
 svg.addEventListener("pointerdown", (e) => {
   cancelViewAnim(); // a user gesture wins over an in-flight camera glide
   const pt = toCanvas(e);
@@ -2843,7 +2864,10 @@ svg.addEventListener("pointerleave", () => {
 // Track the element under the pointer so a documented one shows its doc leader
 // on hover. Skip while a gesture is in flight to avoid churn during drags.
 svg.addEventListener("pointerover", (e) => {
-  if (gesture) return;
+  // Touch has no hover, and a touch fires pointerover just before pointerdown:
+  // re-rendering here would swap out the node under the finger, so the
+  // pointerdown landed on a detached element and the tap never reached the svg.
+  if (gesture || e.pointerType === "touch") return;
   const elEl = (e.target as Element).closest?.("[data-id]");
   const id = elEl instanceof SVGElement ? (elEl.dataset.id ?? null) : null;
   if (id !== hoverId) {
@@ -3151,6 +3175,98 @@ function update(id: string, patch: Partial<DesignElement>): void {
   elements.set(id, { ...el, ...patch });
 }
 
+/** Two-finger pinch-zoom (and pan) on touch screens. Capture-phase listeners on
+ * the svg run before the one-finger handlers in bindPointer, so while a pinch is
+ * live they swallow every touch event and the single-pointer gestures never see
+ * the second finger. */
+function bindPinch(): void {
+  const pinchFrame = () => {
+    const [a, b] = [...touchPoints.values()];
+    if (!a || !b) return null;
+    return { dist: Math.hypot(b.x - a.x, b.y - a.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
+  svg.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.pointerType !== "touch") return;
+      touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch) {
+        e.stopImmediatePropagation(); // a third finger joins nothing
+        return;
+      }
+      if (touchPoints.size < 2) return;
+      const f = pinchFrame();
+      if (!f) return;
+      cancelViewAnim();
+      abandonGestureForPinch();
+      const box = svg.getBoundingClientRect();
+      const world = toCanvas({ clientX: f.mx, clientY: f.my }, box);
+      pinch = { startDist: Math.max(1, f.dist), startZoom: zoom, wx: world.x, wy: world.y };
+      svg.setPointerCapture(e.pointerId);
+      e.stopImmediatePropagation();
+    },
+    { capture: true },
+  );
+  svg.addEventListener(
+    "pointermove",
+    (e) => {
+      if (e.pointerType !== "touch" || !touchPoints.has(e.pointerId)) return;
+      touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!pinch) return;
+      e.stopImmediatePropagation();
+      const f = pinchFrame();
+      if (!f) return; // one finger already lifted: hold still until the rest do
+      const box = svg.getBoundingClientRect();
+      // Scale by the finger spread, keeping the world point first pinched under
+      // the fingers' midpoint — so moving both fingers pans as well.
+      zoom = clampZoom((pinch.startZoom * f.dist) / pinch.startDist);
+      panX = f.mx - box.left - pinch.wx * zoom;
+      panY = f.my - box.top - pinch.wy * zoom;
+      render();
+    },
+    { capture: true },
+  );
+  const lift = (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    touchPoints.delete(e.pointerId);
+    if (!pinch) return;
+    e.stopImmediatePropagation();
+    if (touchPoints.size === 0) pinch = null;
+  };
+  svg.addEventListener("pointerup", lift, { capture: true });
+  svg.addEventListener("pointercancel", lift, { capture: true });
+}
+
+/** Drop the one-finger gesture a pinch interrupts, undoing anything it changed:
+ * the first finger may have landed on an element and nudged it before the
+ * second arrived, and a pinch must never move, resize or create content. */
+function abandonGestureForPinch(): void {
+  const g = gesture;
+  gesture = null;
+  stopEdgeScroll();
+  svg.classList.remove("panning");
+  guides = { v: [], h: [] };
+  if (!g) return;
+  if (g.kind === "move") {
+    const el = elements.get(g.id);
+    if (el) applyMove(g.id, g.orig.x - el.x, g.orig.y - el.y);
+  } else if (g.kind === "resize") {
+    update(g.id, { width: g.orig.width, height: g.orig.height });
+  } else if (g.kind === "rotate") {
+    update(g.id, { rotation: g.origRotation });
+  } else if (g.kind === "create") {
+    elements.delete(g.id);
+    select(null);
+  } else if (g.kind === "infra-move") {
+    const n = infraNodes.get(g.id);
+    if (n) infraNodes.set(g.id, { ...n, x: g.origX, y: g.origY });
+  } else if (g.kind === "entity-move") {
+    const en = entities.get(g.id);
+    if (en) entities.set(g.id, { ...en, x: g.origX, y: g.origY });
+  }
+  render();
+}
+
 /** Move an element and all of its descendants by a delta. */
 function applyMove(id: string, dx: number, dy: number): void {
   const ids = [id, ...descendants(id, elements.values())];
@@ -3275,6 +3391,12 @@ function layerTypeIcon(type: ElementType): SVGElement {
     default:
       return rectIcon();
   }
+}
+
+/** Matches the `max-width: 900px` breakpoint in canvas.css, where the Layers
+ * and inspector drawers float over the stage instead of taking grid tracks. */
+function isNarrowViewport(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(max-width: 900px)").matches;
 }
 
 /** Show or hide the left Layers sidebar, reflowing the grid to match. */
@@ -4569,6 +4691,11 @@ let flowPan: { body: HTMLElement; lastX: number; lastY: number; pointerId: numbe
 let flowEdgeVX = 0;
 let flowEdgeVY = 0;
 let flowEdgeRAF: number | null = null;
+// Touch pointers down on the diagram body, and the in-flight two-finger pinch
+// (the last frame's finger spread and midpoint, so each move applies a delta).
+// Like the design canvas's pinch, it holds until every finger lifts.
+const flowTouches = new Map<number, { x: number; y: number }>();
+let flowPinch: { dist: number; mx: number; my: number } | null = null;
 
 /** Toggle the grab affordance: pannable only when the diagram overflows the pane. */
 function markFlowPannable(body: HTMLElement): void {
@@ -4627,6 +4754,7 @@ function stopFlowEdgeScroll(): void {
 /** Wire grab-to-pan, edge auto-scroll, and cursor-anchored wheel zoom on the
  *  diagram body. Called fresh each render since the body is rebuilt. */
 function wireFlowBodyPan(body: HTMLElement): void {
+  wireFlowBodyPinch(body);
   body.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     if (
@@ -4646,7 +4774,9 @@ function wireFlowBodyPan(body: HTMLElement): void {
     body.scrollTop -= e.clientY - flowPan.lastY;
     flowPan.lastX = e.clientX;
     flowPan.lastY = e.clientY;
-    updateFlowEdgeScroll(body, e.clientX, e.clientY); // "border to scroll"
+    // "border to scroll" — not for touch: on a phone-width pane a thumb is almost
+    // always near an edge, so the diagram would run away under it.
+    if (e.pointerType !== "touch") updateFlowEdgeScroll(body, e.clientX, e.clientY);
   });
   const endPan = (e: PointerEvent) => {
     if (!flowPan) return;
@@ -4674,6 +4804,67 @@ function wireFlowBodyPan(body: HTMLElement): void {
     },
     { passive: false },
   );
+}
+
+/** Two-finger pinch-zoom on the diagram body (touch screens). Capture-phase
+ * listeners run before the one-finger grab-to-pan in wireFlowBodyPan, so while
+ * a pinch is live they swallow every touch event. Zooming goes through
+ * zoomFlowAt, so the label, clamping and re-anchoring match the −/+ buttons. */
+function wireFlowBodyPinch(body: HTMLElement): void {
+  const frame = () => {
+    const [a, b] = [...flowTouches.values()];
+    if (!a || !b) return null;
+    return { dist: Math.hypot(b.x - a.x, b.y - a.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
+  };
+  body.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (e.pointerType !== "touch") return;
+      flowTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (flowPinch) {
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (flowTouches.size < 2) return;
+      const f = frame();
+      if (!f) return;
+      // The second finger takes over from a one-finger pan.
+      flowPan = null;
+      body.classList.remove("grabbing");
+      stopFlowEdgeScroll();
+      flowPinch = { dist: Math.max(1, f.dist), mx: f.mx, my: f.my };
+      body.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    },
+    { capture: true },
+  );
+  body.addEventListener(
+    "pointermove",
+    (e) => {
+      if (e.pointerType !== "touch" || !flowTouches.has(e.pointerId)) return;
+      flowTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (!flowPinch) return;
+      e.stopImmediatePropagation();
+      const f = frame();
+      if (!f) return; // one finger already lifted: hold still until the rest do
+      // Carry the content with the fingers' midpoint, then scale around it.
+      body.scrollLeft -= f.mx - flowPinch.mx;
+      body.scrollTop -= f.my - flowPinch.my;
+      zoomFlowAt(Math.max(1, f.dist) / flowPinch.dist, f.mx, f.my);
+      flowPinch = { dist: Math.max(1, f.dist), mx: f.mx, my: f.my };
+    },
+    { capture: true },
+  );
+  const lift = (e: PointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    flowTouches.delete(e.pointerId);
+    if (!flowPinch) return;
+    e.stopImmediatePropagation();
+    if (flowTouches.size === 0) flowPinch = null;
+  };
+  body.addEventListener("pointerup", lift, { capture: true });
+  body.addEventListener("pointercancel", lift, { capture: true });
 }
 
 // Keep the diagram fitted when the window (and thus the pane) resizes.
@@ -4735,12 +4926,16 @@ async function renderFlowPanel(): Promise<void> {
   flowPanelEl.hidden = !flowOpen;
   if (!flowOpen) {
     flowPan = null; // a rebuild/close mid-drag must not keep scrolling a stale body
+    flowTouches.clear();
+    flowPinch = null;
     stopFlowEdgeScroll();
     flowPanelEl.replaceChildren();
     return;
   }
   // Any full re-render replaces the body, so drop an in-flight pan on the old one.
   flowPan = null;
+  flowTouches.clear();
+  flowPinch = null;
   stopFlowEdgeScroll();
 
   // Drop a stale flow selection so the dropdown + render stay consistent.

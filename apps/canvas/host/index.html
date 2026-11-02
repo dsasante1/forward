@@ -15,6 +15,14 @@
         border: 1px solid #2c3445; font-size: 12px; color: #b9c2d3; display: none; }
       #error { padding: 24px; max-width: 640px; margin: 10vh auto; display: none; }
       #error code { background: #1c2230; padding: 2px 6px; border-radius: 4px; }
+      /* On a phone the floating pill would cover the stage's zoom controls, so
+         it becomes a strip below the editor instead. */
+      @media (max-width: 900px) {
+        body { display: flex; flex-direction: column; }
+        #app { position: relative; inset: auto; flex: 1; min-height: 0; }
+        #banner { position: static; max-width: none; border-radius: 0;
+          border-width: 1px 0 0; padding: 6px 12px; font-size: 11px; }
+      }
     </style>
   </head>
   <body>
