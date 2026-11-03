@@ -238,6 +238,7 @@
 /* right cluster of the top strip: saved stamp + Save + live indicator */
 .fwd-topright { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 .fwd-topright .fwd-live { margin-left: 0; }
+.fwd-live[hidden] { display: none; }
 .fwd-saved { font-family: var(--mono); font-size: 11px; color: #62615c; }
 .fwd-saved:empty { display: none; }
 .fwd-savebtn {
