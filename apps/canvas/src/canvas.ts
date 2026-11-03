@@ -73,7 +73,7 @@ const SKELETON = `
       <div class="fwd-topright">
         <span id="savedLabel" class="fwd-saved"></span>
         <button id="saveCheckpoint" class="fwd-savebtn" type="button" title="Save design checkpoint (⌘S)" hidden></button>
-        <div class="fwd-live" id="liveSync" title="Live sync with the Forward backend"><span class="fwd-live-dot"></span><span class="fwd-live-label">LIVE SYNC</span></div>
+        <div class="fwd-live" id="liveSync" title="Live sync with the Forward backend" hidden><span class="fwd-live-dot"></span><span class="fwd-live-label">LIVE SYNC</span></div>
       </div>
     </div>
     <div id="stage">
@@ -851,7 +851,9 @@ function subscribeAll(): void {
     }),
   );
   // Connection health: flip the LIVE SYNC pill to a "reconnecting" state when the
-  // poll loop can't reach the backend, so a dropped connection isn't silent.
+  // poll loop can't reach the backend, so a dropped connection isn't silent. The
+  // pill stays hidden for sources with no backend to lose (a static export, the
+  // extension webview), where it would claim a sync that isn't happening.
   const unsubStatus = source.subscribeStatus?.((status) => {
     const offline = status !== "online";
     // Back online: re-send any write that failed while we were down, so a move
@@ -860,6 +862,7 @@ function subscribeAll(): void {
     const pill = uiRoot?.querySelector("#liveSync") as HTMLElement | null;
     const label = pill?.querySelector(".fwd-live-label");
     if (!pill || !label) return;
+    pill.hidden = false;
     pill.classList.toggle("offline", offline);
     // "auth" means the backend answered but rejected us (expired session) — a
     // retry can't fix it, so tell the user what to do instead of "reconnecting".
