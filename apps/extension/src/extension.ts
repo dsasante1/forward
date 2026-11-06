@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import {
   AgentNode,
+  base64ToBytes,
   InfraFlow,
   InfraFlowStep,
   InfraKind,
@@ -47,6 +48,7 @@ import {
   deleteInfraFlow,
   deleteInfraNode,
   deleteTask,
+  fetchAsset,
   fetchCheckpoints,
   fetchElements,
   fetchEntities,
@@ -57,6 +59,7 @@ import {
   fetchTimelinesConditional,
   listElements,
   listMembers,
+  uploadAsset,
   restoreCheckpoint,
   saveElement,
   saveEntity,
@@ -1708,6 +1711,8 @@ async function openCanvas(
     restoreCheckpoint: ([id]) => restoreCheckpoint(cfg, id as string),
     deleteCheckpoint: ([id]) => deleteCheckpoint(cfg, id as string),
     listMembers: () => listMembers(cfg),
+    fetchAsset: ([name]) => fetchAsset(cfg, name as string),
+    uploadAsset: ([data]) => uploadAsset(cfg, base64ToBytes(data as string)),
   };
 
   panel.webview.onDidReceiveMessage(async (msg: BridgeMessage) => {

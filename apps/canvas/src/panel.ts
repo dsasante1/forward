@@ -9,6 +9,7 @@ import {
   InfraEnv,
   InfraKind,
   type InfraNode,
+  type ImageFit,
   RelationCardinality,
   type StrokeStyle,
   type VersionEntry,
@@ -42,6 +43,12 @@ export function renderPanel(
    * never updates it). Shown only for elements that carry an origin.
    */
   onAdopt?: () => void,
+  /**
+   * Pick a file and set it as the element's image fill. When omitted (a
+   * read-only source can't store images), the Image section only shows what is
+   * there.
+   */
+  onPickImage?: () => void,
 ): void {
   root.replaceChildren();
   if (!el) {
@@ -151,6 +158,11 @@ export function renderPanel(
   //     Part of Style, so it lives inside the Style section and collapses with it.
   styleSec.append(radiusSection(style, onChange));
   root.append(styleSec);
+
+  // --- Image fill (any shape but text) ---
+  if (el.type !== "text" && (style.image || onPickImage)) {
+    root.append(imageSection(style, onChange, onPickImage));
+  }
 
   // --- API documentation (authored here in the canvas OR from VS Code; both
   //     write to the same apiBinding sub-tree, so either side can edit) ---
@@ -1330,6 +1342,62 @@ function fromCodeSection(
     adopt.addEventListener("click", onAdopt);
     sec.append(adopt);
   }
+  return sec;
+}
+
+/**
+ * The image painted inside the element: how it fits the box, its alt text,
+ * and replace / remove. The bytes are an asset; only the reference is edited.
+ */
+function imageSection(
+  style: NonNullable<DesignElement["style"]>,
+  onChange: (patch: Patch) => void,
+  onPickImage?: () => void,
+): HTMLElement {
+  const sec = section("Image");
+  const image = style.image;
+  if (image) {
+    sec.append(
+      fieldGrid([
+        fieldCell(
+          "Fit",
+          selectInput(image.fit, ["cover", "contain", "fill"], (v) =>
+            onChange({ style: { ...style, image: { ...image, fit: v as ImageFit } } }),
+          ),
+        ),
+        fieldCell("Size", h("span", `${image.naturalWidth} × ${image.naturalHeight}`, "image-size")),
+      ]),
+    );
+    sec.append(
+      fieldCell(
+        "Alt text",
+        textInput(image.alt, (v) => onChange({ style: { ...style, image: { ...image, alt: v } } })),
+      ),
+    );
+  }
+  const row = document.createElement("div");
+  row.className = "image-actions";
+  if (onPickImage) {
+    const pick = document.createElement("button");
+    pick.type = "button";
+    pick.className = "doc-add";
+    pick.textContent = image ? "Replace image…" : "Add image…";
+    pick.addEventListener("click", onPickImage);
+    row.append(pick);
+  }
+  if (image && onPickImage) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "doc-remove";
+    remove.textContent = "Remove image";
+    remove.title = "Keeps the file in .forward/assets/ (checkpoints may use it); `forward assets prune` deletes unused ones";
+    remove.addEventListener("click", () => {
+      const { image: _drop, ...rest } = style;
+      onChange({ style: rest });
+    });
+    row.append(remove);
+  }
+  if (row.childElementCount) sec.append(row);
   return sec;
 }
 

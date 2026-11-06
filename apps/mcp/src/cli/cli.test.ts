@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -172,11 +172,73 @@ describe("tools through the in-memory client (repo mode)", () => {
     expect(task.startDate).toBeUndefined();
     expect(task.activity.at(-1)).toMatchObject({ verb: "cleared the start date" });
   });
+
+  it("creates an image element, fills an existing shape, removes it and prunes the file", async () => {
+    // A 1×1 PNG, and an SVG the store must refuse.
+    const PNG_1X1 =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    writeFileSync(join(root, "logo.png"), Buffer.from(PNG_1X1, "base64"));
+    writeFileSync(join(root, "logo.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    const { callTool } = await import("./call.js");
+    const json = async (name: string, args: Record<string, unknown>) => {
+      const res = await callTool(name, args);
+      expect(res.isError, res.text).toBe(false);
+      return JSON.parse(res.text);
+    };
+    const created = await json("set_element_image", { path: join(root, "logo.png"), x: 10, y: 20 });
+    expect(created).toMatchObject({ action: "created", width: 1, height: 1 });
+    expect(created.asset).toMatch(/^[a-f0-9]{64}\.png$/);
+    const el = JSON.parse(readFileSync(join(root, ".forward/design", `${created.id}.json`), "utf8"));
+    expect(el.style.image).toEqual({ asset: created.asset, fit: "cover", naturalWidth: 1, naturalHeight: 1, alt: "logo" });
+    expect(el).toMatchObject({ type: "rectangle", name: "image logo", x: 10, y: 20 });
+
+    const box = await json("create_element", { type: "ellipse", name: "Avatar", x: 0, y: 0, width: 40, height: 40 });
+    await json("set_element_image", { elementId: box.id, path: join(root, "logo.png"), fit: "contain", alt: "Ada" });
+    const listed = await json("list_images", {});
+    expect(listed).toEqual([expect.objectContaining({ name: created.asset, elements: expect.arrayContaining([created.id, box.id]) })]);
+
+    const svg = await callTool("set_element_image", { path: join(root, "logo.svg") });
+    expect(svg.isError).toBe(true);
+    expect(svg.text).toMatch(/SVG is not accepted/);
+
+    await json("set_element_image", { elementId: box.id, remove: true });
+    await json("delete_element", { elementId: created.id });
+    expect((await json("list_images", { prune: true, dryRun: true })).removed).toEqual([created.asset]);
+    expect(existsSync(join(root, ".forward/assets", created.asset))).toBe(true);
+    expect((await json("list_images", { prune: true })).removed).toEqual([created.asset]);
+    expect(existsSync(join(root, ".forward/assets", created.asset))).toBe(false);
+  });
 });
 
 const BUILT_CLI = join(import.meta.dirname, "../../dist/cli.js");
 
 describe.skipIf(!existsSync(BUILT_CLI) || process.platform === "win32")("the built CLI", () => {
+  it("exports the images the design uses into images/ and lists and prunes the rest", () => {
+    const dir = mkdtempSync(join(tmpdir(), "forward-export-images-"));
+    try {
+      initRepo(dir, { name: "Export" });
+      const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+      writeFileSync(join(dir, "a.png"), Buffer.from(png, "base64"));
+      writeFileSync(join(dir, "b.gif"), Buffer.from([...Buffer.from("GIF89a"), 1, 0, 1, 0, 0, 0, 0, 0x3b]));
+      const run = (...args: string[]) =>
+        execFileSync(process.execPath, [BUILT_CLI, ...args], { cwd: dir, encoding: "utf8", env: { ...process.env, FORWARD_REPO: dir } });
+      const used = JSON.parse(run("set_element_image", "--path", join(dir, "a.png"))).asset as string;
+      const spare = JSON.parse(run("set_element_image", "--path", join(dir, "b.gif"))) as { id: string; asset: string };
+      run("delete_element", "--element-id", spare.id);
+
+      run("export", "--out", join(dir, "_site"), "--no-history");
+      expect(readdirSync(join(dir, "_site", "images"))).toEqual([used]);
+
+      const listed = JSON.parse(run("assets", "--json")) as Array<{ name: string; used: boolean }>;
+      expect(listed.map((a) => [a.name, a.used]).sort()).toEqual([[spare.asset, false], [used, true]].sort());
+      expect(run("assets", "prune", "--dry-run")).toContain(`would remove  ${spare.asset}`);
+      run("assets", "prune");
+      expect(readdirSync(join(dir, ".forward", "assets"))).toEqual([used]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
   it("writes all of a large output before it exits, even into a pipe nobody is reading yet", () => {
     const dir = mkdtempSync(join(tmpdir(), "forward-pipe-"));
     try {

@@ -16,6 +16,7 @@ import type {
   Task,
   VersionEntry,
 } from "forward-core";
+import type { AssetInfo } from "forward-core";
 import type { Roster, RosterMember } from "forward-core/api";
 
 export type { Roster, RosterMember };
@@ -176,4 +177,18 @@ export interface CanvasSource {
   restoreCheckpoint?(checkpointId: string): Promise<void>;
   /** Remove one checkpoint. */
   deleteCheckpoint?(checkpointId: string): Promise<void>;
+  /**
+   * A URL the canvas can put in an SVG `<image href>` for an image asset
+   * (`style.image.asset`): a `blob:` URL for sources that fetch with a token or
+   * over a bridge, a relative path for a static export. Sources may cache it
+   * forever — an asset name is the hash of its bytes. Absent: image fills draw
+   * as an empty placeholder.
+   */
+  assetUrl?(name: string): Promise<string>;
+  /**
+   * Store image bytes (already downscaled and re-encoded by the canvas) and
+   * return the asset name to put in `style.image`. Optional: read-only sources
+   * omit it and the canvas hides its image tools.
+   */
+  uploadAsset?(bytes: Uint8Array): Promise<AssetInfo>;
 }

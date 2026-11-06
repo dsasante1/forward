@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { assetRefs } from "forward-core";
 import {
+  RepoStore,
+  assetsDir,
   checkoutForwardAt,
   diffProjects,
   findRepoRoot,
@@ -37,15 +40,18 @@ Project
                              What changed since a ref: the catch-up digest for a PR
   forward export [--out _site] [--no-history]
                              Build a read-only static site for GitHub Pages
+  forward assets [prune [--dry-run]] [--json]
+                             List the images in .forward/assets/, or delete the ones no
+                             element or checkpoint uses
   forward capture <url> [route ...] [--browser auto|playwright|chrome|edge|brave|chromium|
                 vivaldi|opera|<path>] [--viewport 1440x900] [--auth state.json]
-                [--prune] [--restore] [--anchors] [--no-components] [--dry-run]
+                [--prune] [--restore] [--anchors] [--images] [--no-components] [--dry-run]
                              Generate design drafts from a running frontend, with the project's
                              Playwright or a Chromium-based browser you already have
   forward capture --browsers List the browsers live capture can use on this device
   forward capture --script [--route /path]
                              Print a DevTools snippet that captures the page in any browser
-  forward capture --from <snapshot.json> [more.json ...] [--prune] [--restore] [--anchors] [--dry-run]
+  forward capture --from <snapshot.json> [more.json ...] [--prune] [--restore] [--anchors] [--images] [--dry-run]
                              Import snapshots saved by that snippet
 
 Agents
@@ -88,6 +94,8 @@ async function main(argv: string[]): Promise<number> {
       return cmdDiff(sub);
     case "export":
       return cmdExport(sub);
+    case "assets":
+      return cmdAssets(sub);
     case "capture":
       return cmdCapture(sub);
     case "agents":
@@ -223,7 +231,53 @@ function cmdExport(a: Args): number {
   writeStaticSite(out, "forward.json");
   mkdirSync(out, { recursive: true });
   writeFileSync(join(out, "forward.json"), toJson(bundle));
-  console.log(`Exported "${bundle.project.name}" (${bundle.elements.length} elements) to ${out}`);
+  // Images the design or a checkpoint paints, beside the bundle (StaticSource reads images/).
+  const refs = assetRefs([...bundle.elements, ...bundle.checkpoints.flatMap((c) => c.snapshot.elements)]);
+  const images = join(out, "images");
+  rmSync(images, { recursive: true, force: true });
+  let copied = 0;
+  for (const name of refs) {
+    const from = join(assetsDir(root), name);
+    if (!existsSync(from)) {
+      console.warn(`[forward] image ${name} is referenced but missing from .forward/assets/; skipped.`);
+      continue;
+    }
+    mkdirSync(images, { recursive: true });
+    copyFileSync(from, join(images, name));
+    copied++;
+  }
+  const imageNote = copied ? `, ${copied} image${copied === 1 ? "" : "s"}` : "";
+  console.log(`Exported "${bundle.project.name}" (${bundle.elements.length} elements${imageNote}) to ${out}`);
+  return 0;
+}
+
+function cmdAssets(a: Args): number {
+  const store = new RepoStore(requireRoot());
+  const [action] = a.positionals;
+  const kb = (n: number) => `${(n / 1024).toFixed(1)} KB`;
+  if (action === "prune") {
+    const dryRun = a.flags["dry-run"] === true;
+    const out = store.pruneAssets({ dryRun });
+    if (a.flags.json) {
+      process.stdout.write(`${JSON.stringify({ ...out, dryRun }, null, 2)}\n`);
+      return 0;
+    }
+    if (!out.removed.length) console.log("No unused images.");
+    else {
+      for (const name of out.removed) console.log(`${dryRun ? "would remove" : "removed"}  ${name}`);
+      console.log(`${dryRun ? "Would free" : "Freed"} ${kb(out.bytes)} (git history keeps the old bytes).`);
+    }
+    return 0;
+  }
+  if (action !== undefined) throw new Error(`Unknown assets action "${action}". Use \`forward assets\` or \`forward assets prune\`.`);
+  const refs = store.referencedAssets();
+  const list = store.listAssets().map((x) => ({ ...x, used: refs.has(x.name) }));
+  if (a.flags.json) {
+    process.stdout.write(`${JSON.stringify(list, null, 2)}\n`);
+    return 0;
+  }
+  if (!list.length) console.log("No images in .forward/assets/.");
+  for (const x of list) console.log(`${x.name}  ${kb(x.bytes).padStart(10)}  ${x.used ? "used" : "unused"}`);
   return 0;
 }
 
@@ -288,7 +342,7 @@ async function cmdCapture(a: Args): Promise<number> {
     for (const b of found) console.log(`  ${b.id.padEnd(9)} ${b.name.padEnd(15)} ${b.path}`);
     return 0;
   }
-  const known = new Set(["from", "viewport", "auth", "wait", "prune", "anchors", "components", "dry-run", "route", "restore", "browser"]);
+  const known = new Set(["from", "viewport", "auth", "wait", "prune", "anchors", "components", "dry-run", "route", "restore", "browser", "images"]);
   for (const k of Object.keys(f)) {
     if (!known.has(k)) throw new Error(`Unknown option --${k} for capture. Run \`forward help\`.`);
   }
@@ -318,6 +372,7 @@ async function cmdCapture(a: Args): Promise<number> {
   }
   if (f.prune === true) input.prune = true;
   if (f.anchors === true) input.writeAnchors = true;
+  if (f.images === true) input.images = true;
   if (f.components === false) input.detectComponents = false;
   if (f["dry-run"] === true) input.dryRun = true;
   if (f.restore === true) input.restoreDismissed = true;

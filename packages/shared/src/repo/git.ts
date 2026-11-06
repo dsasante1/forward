@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "n
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import type { ProjectTimelineEvent, TimelineDomain, VersionAction } from "../schema.js";
-import { FORWARD_DIR, collectionOf, type CollectionKey } from "./layout.js";
+import { ASSETS_DIR, FORWARD_DIR, collectionOf, type CollectionKey } from "./layout.js";
 
 /**
  * Git integration for repo mode. Git is optional: every helper degrades to an
@@ -293,8 +293,11 @@ function readJsonAt(root: string, rel: string): unknown {
  */
 export function checkoutForwardAt(root: string, ref: string): string | undefined {
   if (!refExists(root, ref)) return undefined;
+  // Image bytes are left out: a diff compares assets by the hash in the element,
+  // and copying every image ever stored would only cost time and memory.
   const listing = git(root, ["ls-tree", "-r", "-z", "--name-only", ref, "--", FORWARD_DIR]);
-  const paths = (listing ?? "").split("\0").filter(Boolean);
+  const assets = `${FORWARD_DIR}/${ASSETS_DIR}/`;
+  const paths = (listing ?? "").split("\0").filter((p) => p && !p.startsWith(assets));
   const dest = mkdtempSync(join(tmpdir(), "forward-ref-"));
   if (!paths.length) return dest;
   // One `cat-file --batch` process instead of a `git show` per file.

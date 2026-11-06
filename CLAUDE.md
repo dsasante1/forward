@@ -64,6 +64,8 @@ The **design** layer is primary and stands alone; every other layer is optional 
 6. **Tasks** — an *optional*, project-scoped tracker (`Task`: status/priority/type, assignees, `startDate`/`dueDate`, `dependsOn`, activity feed). Stands apart but each task optionally *links* into the other layers (`elementId` / `flowId` / `endpointId`). Shown as a list or a timeline (Gantt).
 7. **Checkpoints** — *optional*, named, restorable snapshots of the whole canvas (design + infra), each with a note and per-layer change counts.
 
+Images are not a layer: a shape's optional `style.image` (`ImageFill`) names a content-addressed asset in `.forward/assets/<sha256>.<ext>` (raw bytes, not JSON; `assets.ts` holds the browser-safe sniffing/limits, `RepoStore.saveAsset`/`prepareAsset` the hashing and EXIF stripping). Elements, checkpoints and history only ever carry the name; `forward assets prune` removes unreferenced files and `checkoutForwardAt` skips them.
+
 On top sit the **timelines**: the per-element append-only `version_timeline` (API-doc history, one file per entry under `.forward/history/`) and a unified project event feed (`ProjectTimelineEvent`, domain-tagged design/api/infra/flow/agent, built from `git log` plus uncommitted changes), driving the History git-graph, doc diffs and catch-up digest.
 
 A "project id" is the `id` in `.forward/forward.json`.

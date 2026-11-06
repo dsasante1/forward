@@ -12324,6 +12324,15 @@ var SideWidths = external_exports.object({
   bottom: external_exports.number().nonnegative().describe("Bottom border width."),
   left: external_exports.number().nonnegative().describe("Left border width.")
 }).partial();
+var AssetName = external_exports.string().regex(/^[a-f0-9]{64}\.(png|jpg|webp|gif|avif)$/, "Not a Forward asset name (<sha256>.<ext>).");
+var ImageFit = external_exports.enum(["cover", "contain", "fill"]);
+var ImageFill = external_exports.object({
+  asset: AssetName.describe("Asset file name returned by upload_image / PUT /assets."),
+  fit: ImageFit.default("cover").describe("cover (crop, default), contain (letterbox) or fill (stretch)."),
+  naturalWidth: external_exports.number().positive().describe("The image's own width in pixels."),
+  naturalHeight: external_exports.number().positive().describe("The image's own height in pixels."),
+  alt: external_exports.string().max(SHORT_TEXT_MAX).default("").describe("What the image shows, for docs and screen readers.")
+});
 var Style = external_exports.object({
   fill: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   stroke: external_exports.string().max(SHORT_TEXT_MAX).optional(),
@@ -12340,7 +12349,9 @@ var Style = external_exports.object({
   fontSize: external_exports.number().positive().optional(),
   fontWeight: external_exports.number().int().optional(),
   fontFamily: external_exports.string().max(SHORT_TEXT_MAX).optional(),
-  color: external_exports.string().max(SHORT_TEXT_MAX).optional()
+  color: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  /** An image painted inside the shape; `fill` still shows behind a letterboxed one. */
+  image: ImageFill.optional().describe("Image fill: an uploaded asset painted inside the element, clipped to its shape.")
 });
 var ElementOrigin = external_exports.object({
   kind: external_exports.literal("code"),
@@ -12821,6 +12832,169 @@ function diffLines(before, after) {
   return rows;
 }
 
+// ../../packages/shared/dist/assets.js
+var MAX_ASSET_BYTES = 5 * 1024 * 1024;
+var ASSET_TYPES = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  webp: "image/webp",
+  gif: "image/gif",
+  avif: "image/avif"
+};
+function assetMime(name) {
+  const ext = name.slice(name.lastIndexOf(".") + 1);
+  return ASSET_TYPES[ext];
+}
+var startsWith = (b, sig, at = 0) => b.length >= at + sig.length && sig.every((v, i) => b[at + i] === v);
+var ascii = (s) => [...s].map((c) => c.charCodeAt(0));
+function sniffImage(bytes) {
+  if (startsWith(bytes, [137, 80, 78, 71, 13, 10, 26, 10]))
+    return "png";
+  if (startsWith(bytes, [255, 216, 255]))
+    return "jpg";
+  if (startsWith(bytes, ascii("GIF87a")) || startsWith(bytes, ascii("GIF89a")))
+    return "gif";
+  if (startsWith(bytes, ascii("RIFF")) && startsWith(bytes, ascii("WEBP"), 8))
+    return "webp";
+  if (startsWith(bytes, ascii("ftyp"), 4) && (startsWith(bytes, ascii("avif"), 8) || startsWith(bytes, ascii("avis"), 8))) {
+    return "avif";
+  }
+  return void 0;
+}
+function imageSize(bytes) {
+  const ext = sniffImage(bytes);
+  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const ok = (width, height) => width > 0 && height > 0 ? { width, height } : void 0;
+  try {
+    switch (ext) {
+      case "png":
+        return ok(dv.getUint32(16), dv.getUint32(20));
+      case "gif":
+        return ok(dv.getUint16(6, true), dv.getUint16(8, true));
+      case "jpg": {
+        let i = 2;
+        while (i + 9 < bytes.length) {
+          if (bytes[i] !== 255)
+            return void 0;
+          const marker = bytes[i + 1];
+          if (marker >= 192 && marker <= 207 && marker !== 196 && marker !== 200 && marker !== 204) {
+            return ok(dv.getUint16(i + 7), dv.getUint16(i + 5));
+          }
+          i += 2 + dv.getUint16(i + 2);
+        }
+        return void 0;
+      }
+      case "webp": {
+        const chunk = String.fromCharCode(...bytes.subarray(12, 16));
+        if (chunk === "VP8 ")
+          return ok(dv.getUint16(26, true) & 16383, dv.getUint16(28, true) & 16383);
+        if (chunk === "VP8L") {
+          const b = dv.getUint32(21, true);
+          return ok((b & 16383) + 1, (b >> 14 & 16383) + 1);
+        }
+        if (chunk === "VP8X") {
+          const w = bytes[24] | bytes[25] << 8 | bytes[26] << 16;
+          const h = bytes[27] | bytes[28] << 8 | bytes[29] << 16;
+          return ok(w + 1, h + 1);
+        }
+        return void 0;
+      }
+      case "avif": {
+        const sig = ascii("ispe");
+        for (let i = 0; i + 16 <= bytes.length && i < 4096; i++) {
+          if (startsWith(bytes, sig, i))
+            return ok(dv.getUint32(i + 8), dv.getUint32(i + 12));
+        }
+        return void 0;
+      }
+      default:
+        return void 0;
+    }
+  } catch {
+    return void 0;
+  }
+}
+function stripImageMetadata(bytes) {
+  const ext = sniffImage(bytes);
+  try {
+    if (ext === "jpg")
+      return stripJpeg(bytes);
+    if (ext === "png")
+      return stripPng(bytes);
+  } catch {
+  }
+  return bytes;
+}
+function stripJpeg(b) {
+  const keep = [b.subarray(0, 2)];
+  let i = 2;
+  while (i + 4 <= b.length) {
+    if (b[i] !== 255)
+      return b;
+    const marker = b[i + 1];
+    if (marker === 218) {
+      keep.push(b.subarray(i));
+      return concat(keep);
+    }
+    const len = b[i + 2] << 8 | b[i + 3];
+    if (len < 2 || i + 2 + len > b.length)
+      return b;
+    if (marker !== 225 && marker !== 237)
+      keep.push(b.subarray(i, i + 2 + len));
+    i += 2 + len;
+  }
+  return b;
+}
+var PNG_DROP = /* @__PURE__ */ new Set(["eXIf", "tEXt", "zTXt", "iTXt", "tIME"]);
+function stripPng(b) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const keep = [b.subarray(0, 8)];
+  let i = 8;
+  while (i + 12 <= b.length) {
+    const len = dv.getUint32(i);
+    const end = i + 12 + len;
+    if (end > b.length)
+      return b;
+    const type = String.fromCharCode(...b.subarray(i + 4, i + 8));
+    if (!PNG_DROP.has(type))
+      keep.push(b.subarray(i, end));
+    i = end;
+    if (type === "IEND")
+      return concat(keep);
+  }
+  return b;
+}
+function concat(parts) {
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
+}
+function bytesToBase64(bytes) {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 32768) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 32768));
+  }
+  return btoa(bin);
+}
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++)
+    out[i] = bin.charCodeAt(i);
+  return out;
+}
+function assetRefs(elements) {
+  const out = /* @__PURE__ */ new Set();
+  for (const el of elements)
+    if (el.style?.image)
+      out.add(el.style.image.asset);
+  return out;
+}
+
 // ../../packages/shared/dist/design-import.js
 var SNAPSHOT_VERSION = 1;
 var CaptureRect = external_exports.object({
@@ -12859,14 +13033,24 @@ var CaptureStyle = external_exports.object({
   borderBottomRightRadius: external_exports.string(),
   borderBottomLeftRadius: external_exports.string()
 }).partial();
+var CAPTURE_SRC_MAX = 4e3;
 var CaptureAttrs = external_exports.object({
   testid: external_exports.string().max(SHORT_TEXT_MAX),
   id: external_exports.string().max(SHORT_TEXT_MAX),
   label: external_exports.string().max(SHORT_TEXT_MAX),
   alt: external_exports.string().max(SHORT_TEXT_MAX),
   role: external_exports.string().max(SHORT_TEXT_MAX),
-  placeholder: external_exports.string().max(SHORT_TEXT_MAX)
+  placeholder: external_exports.string().max(SHORT_TEXT_MAX),
+  /** An `<img>`'s resolved URL (currentSrc), for fetching its bytes on import. */
+  src: external_exports.string().max(CAPTURE_SRC_MAX),
+  /** An `<img>`'s computed `object-fit`. */
+  fit: external_exports.string().max(32)
 }).partial();
+var CaptureImage = external_exports.object({
+  asset: AssetName,
+  naturalWidth: external_exports.number().positive(),
+  naturalHeight: external_exports.number().positive()
+});
 var CaptureNode = external_exports.lazy(() => external_exports.object({
   tag: external_exports.string().min(1).max(64),
   rect: CaptureRect,
@@ -12879,6 +13063,7 @@ var CaptureNode = external_exports.lazy(() => external_exports.object({
   component: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   source: external_exports.string().max(SHORT_TEXT_MAX).optional(),
   componentRoot: external_exports.boolean().optional(),
+  image: CaptureImage.optional(),
   children: external_exports.array(CaptureNode).optional()
 }));
 var CaptureSnapshot = external_exports.object({
@@ -13109,6 +13294,12 @@ var COLLECTIONS = {
   checkpoints: "checkpoints",
   dismissed: "dismissed"
 };
+var ASSETS_DIR = "assets";
+var FORWARD_GITATTRIBUTES = `${ASSETS_DIR}/** binary
+`;
+function assetsDir(root) {
+  return join(root, FORWARD_DIR, ASSETS_DIR);
+}
 var SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 function fileNameForId(id) {
   if (SAFE_ID.test(id))
@@ -13132,8 +13323,8 @@ function collectionOf(relPath) {
 }
 
 // ../../packages/shared/dist/repo/store.js
-import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { createHash as createHash2, randomBytes, randomUUID } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join as join2 } from "node:path";
 var RepoError = class extends Error {
   status;
@@ -13896,6 +14087,89 @@ var RepoStore = class {
       this.remove("dismissed", item.id);
     return cp;
   }
+  // --- image assets --------------------------------------------------------
+  /**
+   * Store an image and return its content-addressed name. EXIF/XMP/IPTC is
+   * stripped first (so the name hashes the cleaned bytes). The type is sniffed
+   * from the bytes (a client's claim is never trusted); anything outside
+   * {@link ASSET_TYPES} or over {@link MAX_ASSET_BYTES} is refused. Writing the
+   * same bytes twice is a no-op, so this is safe to retry.
+   */
+  saveAsset(input2) {
+    const data = input2?.data;
+    if (typeof data !== "string" || !data)
+      throw new RepoError(400, "Invalid asset: expected { data: <base64> }.");
+    let raw;
+    try {
+      raw = base64ToBytes(data);
+    } catch {
+      throw new RepoError(400, "Invalid asset: data is not base64.");
+    }
+    const { name, bytes, ext } = prepareAsset(raw);
+    const file2 = join2(assetsDir(this.root), name);
+    if (!existsSync(file2)) {
+      mkdirSync(assetsDir(this.root), { recursive: true });
+      const attrs = join2(this.root, FORWARD_DIR, ".gitattributes");
+      if (!existsSync(attrs))
+        writeFileSync(attrs, FORWARD_GITATTRIBUTES);
+      writeAtomic(file2, bytes);
+    }
+    return { name, mime: ASSET_TYPES[ext], bytes: bytes.length, ...imageSize(bytes) };
+  }
+  /** An asset's bytes (base64) and type. 404 when absent. */
+  readAsset(name) {
+    const file2 = this.assetPath(name);
+    if (!existsSync(file2))
+      throw new RepoError(404, `No asset "${name}"`);
+    const bytes = new Uint8Array(readFileSync(file2));
+    return { ...this.assetInfo(name, bytes.length), ...imageSize(bytes), data: bytesToBase64(bytes) };
+  }
+  /** Every stored asset, by name. */
+  listAssets() {
+    const dir = assetsDir(this.root);
+    let names;
+    try {
+      names = readdirSync(dir).filter((n) => AssetName.safeParse(n).success).sort();
+    } catch {
+      return [];
+    }
+    return names.map((n) => this.assetInfo(n, statSync(join2(dir, n)).size));
+  }
+  /** Every asset an element or a checkpoint still paints, so restore keeps working. */
+  referencedAssets() {
+    const refs = assetRefs(this.listElements());
+    for (const cp of this.listCheckpoints())
+      for (const a of assetRefs(cp.snapshot.elements))
+        refs.add(a);
+    return refs;
+  }
+  /**
+   * Delete assets no element or checkpoint references. Deleting an element never
+   * removes its image (undo, checkpoints and copies may still need it); this is
+   * the explicit cleanup. Git history keeps the bytes regardless.
+   */
+  pruneAssets(opts = {}) {
+    const refs = this.referencedAssets();
+    const removed = [];
+    let bytes = 0;
+    for (const asset of this.listAssets()) {
+      if (refs.has(asset.name))
+        continue;
+      removed.push(asset.name);
+      bytes += asset.bytes;
+      if (!opts.dryRun)
+        rmSync(join2(assetsDir(this.root), asset.name));
+    }
+    return { removed, bytes };
+  }
+  assetPath(name) {
+    if (!AssetName.safeParse(name).success)
+      throw new RepoError(400, `Not an asset name: "${name}"`);
+    return join2(assetsDir(this.root), name);
+  }
+  assetInfo(name, size) {
+    return { name, mime: assetMime(name) ?? "application/octet-stream", bytes: size };
+  }
   // --- internals -----------------------------------------------------------
   iso() {
     return this.now().toISOString();
@@ -13968,6 +14242,20 @@ var RepoStore = class {
     return join2(this.root, FORWARD_DIR, COLLECTIONS[key], `${fileNameForId(id)}.json`);
   }
 };
+function prepareAsset(raw) {
+  const bytes = stripImageMetadata(raw);
+  if (!bytes.length)
+    throw new RepoError(400, "Invalid asset: empty image.");
+  if (bytes.length > MAX_ASSET_BYTES) {
+    throw new RepoError(413, `Image is ${mb(bytes.length)}; the limit is ${mb(MAX_ASSET_BYTES)}.`);
+  }
+  const ext = sniffImage(bytes);
+  if (!ext) {
+    throw new RepoError(415, `Unsupported image type. Use ${Object.keys(ASSET_TYPES).join(", ")} (SVG is not accepted).`);
+  }
+  const name = AssetName.parse(`${createHash2("sha256").update(bytes).digest("hex")}.${ext}`);
+  return { name, bytes, ext };
+}
 var scopeOf = (o) => `${o.route}\0${o.viewport ?? ""}`;
 var keyOf = (o) => `${scopeOf(o)}\0${o.key}`;
 function kindOf(type) {
@@ -14049,8 +14337,14 @@ function toJson(value) {
 }
 function writeAtomic(file2, content) {
   const tmp = `${file2}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
-  writeFileSync(tmp, content, "utf8");
+  if (typeof content === "string")
+    writeFileSync(tmp, content, "utf8");
+  else
+    writeFileSync(tmp, content);
   renameSync(tmp, file2);
+}
+function mb(n) {
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 function readJson(file2) {
   try {
@@ -14076,7 +14370,7 @@ function listDirs(dir) {
 
 // ../../packages/shared/dist/repo/git.js
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync as mkdirSync2, mkdtempSync, readFileSync as readFileSync2, statSync, writeFileSync as writeFileSync2 } from "node:fs";
+import { mkdirSync as mkdirSync2, mkdtempSync, readFileSync as readFileSync2, statSync as statSync2, writeFileSync as writeFileSync2 } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname as dirname2, join as join3 } from "node:path";
 function git(root, args, input2) {
@@ -14138,7 +14432,7 @@ function contributors2(root) {
 }
 function mtimeOf(file2) {
   try {
-    return statSync(file2).mtimeMs;
+    return statSync2(file2).mtimeMs;
   } catch {
     return 0;
   }
@@ -14206,7 +14500,7 @@ function projectTimeline(root, limit = 500) {
   const self = resolveAuthor(root);
   const mtime = (rel) => {
     try {
-      return Math.floor(statSync(join3(root, FORWARD_DIR, rel)).mtimeMs);
+      return Math.floor(statSync2(join3(root, FORWARD_DIR, rel)).mtimeMs);
     } catch {
       return Date.now();
     }
@@ -14343,6 +14637,10 @@ function createRepoRouter(store) {
   on("POST", "/checkpoints/:id/restore", ([id]) => {
     store.restoreCheckpoint(id);
   });
+  on("GET", "/assets", () => store.listAssets());
+  on("PUT", "/assets", (_p, body) => store.saveAsset(body));
+  on("POST", "/assets/prune", (_p, _b, q) => store.pruneAssets({ dryRun: q.get("dryRun") === "true" }));
+  on("GET", "/assets/:name", ([name]) => store.readAsset(name));
   on("GET", "/members", () => contributors2(store.root));
   return async function handle(req) {
     const url2 = new URL(req.path, "http://repo.local");

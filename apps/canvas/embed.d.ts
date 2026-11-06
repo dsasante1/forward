@@ -9,6 +9,7 @@
 import type {
   AgentNode,
   ApiBinding,
+  AssetInfo,
   Checkpoint,
   CheckpointInput,
   DesignElement,
@@ -96,6 +97,10 @@ export interface CanvasSource {
   createCheckpoint?(input: CheckpointInput): Promise<Checkpoint>;
   restoreCheckpoint?(checkpointId: string): Promise<void>;
   deleteCheckpoint?(checkpointId: string): Promise<void>;
+  /** A URL for an image asset (`style.image.asset`); cacheable forever. */
+  assetUrl?(name: string): Promise<string>;
+  /** Store downscaled image bytes; read-only sources omit it. */
+  uploadAsset?(bytes: Uint8Array): Promise<AssetInfo>;
 }
 
 /** A CanvasSource backed by Forward's REST API (`forward serve`); the host
@@ -113,16 +118,20 @@ export declare class ServerSource implements CanvasSource {
   deleteElement(elementId: string): Promise<void>;
   /** Re-fetch one layer immediately (the poll loops remain the fallback). */
   notifyChange(resource: RealtimeResource): void;
+  assetUrl(name: string): Promise<string>;
+  uploadAsset(bytes: Uint8Array): Promise<AssetInfo>;
 }
 
 /** A read-only CanvasSource over a project bundle written by `forward export`
  * (the GitHub Pages viewer). Mirrors src/static-source.ts. */
 export declare class StaticSource implements CanvasSource {
-  constructor(bundle: import("forward-core/repo").ProjectBundle);
+  /** `assetBase`: a URL in the directory holding the exported `images/` (default: the page). */
+  constructor(bundle: import("forward-core/repo").ProjectBundle, assetBase?: string);
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void;
   subscribeInfra(onChange: (infra: InfraSnapshot) => void): () => void;
   saveElement(element: DesignElement): Promise<DesignElement>;
   deleteElement(elementId: string): Promise<void>;
+  assetUrl(name: string): Promise<string>;
 }
 
 export interface MountOptions {

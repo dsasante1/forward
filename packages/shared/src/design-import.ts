@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  AssetName,
   LONG_TEXT_MAX,
   SHORT_TEXT_MAX,
   type DesignElement,
@@ -75,6 +76,9 @@ export const CaptureStyle = z
   .partial();
 export type CaptureStyle = z.infer<typeof CaptureStyle>;
 
+/** Longest image URL the collector keeps (data: URLs longer than this are skipped). */
+export const CAPTURE_SRC_MAX = 4000;
+
 /** Attributes that make good names and stable keys. */
 const CaptureAttrs = z
   .object({
@@ -84,8 +88,20 @@ const CaptureAttrs = z
     alt: z.string().max(SHORT_TEXT_MAX),
     role: z.string().max(SHORT_TEXT_MAX),
     placeholder: z.string().max(SHORT_TEXT_MAX),
+    /** An `<img>`'s resolved URL (currentSrc), for fetching its bytes on import. */
+    src: z.string().max(CAPTURE_SRC_MAX),
+    /** An `<img>`'s computed `object-fit`. */
+    fit: z.string().max(32),
   })
   .partial();
+
+
+/** An `<img>` whose bytes were stored as an asset during import (set by the importer, not the collector). */
+const CaptureImage = z.object({
+  asset: AssetName,
+  naturalWidth: z.number().positive(),
+  naturalHeight: z.number().positive(),
+});
 
 export interface CaptureNode {
   /** Lower-case tag name. */
@@ -108,6 +124,8 @@ export interface CaptureNode {
   source?: string;
   /** True when this node is the outermost DOM node of its component. */
   componentRoot?: boolean;
+  /** The stored image for an `<img>`, once the importer fetched it (`images` option). */
+  image?: z.infer<typeof CaptureImage>;
   children?: CaptureNode[];
 }
 
@@ -124,6 +142,7 @@ export const CaptureNode: z.ZodType<CaptureNode> = z.lazy(() =>
     component: z.string().max(SHORT_TEXT_MAX).optional(),
     source: z.string().max(SHORT_TEXT_MAX).optional(),
     componentRoot: z.boolean().optional(),
+    image: CaptureImage.optional(),
     children: z.array(CaptureNode).optional(),
   }),
 );
@@ -386,7 +405,16 @@ function boxStyle(
   const s = node.style ?? {};
   const style: Style = {};
   if (paints(s.background)) style.fill = toHex(s.background);
-  else if (REPLACED.has(node.tag) && node.tag !== "hr") style.fill = "#e5e7eb";
+  else if (REPLACED.has(node.tag) && node.tag !== "hr" && !node.image) style.fill = "#e5e7eb";
+  if (node.image) {
+    const fit = node.attrs?.fit;
+    style.image = {
+      ...node.image,
+      // object-fit: cover crops, contain/scale-down letterbox, fill (the default) stretches.
+      fit: fit === "cover" ? "cover" : fit === "contain" || fit === "scale-down" ? "contain" : "fill",
+      alt: oneLine(node.attrs?.alt ?? "").slice(0, SHORT_TEXT_MAX),
+    };
+  }
 
   const b = borderSides(s);
   const sides = [b.top, b.right, b.bottom, b.left];

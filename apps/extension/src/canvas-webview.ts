@@ -8,9 +8,12 @@ import {
   type TasksMode,
   mountCanvas,
 } from "forward-canvas/embed";
+import { base64ToBytes, bytesToBase64 } from "forward-core";
 import type {
   AgentNode,
   ApiBinding,
+  AssetData,
+  AssetInfo,
   Checkpoint,
   CheckpointInput,
   DesignElement,
@@ -215,6 +218,25 @@ class BridgeSource implements CanvasSource {
   }
   deleteCheckpoint(checkpointId: string): Promise<void> {
     return rpc("deleteCheckpoint", [checkpointId]);
+  }
+
+  /** One fetch per asset (names are content hashes, so the URL never goes stale). */
+  private readonly assetUrls = new Map<string, Promise<string>>();
+
+  /** The bytes cross the bridge as base64 and become a `blob:` URL (allowed by the webview CSP). */
+  assetUrl(name: string): Promise<string> {
+    let url = this.assetUrls.get(name);
+    if (!url) {
+      url = rpc<AssetData>("fetchAsset", [name]).then((a) =>
+        URL.createObjectURL(new Blob([base64ToBytes(a.data) as BlobPart], { type: a.mime })),
+      );
+      url.catch(() => this.assetUrls.delete(name));
+      this.assetUrls.set(name, url);
+    }
+    return url;
+  }
+  uploadAsset(bytes: Uint8Array): Promise<AssetInfo> {
+    return rpc("uploadAsset", [bytesToBase64(bytes)]);
   }
 }
 

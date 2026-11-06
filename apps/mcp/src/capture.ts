@@ -127,6 +127,12 @@ export const COLLECTOR_SOURCE = String.raw`function forwardCollect(opts) {
     if ((a = el.getAttribute("alt"))) attrs.alt = cut(a, 200);
     if ((a = el.getAttribute("role"))) attrs.role = cut(a, 200);
     if ((a = el.getAttribute("placeholder"))) attrs.placeholder = cut(a, 200);
+    // An image's resolved URL, so an import with images on can fetch its bytes.
+    if (tag === "IMG") {
+      var src = el.currentSrc || el.src || "";
+      if (src && src.length <= 4000) attrs.src = src;
+      if (cs.objectFit) attrs.fit = cut(cs.objectFit, 32);
+    }
     node.attrs = attrs;
     var text = "";
     // Typed values can be secrets or personal data and would be committed with

@@ -83,6 +83,12 @@ export function createRepoRouter(store: RepoStore) {
     store.restoreCheckpoint(id!);
   });
 
+  // image assets (content-addressed bytes under .forward/assets/)
+  on("GET", "/assets", () => store.listAssets());
+  on("PUT", "/assets", (_p, body) => store.saveAsset(body));
+  on("POST", "/assets/prune", (_p, _b, q) => store.pruneAssets({ dryRun: q.get("dryRun") === "true" }));
+  on("GET", "/assets/:name", ([name]) => store.readAsset(name!));
+
   // contributor roster, derived from git history (read-only)
   on("GET", "/members", () => contributors(store.root));
 

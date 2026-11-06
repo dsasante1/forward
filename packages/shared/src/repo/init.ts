@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { FORMAT_VERSION, FORWARD_DIR, MANIFEST_FILE } from "./layout.js";
+import { FORMAT_VERSION, FORWARD_DIR, FORWARD_GITATTRIBUTES, MANIFEST_FILE } from "./layout.js";
 import { toJson, type RepoManifest } from "./store.js";
 
 export interface InitOptions {
@@ -21,11 +21,23 @@ export function initRepo(root: string, opts: InitOptions = {}): { created: boole
     id: opts.id?.trim() || slug(name),
     name,
   };
-  if (existsSync(file)) return { created: false, manifest };
+  if (existsSync(file)) {
+    ensureGitattributes(root);
+    return { created: false, manifest };
+  }
   mkdirSync(dir, { recursive: true });
   writeFileSync(file, toJson(manifest));
   writeFileSync(join(dir, "README.md"), FORWARD_README);
+  ensureGitattributes(root);
   return { created: true, manifest };
+}
+
+/** Write `.forward/.gitattributes` (images are binary) unless the team already has one. */
+export function ensureGitattributes(root: string): void {
+  const file = join(root, FORWARD_DIR, ".gitattributes");
+  if (existsSync(file)) return;
+  mkdirSync(join(root, FORWARD_DIR), { recursive: true });
+  writeFileSync(file, FORWARD_GITATTRIBUTES);
 }
 
 function slug(s: string): string {
@@ -58,6 +70,7 @@ Layout: one file per record, named after its id.
 | \`agents/agents\`, \`agents/servers\` | agents and the MCP servers they call |
 | \`tasks/\` | task tracker |
 | \`checkpoints/\` | named, restorable snapshots of design + infra |
+| \`assets/\` | image bytes, named by their SHA-256 (\`forward assets prune\` removes unused ones) |
 
 The project activity feed is your git history: commit messages show up in the
 History timeline.

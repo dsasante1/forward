@@ -21,6 +21,7 @@ import { join } from "node:path";
  *     tasks/<id>.json
  *     checkpoints/<id>.json
  *     dismissed/<elementId>.json      DismissedDraft (deleted code drafts)
+ *     assets/<sha256>.<ext>           image bytes (content-addressed, never rewritten)
  */
 export const FORWARD_DIR = ".forward";
 export const MANIFEST_FILE = "forward.json";
@@ -43,6 +44,24 @@ export const COLLECTIONS = {
 } as const;
 
 export type CollectionKey = keyof typeof COLLECTIONS;
+
+/**
+ * Image assets, relative to `.forward/`. Not a JSON collection: each file is the
+ * raw bytes, named by their SHA-256 (see `AssetName`), so readers that list
+ * `*.json` never see them.
+ */
+export const ASSETS_DIR = "assets";
+
+/**
+ * `.forward/.gitattributes`: images are binary (no text diffs or EOL rewrites).
+ * Teams with many large images can additionally `git lfs track ".forward/assets/**"`.
+ */
+export const FORWARD_GITATTRIBUTES = `${ASSETS_DIR}/** binary\n`;
+
+/** Absolute path of the assets directory. */
+export function assetsDir(root: string): string {
+  return join(root, FORWARD_DIR, ASSETS_DIR);
+}
 
 /** Filenames stay readable for ordinary ids and safe for any other id. */
 const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;

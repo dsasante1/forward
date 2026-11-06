@@ -1,3 +1,4 @@
+import { bytesToBase64, type AssetData, type AssetInfo } from "./assets.js";
 import type { ImportDesignReport, ImportDesignRequest } from "./design-import.js";
 import {
   AgentNode,
@@ -602,6 +603,36 @@ export async function restoreCheckpoint(
     "POST",
     `/checkpoints/${encodeURIComponent(checkpointId)}/restore`,
   );
+}
+
+// --------------------------------------------------------------------------
+// image assets — content-addressed bytes painted by `style.image`
+// --------------------------------------------------------------------------
+
+/**
+ * Upload an image. The backend sniffs its type, hashes it and returns the
+ * asset name to put in `style.image.asset`. Uploading the same bytes twice
+ * returns the same name.
+ */
+export async function uploadAsset(cfg: ApiConfig, bytes: Uint8Array): Promise<AssetInfo> {
+  return request<AssetInfo>(cfg, "PUT", "/assets", { data: bytesToBase64(bytes) });
+}
+
+/** An asset's bytes (base64) and MIME type. */
+export async function fetchAsset(cfg: ApiConfig, name: string): Promise<AssetData> {
+  return get<AssetData>(cfg, `/assets/${encodeURIComponent(name)}`);
+}
+
+export async function listAssets(cfg: ApiConfig): Promise<AssetInfo[]> {
+  return get<AssetInfo[]>(cfg, "/assets");
+}
+
+/** Delete assets no element or checkpoint references; `dryRun` only reports them. */
+export async function pruneAssets(
+  cfg: ApiConfig,
+  opts: { dryRun?: boolean } = {},
+): Promise<{ removed: string[]; bytes: number }> {
+  return request(cfg, "POST", `/assets/prune${opts.dryRun ? "?dryRun=true" : ""}`);
 }
 
 // --------------------------------------------------------------------------

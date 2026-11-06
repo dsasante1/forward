@@ -9,7 +9,7 @@ integrate, change or remove.
 
 - **Lives in git.** The whole project is plain JSON in `.forward/`, one file per record. It is
   versioned, reviewed and merged with the code it describes. No server and no account are needed.
-- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 40 tools with full
+- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 42 tools with full
   parity with the canvas. Agents without MCP use the same tools through the `forward` CLI.
 - **GitHub native.** One workflow validates `.forward/` on pull requests, posts a catch-up digest
   as a PR comment, and publishes a read-only canvas to GitHub Pages.
@@ -55,7 +55,7 @@ configuration is needed: the server finds the nearest `.forward/` and works on t
 **Without MCP**, the CLI calls the very same tool code in-process:
 
 ```bash
-forward tools                                   # list all 40 tools
+forward tools                                   # list all 42 tools
 forward tools write_documentation               # one tool's arguments
 forward find_element --query "login button"
 forward write_documentation --element-id el_123 --title "POST /login" --description "Body: email, password"
@@ -66,6 +66,27 @@ forward diff origin/main                        # what this branch changed, as M
 Good first calls for an agent are `project_info`, `find_element`, `write_documentation`,
 `validate_project` and `get_changes_since_ref`. Writes are stamped with your git `user.name`, plus
 `via <agent>` when `FORWARD_AGENT` is set.
+
+## Images
+
+Drop or paste an image onto the canvas (or right-click → **Image…**) and it becomes a rectangle
+with an **image fill**; any rectangle, ellipse or frame can take one from the inspector or the
+right-click menu, clipped to its corners. The inspector sets the fit (cover, contain, fill) and alt
+text. Agents use `set_element_image` with a file path.
+
+The bytes are stored once in `.forward/assets/`, named by their SHA-256, and the element only holds
+that name, so checkpoints, history and the PR digest never copy them, the same image used twice is
+one file, and two branches adding it don't conflict. PNG, JPEG, WebP, GIF and AVIF are accepted up
+to 5 MB (SVG is refused: it can carry script). The canvas downscales to 4096 px and re-encodes,
+and the store strips EXIF/XMP from every JPEG and PNG, so a photo's GPS position never reaches git.
+`forward init` marks `assets/` binary in `.forward/.gitattributes`; teams with many large images
+can add `git lfs track ".forward/assets/**"`.
+
+Removing an image or deleting its element keeps the file (undo and checkpoints may need it).
+`forward assets` lists what's stored, `forward assets prune` deletes what no element or checkpoint
+uses, and `forward validate` warns about missing or unused images and fails on a file whose bytes
+don't match its name. `forward capture --images` fetches the page's `<img>`s into drafts instead
+of grey placeholders.
 
 ## Designs from frontend code
 
@@ -175,6 +196,7 @@ server, database or account. Git is the sync, the history and the access control
 | `tasks/<id>.json` | Task tracker |
 | `checkpoints/<id>.json` | Named, restorable snapshots of design and infra |
 | `dismissed/<id>.json` | Code drafts someone deleted, so capture doesn't recreate them |
+| `assets/<sha256>.<ext>` | Image bytes for image fills, named by their hash |
 
 One file per record keeps merges clean and PR diffs readable. History entries are separate files,
 so two branches that both document endpoints merge without conflicts. The project activity feed is

@@ -817,6 +817,10 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
   cursor: pointer; font: inherit; font-size: 13px;
 }
 .doc-add:hover { border-color: var(--accent); color: #fff; }
+.image-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.image-size { font-size: 12px; color: var(--muted, inherit); line-height: 28px; }
+.el-image-missing { fill: var(--muted, #8a93a3); font-size: 11px; pointer-events: none; }
+.canvas-drop-target svg { outline: 2px dashed var(--accent, #5b8cff); outline-offset: -4px; }
 .doc-remove { background: transparent; color: var(--err); border-color: rgba(210, 96, 62, 0.35); }
 .doc-remove:hover { border-color: var(--err); }
 .doc-save {
