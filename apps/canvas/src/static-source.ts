@@ -13,6 +13,9 @@ import type {
   InfraSnapshot,
 } from "./source.js";
 
+/** Where `forward export` puts image assets, beside `forward.json`. */
+export const EXPORT_IMAGES_DIR = "images";
+
 /**
  * A read-only CanvasSource over a {@link ProjectBundle} — the whole project in
  * one JSON file, written by `forward export`. This is what a GitHub Pages site
@@ -24,7 +27,14 @@ import type {
  * memory only, so dragging something around never errors but never persists.
  */
 export class StaticSource implements CanvasSource {
-  constructor(private readonly bundle: ProjectBundle) {}
+  /**
+   * @param assetBase A URL in the directory holding the exported `images/`
+   * (the bundle's own URL works); defaults to the page's directory.
+   */
+  constructor(
+    private readonly bundle: ProjectBundle,
+    private readonly assetBase?: string,
+  ) {}
 
   subscribe(onChange: (elements: ElementSnapshot[]) => void): () => void {
     onChange(
@@ -72,4 +82,9 @@ export class StaticSource implements CanvasSource {
   }
 
   async deleteElement(): Promise<void> {}
+
+  /** `forward export` copies every referenced asset into `images/` beside the bundle. */
+  async assetUrl(name: string): Promise<string> {
+    return new URL(`${EXPORT_IMAGES_DIR}/${encodeURIComponent(name)}`, this.assetBase ?? document.baseURI).href;
+  }
 }

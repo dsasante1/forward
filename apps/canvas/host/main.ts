@@ -52,7 +52,8 @@ async function start(): Promise<void> {
     showBanner("Editing .forward/ in your repository · commit to share");
     return;
   }
-  const res = await fetch(new URL(cfg.bundle, location.href));
+  const bundleUrl = new URL(cfg.bundle, location.href);
+  const res = await fetch(bundleUrl);
   if (!res.ok) {
     showError(`<h2>Forward</h2><p>Couldn't load the project snapshot (${res.status}).</p>`);
     return;
@@ -62,7 +63,7 @@ async function start(): Promise<void> {
   const focus = new URLSearchParams(location.search).get("element");
   mountCanvas({
     container: app,
-    source: new StaticSource(bundle),
+    source: new StaticSource(bundle, bundleUrl.href),
     projectId: bundle.project.id,
     projectName: bundle.project.name,
     focusElementId: focus,

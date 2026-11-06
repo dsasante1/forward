@@ -101,6 +101,13 @@ export interface ProjectDiff {
    * of the per-element changes above, where it would only be noise.
    */
   adopted: string[];
+  /** Image fills added, replaced or removed, by element (compared by asset hash). */
+  images: ImageChange[];
+}
+
+export interface ImageChange {
+  element: string;
+  change: "added" | "replaced" | "removed";
 }
 
 type Named = { id: string; name?: string; label?: string; title?: string; key?: string };
@@ -149,6 +156,15 @@ export function diffProjects(before: ProjectBundle | undefined, after: ProjectBu
     .filter((e) => !e.origin && prevEls.get(e.id)?.origin)
     .map((e) => label(e));
 
+  const images: ImageChange[] = [];
+  for (const id of ids) {
+    const a = prevEls.get(id)?.style?.image?.asset;
+    const b = nextEls.get(id)?.style?.image?.asset;
+    if (a === b) continue;
+    const el = nextEls.get(id) ?? prevEls.get(id)!;
+    images.push({ element: label(el), change: !a ? "added" : !b ? "removed" : "replaced" });
+  }
+
   const schedule = scheduleChanges(before?.tasks ?? [], after.tasks);
   return {
     api,
@@ -156,6 +172,7 @@ export function diffProjects(before: ProjectBundle | undefined, after: ProjectBu
     schedule,
     ...(schedule.length ? { gantt: tasksToMermaidGantt(after.tasks, { title: after.project.name }) } : {}),
     adopted,
+    images,
   };
 }
 
@@ -235,7 +252,8 @@ export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; vi
     !toRemove.length &&
     !diff.layers.length &&
     !diff.schedule.length &&
-    !diff.adopted.length;
+    !diff.adopted.length &&
+    !diff.images?.length;
   if (empty) {
     lines.push("No changes to the design, API docs, infrastructure or data model.");
     return lines.join("\n") + "\n";
@@ -297,6 +315,13 @@ export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; vi
         "The design is now the source of truth for them; code imports no longer update them.",
       "",
     );
+  }
+  if (diff.images?.length) {
+    const verb = { added: "added", replaced: "replaced", removed: "removed" } as const;
+    lines.push("### Images", "");
+    for (const c of diff.images.slice(0, 20)) lines.push(`- \`${c.element.replace(/[`\r\n]/g, "'")}\` · image ${verb[c.change]}`);
+    if (diff.images.length > 20) lines.push(`- and ${diff.images.length - 20} more`);
+    lines.push("");
   }
   if (opts.viewerUrl) lines.push(`[Open the canvas](${opts.viewerUrl})`, "");
   return lines.join("\n");

@@ -18,6 +18,8 @@ import {
   type TimelineDomain,
   type FlowDetail,
 } from "forward-core";
+import type { ImageFill } from "forward-core";
+import { preserveAspectRatio } from "./images.js";
 
 /**
  * The project History timeline: a full-cover, domain-grouped activity feed (the
@@ -39,6 +41,11 @@ export interface TimelineCallbacks {
   onDelete?: (checkpointId: string) => void;
   /** Render a Mermaid source to an SVG string (the infra/flow detail diagrams). */
   renderMermaid?: (src: string) => Promise<string>;
+  /**
+   * The loaded URL of an image asset, or undefined while it loads (the canvas
+   * re-renders this view once it arrives). Absent: previews show shapes only.
+   */
+  imageHref?: (asset: string) => string | undefined;
   onClose: () => void;
 }
 
@@ -342,9 +349,9 @@ function detailBody(
 ): HTMLElement | null {
   switch (detail.kind) {
     case "design":
-      return designBody(detail);
+      return designBody(detail, cb);
     case "checkpoint":
-      return checkpointBody(detail);
+      return checkpointBody(detail, cb);
     case "api":
       return apiBody(detail, color);
     case "infra":
@@ -356,14 +363,14 @@ function detailBody(
   }
 }
 
-function designBody(d: DesignDetail): HTMLElement {
+function designBody(d: DesignDetail, cb: TimelineCallbacks): HTMLElement {
   const wrap = div("tl2-detail");
   if (!d.found) {
     wrap.append(h("div", "This element no longer exists on the canvas.", "tl2-detail-empty"));
     return wrap;
   }
   if (d.preview?.elements.length) {
-    wrap.append(previewEl(d.preview));
+    wrap.append(previewEl(d.preview, cb.imageHref));
     wrap.append(h("div", basisCaption(d.preview.basis), "tl2-preview-cap"));
   }
   const grid = div("tl2-proptable");
@@ -568,10 +575,10 @@ function diagram(src: string, cb: TimelineCallbacks): HTMLElement {
   return box;
 }
 
-function checkpointBody(d: CheckpointDetail): HTMLElement {
+function checkpointBody(d: CheckpointDetail, cb: TimelineCallbacks): HTMLElement {
   const wrap = div("tl2-detail");
   if (d.preview?.elements.length) {
-    wrap.append(previewEl(d.preview));
+    wrap.append(previewEl(d.preview, cb.imageHref));
     wrap.append(h("div", basisCaption(d.preview.basis), "tl2-preview-cap"));
   } else {
     wrap.append(h("div", "This checkpoint captured no design elements.", "tl2-detail-empty"));
@@ -592,13 +599,16 @@ function checkpointBody(d: CheckpointDetail): HTMLElement {
 // Design preview — the element (and its descendants) drawn as a fitted SVG, so
 // a design/checkpoint event shows the actual artefact, not just its numbers.
 // --------------------------------------------------------------------------
-function previewEl(preview: DesignPreview): HTMLElement {
+function previewEl(
+  preview: DesignPreview,
+  imageHref?: TimelineCallbacks["imageHref"],
+): HTMLElement {
   const wrap = div("tl2-preview");
   const els = preview.elements;
   // A text element's stored box is its anchor, not its rendered width — long
   // labels overflow it. Bound against an estimate of the glyphs' extent so the
   // SVG viewport doesn't clip a label (e.g. "upload file here") at its edge.
-  const b = boundsOf(els.map(textAwareBox));
+  const b = boundsOf(els.map((el) => rotatedBox(textAwareBox(el), el.rotation)));
   const pad = Math.max(8, Math.max(b.w, b.h) * 0.06);
   const view = svgNode("svg", {
     viewBox: `${b.x - pad} ${b.y - pad} ${b.w + pad * 2} ${b.h + pad * 2}`,
@@ -607,7 +617,18 @@ function previewEl(preview: DesignPreview): HTMLElement {
   });
   for (const el of els) {
     const node = previewShape(el, preview.rootId);
-    if (node) view.append(node);
+    if (!node) continue;
+    // Rotate the shape and its image together about the element's centre, as the canvas does.
+    const target = el.rotation
+      ? svgNode("g", {
+          transform: `rotate(${el.rotation} ${el.x + el.width / 2} ${el.y + el.height / 2})`,
+        })
+      : view;
+    target.append(node);
+    const image = el.type !== "text" ? el.style?.image : undefined;
+    const href = image && imageHref?.(image.asset);
+    if (image && href) target.append(...previewImage(el, image, href, node));
+    if (target !== view) view.append(target);
   }
   wrap.append(view);
   return wrap;
@@ -649,6 +670,25 @@ function textAwareBox(
     y: el.y,
     width: Math.max(el.width, chars * fontSize * 0.6),
     height: Math.max(el.height, fontSize * 1.3),
+  };
+}
+
+/** The axis-aligned box a box covers once rotated about its centre (degrees clockwise). */
+export function rotatedBox(
+  b: { x: number; y: number; width: number; height: number },
+  rotation: number | undefined,
+): { x: number; y: number; width: number; height: number } {
+  if (!rotation) return b;
+  const rad = (rotation * Math.PI) / 180;
+  const cos = Math.abs(Math.cos(rad));
+  const sin = Math.abs(Math.sin(rad));
+  const width = b.width * cos + b.height * sin;
+  const height = b.width * sin + b.height * cos;
+  return {
+    x: b.x + b.width / 2 - width / 2,
+    y: b.y + b.height / 2 - height / 2,
+    width,
+    height,
   };
 }
 
@@ -712,6 +752,40 @@ function previewShape(
   });
   if (el.id === rootId) rect.classList.add("tl2-preview-focus");
   return rect;
+}
+
+let previewClipSeq = 0;
+
+/**
+ * An element's image fill in a preview: clipped to the shape just drawn (a
+ * copy of it is the clip path), then the shape's stroke again on top — the
+ * same layering the canvas uses.
+ */
+function previewImage(
+  el: DesignPreview["elements"][number],
+  image: ImageFill,
+  href: string,
+  shape: SVGElement,
+): SVGElement[] {
+  const id = `tl2-img-clip-${++previewClipSeq}`;
+  const clip = svgNode("clipPath", { id, clipPathUnits: "userSpaceOnUse" });
+  clip.append(shape.cloneNode(false));
+  const img = svgNode("image", {
+    href,
+    x: String(el.x),
+    y: String(el.y),
+    width: String(el.width),
+    height: String(el.height),
+    preserveAspectRatio: preserveAspectRatio(image.fit),
+    "clip-path": `url(#${id})`,
+  });
+  const out: SVGElement[] = [clip, img];
+  if (shape.getAttribute("stroke")) {
+    const outline = shape.cloneNode(false) as SVGElement;
+    outline.setAttribute("fill", "none");
+    out.push(outline);
+  }
+  return out;
 }
 
 /** Namespaced SVG element with attributes (the preview's tiny builder). */

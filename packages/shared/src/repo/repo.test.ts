@@ -986,3 +986,101 @@ describe("importDesign never moves API docs onto a different element", () => {
     expect(b?.componentId).toBeUndefined();
   });
 });
+
+describe("image assets", () => {
+  // A 1×1 PNG.
+  const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const pngBytes = () => Uint8Array.from(Buffer.from(PNG, "base64"));
+  const fill = (asset: string) => ({ asset, fit: "cover" as const, naturalWidth: 1, naturalHeight: 1, alt: "" });
+
+  it("stores an image content-addressed, sniffs its type and is idempotent", async () => {
+    const a = await api.uploadAsset(cfg, pngBytes());
+    expect(a.name).toMatch(/^[a-f0-9]{64}\.png$/);
+    expect(a).toMatchObject({ mime: "image/png", width: 1, height: 1 });
+    const b = await api.uploadAsset(cfg, pngBytes());
+    expect(b.name).toBe(a.name);
+    expect(readdirSync(join(root, ".forward", "assets"))).toEqual([a.name]);
+    expect(readFileSync(join(root, ".forward", ".gitattributes"), "utf8")).toContain("assets/** binary");
+    const back = await api.fetchAsset(cfg, a.name);
+    expect(back.data).toBe(PNG);
+    expect(back.mime).toBe("image/png");
+  });
+
+  it("refuses SVG, unknown bytes, oversized images and path tricks", async () => {
+    const svg = new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
+    await expect(api.uploadAsset(cfg, svg)).rejects.toThrow(/SVG is not accepted/);
+    await expect(api.uploadAsset(cfg, new Uint8Array(6 * 1024 * 1024))).rejects.toThrow(/limit/);
+    await expect(api.fetchAsset(cfg, "../forward.json")).rejects.toThrow(/Not an asset name/);
+    await expect(api.fetchAsset(cfg, `${"0".repeat(64)}.png`)).rejects.toThrow(/No asset/);
+  });
+
+  it("keeps an image fill through saveElement and a checkpoint restore", async () => {
+    const { name } = await api.uploadAsset(cfg, pngBytes());
+    await api.saveElement(cfg, el("hero", { style: { radius: 8, image: fill(name) } }));
+    const cp = await api.createCheckpoint(cfg, { title: "with image", description: "", tag: "checkpoint" });
+    await api.saveElement(cfg, el("hero"));
+    await api.restoreCheckpoint(cfg, cp.id);
+    const [hero] = await api.fetchElements(cfg);
+    expect(hero?.style?.image?.asset).toBe(name);
+  });
+
+  it("prunes only assets no element or checkpoint references", async () => {
+    const used = (await api.uploadAsset(cfg, pngBytes())).name;
+    await api.saveElement(cfg, el("hero", { style: { image: fill(used) } }));
+    // A GIF header is enough for the sniffer: an unreferenced second asset.
+    const gif = Uint8Array.from([...Buffer.from("GIF89a"), 1, 0, 1, 0, 0, 0, 0, 0x3b]);
+    const unused = (await api.uploadAsset(cfg, gif)).name;
+    expect((await api.pruneAssets(cfg, { dryRun: true })).removed).toEqual([unused]);
+    expect(readdirSync(join(root, ".forward", "assets"))).toHaveLength(2);
+
+    // Kept alive by a checkpoint after the element drops it.
+    await api.createCheckpoint(cfg, { title: "keep", description: "", tag: "checkpoint" });
+    await api.saveElement(cfg, el("hero"));
+    const out = await api.pruneAssets(cfg);
+    expect(out.removed).toEqual([unused]);
+    expect(readdirSync(join(root, ".forward", "assets"))).toEqual([used]);
+  });
+
+  it("validate warns on a missing or unused asset and errors on a tampered one", async () => {
+    const { name } = await api.uploadAsset(cfg, pngBytes());
+    const missing = `${"a".repeat(64)}.png`;
+    await api.saveElement(cfg, el("hero", { style: { image: fill(missing) } }));
+    const issues = validateRepo(root);
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ level: "warning", message: expect.stringContaining(`"${missing}" not found`) }),
+        expect.objectContaining({ level: "warning", file: `.forward/assets/${name}`, message: expect.stringContaining("Unused") }),
+      ]),
+    );
+    expect(issues.some((i) => i.level === "error")).toBe(false);
+
+    const bytes = pngBytes();
+    bytes[bytes.length - 1] = 0;
+    writeFileSync(join(root, ".forward", "assets", name), bytes);
+    expect(validateRepo(root)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ level: "error", message: expect.stringContaining("hash") })]),
+    );
+  });
+
+  it("reports image changes in the PR digest and skips image bytes when materializing a ref", async () => {
+    const { name } = await api.uploadAsset(cfg, pngBytes());
+    const before = loadBundle(root, { timeline: false });
+    await api.saveElement(cfg, el("hero", { name: "Hero", style: { image: fill(name) } }));
+    const diff = diffProjects(before, loadBundle(root, { timeline: false }));
+    expect(diff.images).toEqual([{ element: "Hero (hero)", change: "added" }]);
+    expect(renderDiffMarkdown(diff)).toContain("image added");
+
+    git("init", "-q");
+    git("config", "user.name", "t");
+    git("config", "user.email", "t@example.com");
+    git("add", ".");
+    git("commit", "-qm", "seed");
+    const at = checkoutForwardAt(root, "HEAD")!;
+    try {
+      expect(existsSync(join(at, ".forward", "design", "hero.json"))).toBe(true);
+      expect(existsSync(join(at, ".forward", "assets"))).toBe(false);
+    } finally {
+      rmSync(at, { recursive: true, force: true });
+    }
+  });
+});

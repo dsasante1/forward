@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -7,11 +7,25 @@ import {
   readdirSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { z } from "zod";
 import { diffBindings } from "../api-diff.js";
+import {
+  ASSET_TYPES,
+  MAX_ASSET_BYTES,
+  assetMime,
+  assetRefs,
+  base64ToBytes,
+  bytesToBase64,
+  imageSize,
+  sniffImage,
+  stripImageMetadata,
+  type AssetData,
+  type AssetInfo,
+} from "../assets.js";
 import { isIsoDay } from "../gantt.js";
 import {
   MAX_IMPORT_ELEMENTS,
@@ -23,6 +37,7 @@ import {
 import {
   AgentNode,
   ApiBinding,
+  AssetName,
   Checkpoint,
   CheckpointChange,
   CheckpointInput,
@@ -45,7 +60,9 @@ import {
   COLLECTIONS,
   FORMAT_VERSION,
   FORWARD_DIR,
+  FORWARD_GITATTRIBUTES,
   MANIFEST_FILE,
+  assetsDir,
   collectionDir,
   fileNameForId,
   type CollectionKey,
@@ -956,6 +973,89 @@ export class RepoStore {
     return cp;
   }
 
+  // --- image assets --------------------------------------------------------
+
+  /**
+   * Store an image and return its content-addressed name. EXIF/XMP/IPTC is
+   * stripped first (so the name hashes the cleaned bytes). The type is sniffed
+   * from the bytes (a client's claim is never trusted); anything outside
+   * {@link ASSET_TYPES} or over {@link MAX_ASSET_BYTES} is refused. Writing the
+   * same bytes twice is a no-op, so this is safe to retry.
+   */
+  saveAsset(input: unknown): AssetInfo {
+    const data = (input as { data?: unknown } | undefined)?.data;
+    if (typeof data !== "string" || !data) throw new RepoError(400, "Invalid asset: expected { data: <base64> }.");
+    let raw: Uint8Array;
+    try {
+      raw = base64ToBytes(data);
+    } catch {
+      throw new RepoError(400, "Invalid asset: data is not base64.");
+    }
+    const { name, bytes, ext } = prepareAsset(raw);
+    const file = join(assetsDir(this.root), name);
+    if (!existsSync(file)) {
+      mkdirSync(assetsDir(this.root), { recursive: true });
+      const attrs = join(this.root, FORWARD_DIR, ".gitattributes");
+      if (!existsSync(attrs)) writeFileSync(attrs, FORWARD_GITATTRIBUTES);
+      writeAtomic(file, bytes);
+    }
+    return { name, mime: ASSET_TYPES[ext], bytes: bytes.length, ...imageSize(bytes) };
+  }
+
+  /** An asset's bytes (base64) and type. 404 when absent. */
+  readAsset(name: string): AssetData {
+    const file = this.assetPath(name);
+    if (!existsSync(file)) throw new RepoError(404, `No asset "${name}"`);
+    const bytes = new Uint8Array(readFileSync(file));
+    return { ...this.assetInfo(name, bytes.length), ...imageSize(bytes), data: bytesToBase64(bytes) };
+  }
+
+  /** Every stored asset, by name. */
+  listAssets(): AssetInfo[] {
+    const dir = assetsDir(this.root);
+    let names: string[];
+    try {
+      names = readdirSync(dir).filter((n) => AssetName.safeParse(n).success).sort();
+    } catch {
+      return [];
+    }
+    return names.map((n) => this.assetInfo(n, statSync(join(dir, n)).size));
+  }
+
+  /** Every asset an element or a checkpoint still paints, so restore keeps working. */
+  referencedAssets(): Set<string> {
+    const refs = assetRefs(this.listElements());
+    for (const cp of this.listCheckpoints()) for (const a of assetRefs(cp.snapshot.elements)) refs.add(a);
+    return refs;
+  }
+
+  /**
+   * Delete assets no element or checkpoint references. Deleting an element never
+   * removes its image (undo, checkpoints and copies may still need it); this is
+   * the explicit cleanup. Git history keeps the bytes regardless.
+   */
+  pruneAssets(opts: { dryRun?: boolean } = {}): { removed: string[]; bytes: number } {
+    const refs = this.referencedAssets();
+    const removed: string[] = [];
+    let bytes = 0;
+    for (const asset of this.listAssets()) {
+      if (refs.has(asset.name)) continue;
+      removed.push(asset.name);
+      bytes += asset.bytes;
+      if (!opts.dryRun) rmSync(join(assetsDir(this.root), asset.name));
+    }
+    return { removed, bytes };
+  }
+
+  private assetPath(name: string): string {
+    if (!AssetName.safeParse(name).success) throw new RepoError(400, `Not an asset name: "${name}"`);
+    return join(assetsDir(this.root), name);
+  }
+
+  private assetInfo(name: string, size: number): AssetInfo {
+    return { name, mime: assetMime(name) ?? "application/octet-stream", bytes: size };
+  }
+
   // --- internals -----------------------------------------------------------
 
   private iso(): string {
@@ -1039,6 +1139,25 @@ export class RepoStore {
   private pathOf(key: CollectionKey, id: string): string {
     return join(this.root, FORWARD_DIR, COLLECTIONS[key], `${fileNameForId(id)}.json`);
   }
+}
+
+/**
+ * The one rule for turning image bytes into a stored asset: strip identifying
+ * metadata, enforce type and size, and name the result by its SHA-256. Exported
+ * so a dry run can compute the name an upload would get without writing.
+ */
+export function prepareAsset(raw: Uint8Array): { name: string; bytes: Uint8Array; ext: keyof typeof ASSET_TYPES } {
+  const bytes = stripImageMetadata(raw);
+  if (!bytes.length) throw new RepoError(400, "Invalid asset: empty image.");
+  if (bytes.length > MAX_ASSET_BYTES) {
+    throw new RepoError(413, `Image is ${mb(bytes.length)}; the limit is ${mb(MAX_ASSET_BYTES)}.`);
+  }
+  const ext = sniffImage(bytes);
+  if (!ext) {
+    throw new RepoError(415, `Unsupported image type. Use ${Object.keys(ASSET_TYPES).join(", ")} (SVG is not accepted).`);
+  }
+  const name = AssetName.parse(`${createHash("sha256").update(bytes).digest("hex")}.${ext}`);
+  return { name, bytes, ext };
 }
 
 /** An element as `importDesign` writes it: always carrying its provenance. */
@@ -1162,10 +1281,15 @@ export function toJson(value: unknown): string {
 }
 
 /** Write via a temp file + rename so a concurrent reader never sees half a file. */
-function writeAtomic(file: string, content: string): void {
+function writeAtomic(file: string, content: string | Uint8Array): void {
   const tmp = `${file}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
-  writeFileSync(tmp, content, "utf8");
+  if (typeof content === "string") writeFileSync(tmp, content, "utf8");
+  else writeFileSync(tmp, content);
   renameSync(tmp, file);
+}
+
+function mb(n: number): string {
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function readJson(file: string): unknown {

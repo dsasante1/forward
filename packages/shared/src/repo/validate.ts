@@ -1,10 +1,13 @@
 /// <reference types="node" />
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { z } from "zod";
+import { MAX_ASSET_BYTES, assetRefs, sniffImage } from "../assets.js";
 import { findDependencyCycles, parseTaskDay } from "../gantt.js";
 import {
   AgentNode,
+  AssetName,
   Checkpoint,
   DesignElement,
   DismissedDraft,
@@ -22,6 +25,7 @@ import {
   COLLECTIONS,
   FORWARD_DIR,
   MANIFEST_FILE,
+  assetsDir,
   fileNameForId,
   type CollectionKey,
 } from "./layout.js";
@@ -157,7 +161,68 @@ export function validateRepo(root: string): ValidationIssue[] {
     const path = [...keys, keys[0]].join(" → ");
     for (const id of cycle) warn(loaded.tasks.get(id)!.file, `Dependency cycle: ${path}.`);
   }
+  checkAssets(root, loaded.elements.values(), loaded.checkpoints.values(), err, warn);
   return issues;
+}
+
+/**
+ * Image assets: every `style.image` resolves to a file, every file is the image
+ * its name says (the right type, and bytes that hash to the name), and unused
+ * files are flagged for `forward assets prune`. A Git LFS pointer that was never
+ * fetched is a warning, not corruption.
+ */
+function checkAssets(
+  root: string,
+  elements: Iterable<{ file: string; value: DesignElement }>,
+  checkpoints: Iterable<{ file: string; value: Checkpoint }>,
+  err: (file: string, message: string) => void,
+  warn: (file: string, message: string) => void,
+): void {
+  const dir = assetsDir(root);
+  const present = new Set<string>();
+  let names: string[] = [];
+  try {
+    names = readdirSync(dir, { withFileTypes: true }).filter((d) => d.isFile()).map((d) => d.name).sort();
+  } catch {
+    // no assets directory
+  }
+  for (const name of names) {
+    const file = join(dir, name);
+    if (name.includes(".tmp-")) continue; // an in-flight atomic write
+    if (!AssetName.safeParse(name).success) {
+      warn(file, "Not a Forward asset (expected <sha256>.<png|jpg|webp|gif|avif>); nothing can reference it.");
+      continue;
+    }
+    present.add(name);
+    const bytes = readFileSync(file);
+    if (bytes.subarray(0, 40).toString("latin1").startsWith("version https://git-lfs")) {
+      warn(file, "Git LFS pointer: run `git lfs pull` to fetch the image.");
+      continue;
+    }
+    const ext = name.slice(name.lastIndexOf(".") + 1);
+    const sniffed = sniffImage(bytes);
+    if (sniffed !== ext) err(file, `Contents are ${sniffed ? `a ${sniffed} image` : "not an allowed image"}, not .${ext}.`);
+    else if (`${createHash("sha256").update(bytes).digest("hex")}.${ext}` !== name) {
+      err(file, "Contents don't hash to the file name; the image was modified after it was stored.");
+    }
+    if (bytes.length > MAX_ASSET_BYTES) warn(file, `Larger than the ${MAX_ASSET_BYTES / (1024 * 1024)} MB upload limit.`);
+  }
+  const used = new Set<string>();
+  for (const { file, value } of elements) {
+    for (const a of assetRefs([value])) {
+      used.add(a);
+      if (!present.has(a)) warn(file, `Image asset "${a}" not found in ${FORWARD_DIR}/assets/.`);
+    }
+  }
+  for (const { file, value } of checkpoints) {
+    for (const a of assetRefs(value.snapshot.elements)) {
+      used.add(a);
+      if (!present.has(a)) warn(file, `Image asset "${a}" not found; restoring this checkpoint shows an empty box.`);
+    }
+  }
+  for (const name of present) {
+    if (!used.has(name)) warn(join(dir, name), "Unused image; `forward assets prune` removes it.");
+  }
 }
 
 /**

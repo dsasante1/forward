@@ -15,7 +15,9 @@ import type {
   SaveableElement,
   Task,
 } from "forward-core";
+import type { AssetInfo } from "forward-core";
 import * as api from "forward-core/api";
+import { blobUrlFromAsset } from "./images.js";
 import type {
   AgentSnapshot,
   CanvasSource,
@@ -443,6 +445,25 @@ export class ServerSource implements CanvasSource {
 
   async listMembers(): Promise<api.Roster> {
     return api.listMembers(await this.cfg());
+  }
+
+  /** In-flight and finished asset fetches; an asset never changes, so one fetch each. */
+  private readonly assetUrls = new Map<string, Promise<string>>();
+
+  /** `<image href>` can't carry the session token, so fetch with it and hand back a blob URL. */
+  assetUrl(name: string): Promise<string> {
+    let url = this.assetUrls.get(name);
+    if (!url) {
+      url = this.cfg().then((cfg) => api.fetchAsset(cfg, name)).then(blobUrlFromAsset);
+      // Forget a failure so the next render retries (e.g. the file arrives with a pull).
+      url.catch(() => this.assetUrls.delete(name));
+      this.assetUrls.set(name, url);
+    }
+    return url;
+  }
+
+  async uploadAsset(bytes: Uint8Array): Promise<AssetInfo> {
+    return api.uploadAsset(await this.cfg(), bytes);
   }
 
 

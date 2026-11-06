@@ -11,6 +11,7 @@ import {
   type InfraEdge,
   type InfraFlow,
   type InfraFlowStep,
+  type ImageFill,
   type InfraNode,
   type McpServerNode,
   type ProjectTimelineEvent,
@@ -35,6 +36,13 @@ import {
   renderInfraPanel,
   renderPanel,
 } from "./panel.js";
+import {
+  ACCEPTED_IMAGE_TYPES,
+  firstImageFile,
+  preserveAspectRatio,
+  prepareImage,
+  scaleToFit,
+} from "./images.js";
 import { renderTimelineView } from "./timeline-view.js";
 import { renderTasksView, type TasksMode } from "./tasks-view.js";
 import { renderMemberView } from "./member-view.js";
@@ -232,6 +240,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   hiddenIds.clear();
   touchPoints.clear();
   pinch = null;
+  resetAssets();
 
   setBreadcrumb(opts.projectName ?? null, opts.onNavigateHome, opts.onNavigateProject);
   wireBackPill(opts.onBack);
@@ -247,6 +256,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   wireInspectorToggle();
   bindPointer();
   bindKeyboard();
+  bindImageInput();
   bindResize();
   subscribeAll();
   console.info("[canvas] mounted");
@@ -331,6 +341,7 @@ function destroy(): void {
   // painting into the torn-down shadow root after we detach it.
   stopEdgeScroll();
   cancelViewAnim();
+  resetAssets();
   uiRoot?.replaceChildren();
 }
 
@@ -2111,6 +2122,7 @@ function drawElement(raw: DesignElement): SVGGElement {
   } else {
     const shape = el.type === "ellipse" ? el2ellipse(el, cls, style) : el2rect(el, cls, style);
     g.append(shape);
+    if (style.image) g.append(...drawImageFill(el, style, style.image, shape));
     if (el.text && raw.id !== editingTextId) {
       const t = text(el.text, el.x + 10, el.y + el.height / 2 + 4, "el-label", true);
       if (style.fontFamily) t.setAttribute("font-family", style.fontFamily);
@@ -2137,6 +2149,267 @@ function drawElement(raw: DesignElement): SVGGElement {
     g.append(tag);
   }
   return g;
+}
+
+// ---- image fills ----------------------------------------------------------
+/** Resolved `<image href>` per asset name (an asset never changes, so forever). */
+const assetHrefs = new Map<string, string>();
+const assetPending = new Set<string>();
+/**
+ * Assets the source couldn't serve (not pulled yet, an LFS pointer, the
+ * connection dropped), drawn as a placeholder until a retry succeeds. Retries
+ * back off from 5 s to a minute, so a file that arrives with a `git pull` shows
+ * up without a reload.
+ */
+const assetFailed = new Map<string, { attempts: number; timer: ReturnType<typeof setTimeout> }>();
+const ASSET_RETRY_MS = 5_000;
+const ASSET_RETRY_MAX_MS = 60_000;
+let imageClipSeq = 0;
+
+/** Repaint everything that can show an image: the design and the History previews. */
+function repaintImages(): void {
+  render();
+  if (showTimeline) renderTimelinePanel();
+}
+
+/** Resolve an asset's URL once (retrying failures with backoff), then repaint so it appears. */
+function requestAsset(name: string): void {
+  if (!source.assetUrl || assetHrefs.has(name) || assetPending.has(name) || assetFailed.has(name)) return;
+  assetPending.add(name);
+  const requestedFrom = source;
+  source.assetUrl(name).then(
+    (url) => {
+      if (source !== requestedFrom) return; // remounted meanwhile
+      assetPending.delete(name);
+      assetFailedAttempts.delete(name);
+      assetHrefs.set(name, url);
+      repaintImages();
+    },
+    (err) => {
+      if (source !== requestedFrom) return;
+      assetPending.delete(name);
+      const attempts = (assetFailedAttempts.get(name) ?? 0) + 1;
+      assetFailedAttempts.set(name, attempts);
+      const delay = Math.min(ASSET_RETRY_MS * 2 ** (attempts - 1), ASSET_RETRY_MAX_MS);
+      if (attempts === 1) console.warn(`[canvas] image ${name} unavailable, retrying:`, err);
+      const timer = setTimeout(() => {
+        assetFailed.delete(name);
+        requestAsset(name);
+      }, delay);
+      assetFailed.set(name, { attempts, timer });
+      repaintImages();
+    },
+  );
+}
+/** Failure count per asset, kept across retries so the backoff grows. */
+const assetFailedAttempts = new Map<string, number>();
+
+/** Stop pending image retries and forget what was loaded (remount / destroy). */
+function resetAssets(): void {
+  for (const { timer } of assetFailed.values()) clearTimeout(timer);
+  assetFailed.clear();
+  assetFailedAttempts.clear();
+  assetPending.clear();
+  assetHrefs.clear();
+}
+
+/** The `<image href>` for an asset if it's loaded; otherwise starts loading it. */
+function assetHref(name: string): string | undefined {
+  const href = assetHrefs.get(name);
+  if (!href) requestAsset(name);
+  return href;
+}
+
+/**
+ * The image painted inside a shape: clipped to the shape's own outline (radius,
+ * per-corner radii, ellipse), drawn over its fill, then the outline is drawn
+ * again on top so the stroke isn't covered. Inherits the element group's
+ * rotation like everything else in it.
+ */
+function drawImageFill(
+  el: DesignElement,
+  style: NonNullable<DesignElement["style"]>,
+  image: ImageFill,
+  shape: SVGElement,
+): SVGElement[] {
+  const href = assetHref(image.asset);
+  if (!href) {
+    if (!assetFailedAttempts.has(image.asset)) return [];
+    const t = text("image unavailable · retrying", el.x + 8, el.y + el.height - 8, "el-image-missing");
+    return [t];
+  }
+  const clipId = `fwd-img-clip-${++imageClipSeq}`;
+  const clip = svgEl("clipPath", { id: clipId, clipPathUnits: "userSpaceOnUse" });
+  if (el.type === "ellipse") {
+    clip.append(
+      svgEl("ellipse", {
+        cx: String(el.x + el.width / 2),
+        cy: String(el.y + el.height / 2),
+        rx: String(el.width / 2),
+        ry: String(el.height / 2),
+      }),
+    );
+  } else {
+    clip.append(svgEl("path", { d: roundedRectPath(el.x, el.y, el.width, el.height, corners(el, style)) }));
+  }
+  const img = svgEl("image", {
+    href,
+    x: String(el.x),
+    y: String(el.y),
+    width: String(el.width),
+    height: String(el.height),
+    preserveAspectRatio: preserveAspectRatio(image.fit),
+    "clip-path": `url(#${clipId})`,
+    "pointer-events": "none",
+  });
+  if (image.alt) {
+    img.setAttribute("role", "img");
+    img.setAttribute("aria-label", image.alt);
+  }
+  // Re-draw the outline (stroke only) above the image.
+  const outline = shape.cloneNode(true) as SVGElement;
+  for (const node of [outline, ...Array.from(outline.querySelectorAll<SVGElement>("*"))]) node.style.fill = "none";
+  outline.setAttribute("pointer-events", "none");
+  return [clip, img, outline];
+}
+
+/** Ask for one image file with the system picker. */
+function pickImageFile(): Promise<File | undefined> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ACCEPTED_IMAGE_TYPES;
+    input.addEventListener("change", () => resolve(input.files?.[0] ?? undefined), { once: true });
+    input.addEventListener("cancel", () => resolve(undefined), { once: true });
+    input.click();
+  });
+}
+
+/** Downscale/re-encode and upload an image; null (after a toast) when it fails. */
+async function storeImage(file: Blob, alt: string): Promise<ImageFill | null> {
+  if (!source.uploadAsset) return null;
+  notify("Adding image…");
+  try {
+    const prepared = await prepareImage(file);
+    const info = await source.uploadAsset(prepared.bytes);
+    return {
+      asset: info.name,
+      fit: "cover",
+      naturalWidth: info.width ?? prepared.width,
+      naturalHeight: info.height ?? prepared.height,
+      alt,
+    };
+  } catch (err) {
+    notify(`Couldn't add the image: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
+  }
+}
+
+/** A readable default alt/name from a file name ("hero-shot.png" → "hero shot"). */
+function altFromFile(file: Blob): string {
+  const name = (file as File).name ?? "";
+  return name.replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim().slice(0, 120);
+}
+
+/**
+ * Insert an image as a new rectangle centred on a canvas point, sized to the
+ * image's aspect ratio (at most 480 px on its longer side), nested by geometry
+ * like any other insert.
+ */
+async function insertImageAt(file: Blob, cx: number, cy: number, forceParentId?: string): Promise<void> {
+  const alt = altFromFile(file);
+  const image = await storeImage(file, alt);
+  if (!image) return;
+  const size = scaleToFit(image.naturalWidth, image.naturalHeight, 480);
+  const id = `el_${Date.now().toString(36)}`;
+  const base = newElement(id, "rectangle", Math.round(cx - size.width / 2), Math.round(cy - size.height / 2));
+  const sized: DesignElement = {
+    ...base,
+    name: alt ? `image ${alt}` : base.name.replace(/^rectangle/, "image"),
+    width: size.width,
+    height: size.height,
+    style: { radius: 0, strokeWidth: 0, image },
+  };
+  const parentId = forceParentId ?? findParent(rectOf(sized), id, elements.values());
+  const final = { ...sized, parentId, updatedAt: now() };
+  elements.set(id, final);
+  void persistElement(final);
+  select(id);
+  notify("Image added. Commit .forward/ to share it.");
+}
+
+/** Set (or replace) the image fill of an existing shape. */
+async function setImageOn(id: string, file?: Blob): Promise<void> {
+  const picked = file ?? (await pickImageFile());
+  if (!picked) return;
+  const current = elements.get(id);
+  if (!current || current.type === "text") return;
+  const image = await storeImage(picked, current.style?.image?.alt || altFromFile(picked));
+  const latest = elements.get(id);
+  if (!image || !latest) return;
+  const updated = { ...latest, style: { ...(latest.style ?? {}), image }, updatedAt: now() };
+  elements.set(id, updated);
+  void persistElement(updated);
+  render();
+}
+
+/** Remove an element's image fill (the asset file stays; see `forward assets prune`). */
+function removeImageFrom(id: string): void {
+  const current = elements.get(id);
+  if (!current?.style?.image) return;
+  const { image: _drop, ...rest } = current.style;
+  const updated = { ...current, style: rest, updatedAt: now() };
+  elements.set(id, updated);
+  void persistElement(updated);
+  render();
+}
+
+/** The canvas point at the middle of the visible stage (where a paste lands). */
+function stageCenter(): { x: number; y: number } {
+  const box = svg.getBoundingClientRect();
+  return toCanvas({ clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 }, box);
+}
+
+/** Drop image files onto the design, or paste one; both insert a new image element. */
+function bindImageInput(): void {
+  if (!source.uploadAsset) return;
+  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const setTarget = (on: boolean) => canvasRootEl?.classList.toggle("canvas-drop-target", on);
+  svg.addEventListener("dragover", (e) => {
+    if (view !== "design" || !hasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    setTarget(true);
+  });
+  svg.addEventListener("dragleave", () => setTarget(false));
+  svg.addEventListener("drop", (e) => {
+    setTarget(false);
+    if (view !== "design" || !hasFiles(e)) return;
+    e.preventDefault();
+    const file = firstImageFile(e.dataTransfer);
+    if (!file) {
+      notify("Only image files can be dropped on the canvas.");
+      return;
+    }
+    const pt = toCanvas(e);
+    void insertImageAt(file, pt.x, pt.y);
+  });
+  on(window, "paste", (e) => {
+    if (view !== "design") return;
+    const target = (e.composedPath()[0] ?? e.target) as HTMLElement;
+    if (isTypingTarget(target)) return;
+    const file = firstImageFile(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    const sel = selectedId ? elements.get(selectedId) : undefined;
+    // Pasting onto a selected shape that already shows an image replaces it.
+    if (sel?.style?.image) {
+      void setImageOn(sel.id, file);
+      return;
+    }
+    const c = stageCenter();
+    void insertImageAt(file, c.x, c.y);
+  });
 }
 
 /**
@@ -2977,6 +3250,10 @@ function openElementMenu(
       shortcut: key.toUpperCase(),
     });
   }
+  if (source.uploadAsset && el.type !== "text") {
+    ctxItem(imageIcon(), el.style?.image ? "Replace image…" : "Set image…", () => void setImageOn(id));
+    if (el.style?.image) ctxItem(imageIcon(), "Remove image", () => removeImageFrom(id));
+  }
   ctxSep();
   ctxItem(docsIcon(), el.apiBinding ? "Edit API docs" : "Add API docs", () =>
     openApiDocsFor(id),
@@ -3015,6 +3292,13 @@ function openAddMenu(
   for (const { type, label, key, icon } of ELEMENT_CATALOG) {
     ctxItem(icon(), label, () => addElementAt(type, canvasX, canvasY), {
       shortcut: key.toUpperCase(),
+    });
+  }
+  if (source.uploadAsset) {
+    ctxItem(imageIcon(), "Image…", () => {
+      void pickImageFile().then((file) => {
+        if (file) void insertImageAt(file, canvasX, canvasY);
+      });
     });
   }
   showMenuAt(clientX, clientY);
@@ -3448,7 +3732,8 @@ function renderLayers(): void {
     indent.style.width = `${depthOf(el) * 14}px`;
     row.append(indent);
 
-    row.append(layerTypeIcon(el.type));
+    // An image fill (own or from its master) reads as a picture, not a box.
+    row.append(resolved(el).style?.image && el.type !== "text" ? imageIcon() : layerTypeIcon(el.type));
 
     const name = document.createElement("span");
     name.className = "fwd-layer-name";
@@ -3788,6 +4073,7 @@ function renderSelectionPanel(): void {
     onDocument,
     toggleInspector,
     el?.origin ? () => adoptDraft(el.id) : undefined,
+    el && source.uploadAsset ? () => void setImageOn(el.id) : undefined,
   );
 }
 
@@ -4074,6 +4360,7 @@ function renderTimelinePanel(): void {
         const { svg } = await mermaid.render(`hist_${++flowSeq}`, src);
         return svg;
       },
+      ...(source.assetUrl ? { imageHref: assetHref } : {}),
       onClose: toggleTimeline,
     },
   );
@@ -5771,6 +6058,14 @@ function frameIcon(): SVGElement {
 // Rectangle.
 function rectIcon(): SVGElement {
   return lineIcon([rect(4, 6, 16, 12, 2)]);
+}
+// Image: a framed picture with a mountain and sun.
+function imageIcon(): SVGElement {
+  return lineIcon([
+    rect(3, 5, 18, 14, 2),
+    poly("3 17 9 11 13 15 16 12 21 17"),
+    svgEl("circle", { cx: "16", cy: "9", r: "1.5" }),
+  ]);
 }
 // Ellipse / circle.
 function ellipseIcon(): SVGElement {

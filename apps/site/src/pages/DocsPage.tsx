@@ -256,6 +256,7 @@ export function DocsPage() {
                   <tr><td>tasks/&lt;id&gt;.json</td><td>The task tracker.</td></tr>
                   <tr><td>checkpoints/&lt;id&gt;.json</td><td>Named, restorable snapshots of design and infra.</td></tr>
                   <tr><td>dismissed/&lt;id&gt;.json</td><td>Code drafts someone deleted, so capture doesn't recreate them.</td></tr>
+                  <tr><td>assets/&lt;sha256&gt;.&lt;ext&gt;</td><td>Image bytes for image fills, named by their hash (PNG, JPEG, WebP, GIF or AVIF, up to 5 MB; location metadata stripped).</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1179,10 +1180,10 @@ export function DocsPage() {
             id="agents"
             kicker="Surface · AI agents"
             title="AI agents (MCP server)"
-            sub="Give any AI assistant full parity with the canvas and the extension: 40 tools over the same .forward/ files, over MCP or from the shell."
+            sub="Give any AI assistant full parity with the canvas and the extension: 42 tools over the same .forward/ files, over MCP or from the shell."
           >
             <p>
-              The <code className="d-code">forward-mcp</code> server exposes 40
+              The <code className="d-code">forward-mcp</code> server exposes 42
               tools so an agent can create and maintain every artifact
               (documentation, architecture, data models, tasks, even the design)
               exactly as a human contributor does. It runs over stdio from the
@@ -1252,7 +1253,7 @@ export function DocsPage() {
             </p>
             <pre className="d-pre">
               <code>
-                forward tools <span className="c"># list all 40 tools</span>
+                forward tools <span className="c"># list all 42 tools</span>
                 {"\n"}forward tools write_documentation <span className="c"># one tool's arguments</span>
                 {"\n"}forward call write_infra_node <span className="t">'{"{"}"kind":"cache","label":"Redis"{"}"}'</span>
                 {"\n"}forward call get_changes_since_ref <span className="t">'{"{"}"ref":"origin/main"{"}"}'</span>
@@ -1566,11 +1567,15 @@ export function DocsPage() {
                   </tr>
                   <tr>
                     <td>{"forward export "}</td>
-                    <td>Build a read-only static site for GitHub Pages. Flags: <code className="d-code">--out _site</code>, <code className="d-code">--no-history</code>.</td>
+                    <td>Build a read-only static site for GitHub Pages (images the design uses go to <code className="d-code">images/</code>). Flags: <code className="d-code">--out _site</code>, <code className="d-code">--no-history</code>.</td>
+                  </tr>
+                  <tr>
+                    <td>forward assets [prune]</td>
+                    <td>List the images in .forward/assets/ and whether anything uses them, or delete the unused ones. Flags: <code className="d-code">--dry-run</code>, <code className="d-code">--json</code>.</td>
                   </tr>
                   <tr>
                     <td>forward capture &lt;url&gt; [route …]</td>
-                    <td>Generate design drafts from a running frontend. Flags: <code className="d-code">--browser</code>, <code className="d-code">--viewport 1440x900</code>, <code className="d-code">--auth state.json</code>, <code className="d-code">--prune</code>, <code className="d-code">--restore</code>, <code className="d-code">--anchors</code>, <code className="d-code">--no-components</code>, <code className="d-code">--dry-run</code>.</td>
+                    <td>Generate design drafts from a running frontend. Flags: <code className="d-code">--browser</code>, <code className="d-code">--viewport 1440x900</code>, <code className="d-code">--auth state.json</code>, <code className="d-code">--prune</code>, <code className="d-code">--restore</code>, <code className="d-code">--anchors</code>, <code className="d-code">--images</code>, <code className="d-code">--no-components</code>, <code className="d-code">--dry-run</code>.</td>
                   </tr>
                   <tr>
                     <td>forward capture --browsers</td>
@@ -1690,7 +1695,7 @@ export function DocsPage() {
 
             <h3>MCP tools</h3>
             <p>
-              The 40 tools the Forward MCP server exposes to an agent, by area.{" "}
+              The 42 tools the Forward MCP server exposes to an agent, by area.{" "}
               <code className="d-code">forward tools &lt;tool&gt;</code> shows any
               one's arguments.
             </p>
@@ -1721,7 +1726,9 @@ export function DocsPage() {
                       <code className="d-code">create_element</code>{" "}
                       <code className="d-code">update_element</code>{" "}
                       <code className="d-code">delete_element</code>{" "}
-                      <code className="d-code">import_design_from_code</code>
+                      <code className="d-code">import_design_from_code</code>{" "}
+                      <code className="d-code">set_element_image</code>{" "}
+                      <code className="d-code">list_images</code>
                     </td>
                   </tr>
                   <tr>
@@ -2219,7 +2226,7 @@ function McpFigure() {
       {/* mcp server */}
       <rect x="290" y="30" width="200" height="102" rx="8" fill={BOX} stroke="var(--accent)" strokeWidth="1.6" />
       <text x="390" y="52" textAnchor="middle" fontSize="12" fill={INK}>forward-mcp</text>
-      <text x="390" y="68" textAnchor="middle" fontSize="9.5" fill="var(--accent)">40 tools · stdio</text>
+      <text x="390" y="68" textAnchor="middle" fontSize="9.5" fill="var(--accent)">42 tools · stdio</text>
       <text x="306" y="96" fontSize="8.5" fill={FAINT}>FORWARD_AGENT=claude</text>
       <text x="306" y="110" fontSize="8.5" fill={FAINT}>FORWARD_REPO (optional)</text>
       {/* repository */}
@@ -2276,7 +2283,7 @@ function SyncFigure() {
       <text x="380" y="62" textAnchor="middle" fontSize="9.5" fill={FAINT}>extension · in-process</text>
       <rect x="520" y="28" width="180" height="44" rx="7" fill={BOX} stroke={BORDER} />
       <text x="610" y="47" textAnchor="middle" fontSize="12" fill={INK}>AI agent</text>
-      <text x="610" y="62" textAnchor="middle" fontSize="9.5" fill={FAINT}>MCP · CLI · 40 tools</text>
+      <text x="610" y="62" textAnchor="middle" fontSize="9.5" fill={FAINT}>MCP · CLI · 42 tools</text>
       <path d="M150 72 C170 105 240 122 292 130" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#s-arrS)" markerEnd="url(#s-arr)" />
       <path d="M380 72 V126" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#s-arrS)" markerEnd="url(#s-arr)" />
       <path d="M610 72 C590 105 520 122 468 130" fill="none" stroke={EDGE} strokeWidth="1.4" markerStart="url(#s-arrS)" markerEnd="url(#s-arr)" />

@@ -851,7 +851,7 @@ export function LandingPage() {
             </p>
           </div>
           <div className="l-aiband-stat">
-            <div className="n">40</div>
+            <div className="n">42</div>
             <div className="l">
               MCP tools,
               <br />
@@ -1199,7 +1199,7 @@ const SURFACES = [
   {
     idx: "03 / MCP + CLI",
     title: "Hand it to an agent",
-    body: "40 tools with full parity, over MCP or straight from the shell, so any AI assistant or script can create and maintain every artifact.",
+    body: "42 tools with full parity, over MCP or straight from the shell, so any AI assistant or script can create and maintain every artifact.",
   },
 ];
 

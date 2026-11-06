@@ -103,6 +103,35 @@ export const SideWidths = z
   .partial();
 export type SideWidths = z.infer<typeof SideWidths>;
 
+/**
+ * The name of an image asset under `.forward/assets/`: the SHA-256 of its bytes
+ * plus the extension of its sniffed type. Content-addressed, so a file never
+ * changes once written, two branches adding the same image write the same file,
+ * and a checkpoint or history entry only ever holds this name, never the bytes.
+ */
+export const AssetName = z
+  .string()
+  .regex(/^[a-f0-9]{64}\.(png|jpg|webp|gif|avif)$/, "Not a Forward asset name (<sha256>.<ext>).");
+export type AssetName = z.infer<typeof AssetName>;
+
+/** How an image fills its element's box: crop to cover, letterbox, or stretch. */
+export const ImageFit = z.enum(["cover", "contain", "fill"]);
+export type ImageFit = z.infer<typeof ImageFit>;
+
+/**
+ * An image painted inside an element (Figma-style image fill): clipped to the
+ * element's shape, under its stroke and label, so radius, ellipse, rotation and
+ * instances all apply. The bytes live in `.forward/assets/` — see {@link AssetName}.
+ */
+export const ImageFill = z.object({
+  asset: AssetName.describe("Asset file name returned by upload_image / PUT /assets."),
+  fit: ImageFit.default("cover").describe("cover (crop, default), contain (letterbox) or fill (stretch)."),
+  naturalWidth: z.number().positive().describe("The image's own width in pixels."),
+  naturalHeight: z.number().positive().describe("The image's own height in pixels."),
+  alt: z.string().max(SHORT_TEXT_MAX).default("").describe("What the image shows, for docs and screen readers."),
+});
+export type ImageFill = z.infer<typeof ImageFill>;
+
 /** Visual styling — all optional, sensible defaults applied at render time. */
 export const Style = z.object({
   fill: z.string().max(SHORT_TEXT_MAX).optional(),
@@ -135,6 +164,10 @@ export const Style = z.object({
   fontWeight: z.number().int().optional(),
   fontFamily: z.string().max(SHORT_TEXT_MAX).optional(),
   color: z.string().max(SHORT_TEXT_MAX).optional(),
+  /** An image painted inside the shape; `fill` still shows behind a letterboxed one. */
+  image: ImageFill.optional().describe(
+    "Image fill: an uploaded asset painted inside the element, clipped to its shape.",
+  ),
 });
 export type Style = z.infer<typeof Style>;
 

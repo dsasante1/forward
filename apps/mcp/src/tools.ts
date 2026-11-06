@@ -6,6 +6,7 @@ import {
   ApiBinding,
   CaptureSnapshot,
   DesignElement,
+  ImageFit,
   MAX_IMPORT_ELEMENTS,
   Entity,
   EntityRelation,
@@ -25,10 +26,12 @@ import {
   findDependencyCycles,
   flattenTimelines,
   flowToMermaid,
+  imageSize,
   infraToComponentMermaid,
   mapSnapshot,
   newTask,
   placeSnapshots,
+  scaleToFit,
   taskSpan,
   tasksToMermaidGantt,
   withoutBinding,
@@ -52,8 +55,10 @@ import {
   fetchTasks,
   fetchTimelinesConditional,
   importDesign,
+  listAssets,
   listMembers,
   patchElement,
+  pruneAssets,
   saveAgentNode,
   saveElement,
   saveEntity,
@@ -64,6 +69,7 @@ import {
   saveMcpServer,
   saveTask,
   unbindApiFromElement,
+  uploadAsset,
   type ApiConfig,
 } from "forward-core/api";
 import {
@@ -71,6 +77,7 @@ import {
   diffProjects,
   findRepoRoot,
   loadBundle,
+  prepareAsset,
   refExists,
   renderDiffMarkdown,
   repoConfig,
@@ -82,6 +89,7 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { findAnchorsInSource, resolveAnchors, scanPath } from "./anchor.js";
 import { captureLive, parseViewport } from "./capture.js";
+import { resolveCaptureImages, type ResolveImagesReport, type StoreImage } from "./capture-images.js";
 import { insideRepo, parseSource, planAnchors, writeAnchors, type AnchorOutcome } from "./import-anchors.js";
 import { VERSION } from "./version.js";
 import type { AnchorElement } from "./anchor.js";
@@ -1313,6 +1321,108 @@ server.registerTool(
 );
 
 server.registerTool(
+  "set_element_image",
+  {
+    title: "Set an image on a design element",
+    description:
+      "Put an image (PNG, JPEG, WebP, GIF or AVIF file on disk, up to 5 MB; SVG is refused) on the " +
+      "canvas. With elementId it becomes that shape's image fill, clipped to its corners/ellipse; " +
+      "without, a new rectangle sized to the image's aspect ratio is created at x/y (nested in " +
+      "parentId when given). The bytes are stored once in .forward/assets/ by content hash, so " +
+      "re-using the same file is free. Pass remove:true to take an element's image off (the file " +
+      "stays until list_images prunes it). Use for logos, screenshots, mockups and avatars the " +
+      "design needs — not for diagrams (use the infra/flow tools) and not to restyle colours " +
+      "(use update_element). EXIF/XMP location metadata is stripped from JPEG and PNG on upload.",
+    inputSchema: {
+      path: z.string().optional().describe("Image file to upload (absolute, or relative to the cwd). Required unless remove:true."),
+      elementId: z.string().optional().describe("Existing element to fill. Omit to create a new image element."),
+      remove: z.boolean().optional().describe("Remove the element's image instead of setting one."),
+      fit: ImageFit.optional().describe("cover (crop to fill, default), contain (letterbox) or fill (stretch)."),
+      alt: z.string().max(500).optional().describe("What the image shows (docs and accessibility). Defaults to the file name."),
+      x: z.number().optional().describe("New element only: canvas x (default 0)."),
+      y: z.number().optional().describe("New element only: canvas y (default 0)."),
+      maxSide: z.number().positive().optional().describe("New element only: longest side in px (default 480)."),
+      parentId: z.string().optional().describe("New element only: frame to nest it in."),
+      name: z.string().optional().describe("New element only: display name."),
+    },
+  },
+  async ({ path, elementId, remove, fit, alt, x, y, maxSide, parentId, name }) => {
+    try {
+      const cfg = getConfig();
+      if (remove) {
+        if (!elementId) return fail("remove:true needs elementId.");
+        const current = (await fetchElements(cfg)).find((e) => e.id === elementId);
+        if (!current) return fail(`No design element "${elementId}".`);
+        if (!current.style?.image) return ok({ id: elementId, action: "unchanged", note: "It had no image." });
+        const { image: _drop, ...style } = current.style;
+        await saveElement(cfg, withoutBinding({ ...current, style }));
+        return ok({ id: elementId, action: "image removed", asset: current.style.image.asset });
+      }
+      if (!path) return fail("Pass path: the image file to upload.");
+      const bytes = new Uint8Array(await readFile(resolve(path)));
+      const info = await uploadAsset(cfg, bytes);
+      if (!info.width || !info.height) return fail("Couldn't read the image's pixel size from its header.");
+      const label = alt ?? (path.split(/[\\/]/).pop() ?? "").replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
+      const image = { asset: info.name, fit: fit ?? "cover", naturalWidth: info.width, naturalHeight: info.height, alt: label };
+      if (elementId) {
+        const current = (await fetchElements(cfg)).find((e) => e.id === elementId);
+        if (!current) return fail(`No design element "${elementId}".`);
+        if (current.type === "text") return fail("A text element can't hold an image; use a rectangle, ellipse or frame.");
+        await saveElement(cfg, withoutBinding({ ...current, style: { ...(current.style ?? {}), image } }));
+        return ok({ id: elementId, action: "image set", asset: info.name, size: `${info.width}x${info.height}` });
+      }
+      const size = scaleToFit(info.width, info.height, maxSide ?? 480);
+      const el = DesignElement.parse({
+        id: genId("el"),
+        type: "rectangle",
+        name: name ?? (label ? `image ${label}` : "image"),
+        x: x ?? 0,
+        y: y ?? 0,
+        ...size,
+        parentId: parentId ?? null,
+        style: { radius: 0, strokeWidth: 0, image },
+        updatedAt: new Date().toISOString(),
+      });
+      const saved = await saveElement(cfg, withoutBinding(el));
+      return ok({ id: saved.id, action: "created", asset: info.name, width: size.width, height: size.height });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "list_images",
+  {
+    title: "List (or prune) stored images",
+    description:
+      "List the images in .forward/assets/ with their size and whether an element or checkpoint " +
+      "still uses them. prune:true deletes the unused ones (dryRun:true only reports them). " +
+      "Deleting an element never deletes its image, so prune after removing images if the repo " +
+      "should shrink; git history keeps old bytes regardless.",
+    inputSchema: {
+      prune: z.boolean().optional().describe("Delete images nothing references."),
+      dryRun: z.boolean().optional().describe("With prune: report what would be deleted, delete nothing."),
+    },
+  },
+  async ({ prune, dryRun }) => {
+    try {
+      const cfg = getConfig();
+      if (prune) return ok({ ...(await pruneAssets(cfg, { dryRun: dryRun ?? false })), dryRun: dryRun ?? false });
+      const [assets, elements] = await Promise.all([listAssets(cfg), fetchElements(cfg)]);
+      const usedBy = new Map<string, string[]>();
+      for (const e of elements) {
+        const a = e.style?.image?.asset;
+        if (a) usedBy.set(a, [...(usedBy.get(a) ?? []), e.id]);
+      }
+      return ok(assets.map((a) => ({ ...a, elements: usedBy.get(a.name) ?? [] })));
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
   "delete_element",
   {
     title: "Delete a design element",
@@ -1451,6 +1561,14 @@ server.registerTool(
           "Also insert `// @adc <id>` anchors above each component's declaration in your JS/TS " +
             "source (edits source files — off by default).",
         ),
+      images: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also fetch every <img> the page shows and store it in .forward/assets/, so drafts show the " +
+            "real picture instead of a grey box (off by default: the images get committed). Pass it " +
+            "on every re-import of those routes, or the drafts go back to placeholders.",
+        ),
       dryRun: z.boolean().optional().describe("Report what would change without writing anything."),
     },
   },
@@ -1521,6 +1639,18 @@ server.registerTool(
         const page = `${s.route} @ ${Math.round(s.viewport.width)}x${Math.round(s.viewport.height)}`;
         if (pages.has(page)) throw new Error(`Two snapshots capture the same page (${page}); keep one.`);
         pages.add(page);
+      }
+
+      // Images first: the fetched asset becomes part of each draft's design hash.
+      let images: ResolveImagesReport | undefined;
+      if (input.images) {
+        const store: StoreImage = input.dryRun
+          ? async (bytes) => {
+              const prepared = prepareAsset(bytes);
+              return { name: prepared.name, ...imageSize(prepared.bytes) };
+            }
+          : (bytes) => uploadAsset(cfg, bytes);
+        images = await resolveCaptureImages(snapshots, { store });
       }
 
       const places = placeSnapshots(snapshots, await fetchElements(cfg));
@@ -1643,6 +1773,7 @@ server.registerTool(
         ...(report.conflicts.length ? { conflicts: report.conflicts.slice(0, limit) } : {}),
         ...(report.kept.length ? { kept: report.kept.slice(0, limit) } : {}),
         ...(anchors ? { anchors } : {}),
+        ...(images ? { images: { stored: images.stored, skipped: images.skipped.slice(0, limit) } } : {}),
         ...(warnings.length ? { warnings } : {}),
         ...(notes.length ? { notes } : {}),
         ...(next.length ? { next } : {}),

@@ -33,6 +33,24 @@ const snap = (children: CaptureNode[], extra: Partial<CaptureSnapshot> = {}): Ca
 const byName = (els: ImportedElement[], name: string) => els.find((e) => e.name === name);
 
 describe("mapSnapshot", () => {
+  it("paints a fetched <img> as an image fill, keeping its object-fit and alt; a missing one stays a placeholder", () => {
+    const asset = `${"c".repeat(64)}.png`;
+    const image = { asset, naturalWidth: 64, naturalHeight: 32 };
+    const { elements } = mapSnapshot(
+      snap([
+        box("img", [10, 10, 64, 32], { attrs: { alt: "Logo", src: "http://x/logo.png", fit: "contain" }, image }),
+        box("img", [10, 60, 64, 32], { attrs: { alt: "Hero", src: "http://x/hero.png" } }),
+      ]),
+      { x: 0, y: 0 },
+    );
+    const logo = byName(elements, "image: Logo");
+    expect(logo?.style?.image).toEqual({ ...image, fit: "contain", alt: "Logo" });
+    expect(logo?.style?.fill).toBeUndefined();
+    const hero = byName(elements, "image: Hero");
+    expect(hero?.style?.image).toBeUndefined();
+    expect(hero?.style?.fill).toBe("#e5e7eb");
+  });
+
   it("maps an empty page to just its frame", () => {
     const { elements, frameId } = mapSnapshot(snap([]), { x: 100, y: 50 });
     expect(elements).toHaveLength(1);
