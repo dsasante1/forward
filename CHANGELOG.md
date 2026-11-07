@@ -5,6 +5,45 @@ tag (see [docs/releasing.md](docs/releasing.md)): `forward-mcp` from `mcp-v*`, t
 extension from `v*`, the docs-ci Action from `docs-ci-v*`. The Forward GitHub Action is
 released with `forward-mcp` and shares its tag.
 
+## forward-mcp 0.6.0 — 2026-11-07
+
+### Added
+
+- **Images.** A rectangle, ellipse or frame can carry an image fill (`style.image`: asset name,
+  `fit` cover/contain/fill, pixel size, alt text), clipped to its shape under its stroke. The
+  bytes are stored once in `.forward/assets/<sha256>.<ext>` (PNG, JPEG, WebP, GIF, AVIF; type
+  checked from the contents, EXIF stripped); elements, checkpoints and history only hold the name.
+- `set_element_image` and `list_images` tools, `forward assets` and `forward assets prune`.
+- `forward capture --images` / `import_design_from_code` fetch real `<img>`s into the drafts.
+- `forward validate` reports missing, unused and tampered assets and Git LFS pointers; the PR
+  digest lists image changes; `forward export` ships images in `images/`.
+- `forward init` writes `.forward/.gitattributes` marking assets binary.
+- The canvas: drop, paste or insert an image; an Image section in the inspector; a picture icon
+  in Layers; History and checkpoint previews draw images and rotation; a failed image load
+  retries with backoff.
+- The canvas works on phones: drawers below 900px, one-finger pan, pinch-to-zoom.
+
+### Fixed
+
+- The LIVE SYNC pill no longer shows on exported sites and in the extension, which have no
+  live backend.
+- Tapping an element on a touch screen selects it.
+
+### Upgrade note
+
+Older forward-mcp and extension versions drop `style.image` when they re-save an element.
+Upgrade everyone who edits the project before adding images.
+
+## VS Code extension 0.6.0 — 2026-11-07
+
+### Added
+
+- Images on the canvas, as in forward-mcp 0.6.0 above.
+
+### Fixed
+
+- Marketplace listing links no longer 404.
+
 ## docs-ci 2.0.1 — 2026-10-31
 
 ### Security
