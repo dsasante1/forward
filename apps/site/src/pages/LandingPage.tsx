@@ -62,14 +62,9 @@ export function LandingPage() {
         <div className="l-hero-eyebrow">Open source · lives in your repo</div>
         <h1>Design. Code. Document. Review. All in sync.</h1>
         <p className="l-hero-sub">
-          Use Forward with the AI agent of your choice and start wherever the
-          work is: designing, coding, or reviewing. Designers create the UI or
-          frontend developers' agents draft it from the built app, and backend
-          developers add API documentation, tasks, and architecture, sequence,
-          and ER/UML diagrams around the same design. Everything is stored as
-          plain JSON in <span className="l-code-chip">.forward/</span> inside
-          your own Git repository, so solo developers and teams can review it
-          alongside the code it describes.
+          Design, build, document and review in one shared workspace. 
+          Bring your AI agents into the process, keep every decision connected,
+          and store it all in your own Git repository.
         </p>
         <div className="l-hero-cta">
           <a className="l-btn l-btn-lg l-btn-dark" href={DEMO_PATH}>
