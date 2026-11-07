@@ -59,7 +59,6 @@ export function LandingPage() {
 
       {/* ============ HERO ============ */}
       <header className="l-wrap l-hero">
-        <div className="l-hero-eyebrow">Open source · lives in your repo</div>
         <h1>Design. Code. Document. Review. All in sync.</h1>
         <p className="l-hero-sub">
           Design, build, document and review in one shared workspace. 
