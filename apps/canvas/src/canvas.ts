@@ -44,7 +44,14 @@ import {
   scaleToFit,
 } from "./images.js";
 import { renderTimelineView } from "./timeline-view.js";
-import { renderTasksView, type TasksMode } from "./tasks-view.js";
+import {
+  DEFAULT_TASKS_MODE,
+  loadTasksMode,
+  renderTasksView,
+  saveTasksMode,
+  tasksPanelWide,
+  type TasksMode,
+} from "./tasks-view.js";
 import { renderMemberView } from "./member-view.js";
 import { createRosterLoader, type RosterLoader } from "./roster-loader.js";
 import {
@@ -210,6 +217,7 @@ export function mountCanvas(opts: MountOptions): CanvasHandle {
   themeStorageKey = opts.projectId ? `fwd-theme:${opts.projectId}` : null;
   loadTheme();
   loadHoverScrollPref();
+  taskMode = loadTasksMode(() => window.localStorage);
 
   svg = uiRoot.querySelector("#canvas") as unknown as SVGSVGElement;
   stageEl = uiRoot.querySelector("#stage") as HTMLElement;
@@ -460,7 +468,7 @@ let showTimeline = false; // show/hide the project endpoint-timeline panel
 let showTasks = false; // show/hide the project task-tracker panel
 let showTheme = false; // show/hide the theme editor drawer
 let taskFilterLinked = false; // restrict the task list to the current selection
-let taskMode: TasksMode = "list"; // the task panel's layout: list or timeline (Gantt)
+let taskMode: TasksMode = DEFAULT_TASKS_MODE; // the task panel's layout: timeline (Gantt) or list; the user's choice is restored on mount
 
 // The rail behaves as a set of mutually-exclusive workspace modes. `view` is the
 // single source of truth; the legacy `show*`/`flowOpen` booleans above are derived
@@ -4764,7 +4772,6 @@ function localToday(): string {
 function renderTasksPanel(): void {
   tasksEl.hidden = !showTasks;
   if (!showTasks || !source.subscribeTasks) return;
-  tasksEl.classList.toggle("tk-wide", taskMode === "timeline");
 
   // Derive the current focus (a selected element or flow) for filtering + the
   // pre-link on new tasks.
@@ -4793,6 +4800,7 @@ function renderTasksPanel(): void {
         (focus.flowId && t.flowId === focus.flowId),
     );
   }
+  tasksEl.classList.toggle("tk-wide", tasksPanelWide(taskMode, list.length));
 
   renderTasksView(
     tasksEl,
@@ -4810,6 +4818,7 @@ function renderTasksPanel(): void {
       onClose: toggleTasks,
       onSetMode: (mode) => {
         taskMode = mode;
+        saveTasksMode(() => window.localStorage, mode);
         renderTasksPanel();
       },
       onToggleFilter: () => {
