@@ -61,7 +61,7 @@ export function LandingPage() {
       <header className="l-wrap l-hero">
         <h1>Design. Code. Document. Review. All in sync.</h1>
         <p className="l-hero-sub">
-          Design, build, document and review in one shared workspace. 
+          Design, build, document and review in one place.
           Bring your AI agents into the process, keep every decision connected,
           and store it all in your own Git repository.
         </p>
