@@ -20,6 +20,41 @@ import { buildGanttModel, type GanttModel, type Task, type TaskStatus } from "fo
 /** Which layout the panel shows. */
 export type TasksMode = "list" | "timeline";
 
+/** The layout the panel opens in until the user picks the other one. */
+export const DEFAULT_TASKS_MODE: TasksMode = "timeline";
+
+/** Where the user's chosen layout is kept: a per-user viewing preference under
+ * one global key, like hover-scroll, never project data. */
+export const TASKS_MODE_KEY = "fwd:taskMode";
+
+/** The saved layout, else the default. `storage` is a getter because merely
+ * reading `window.localStorage` throws where storage is blocked. */
+export function loadTasksMode(storage: () => Pick<Storage, "getItem">): TasksMode {
+  try {
+    const raw = storage().getItem(TASKS_MODE_KEY);
+    if (raw === "list" || raw === "timeline") return raw;
+  } catch {
+    // Blocked/private-mode storage: fall through to the default.
+  }
+  return DEFAULT_TASKS_MODE;
+}
+
+/** Remember the user's layout; a no-op where storage is unavailable. */
+export function saveTasksMode(storage: () => Pick<Storage, "setItem">, mode: TasksMode): void {
+  try {
+    storage().setItem(TASKS_MODE_KEY, mode);
+  } catch {
+    // Storage unavailable — the choice lasts for this session only.
+  }
+}
+
+/** Whether the panel takes the full width: only a timeline with tasks to draw.
+ * An empty tracker stays a side panel rather than covering the canvas to say
+ * "No tasks yet." */
+export function tasksPanelWide(mode: TasksMode, shown: number): boolean {
+  return mode === "timeline" && shown > 0;
+}
+
 export interface TaskFocus {
   /** The selected design element id, if any. */
   elementId?: string;

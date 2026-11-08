@@ -138,7 +138,7 @@ export function buildDemo(out, env = process.env) {
     const item = id("write_entity", { name: "Item", x: 600, y: 60, fields: [{ name: "id", type: "uuid", keys: ["PK"] }, { name: "list_id", type: "uuid", keys: ["FK"] }, { name: "name", type: "text" }, { name: "quantity", type: "int" }, { name: "checked", type: "bool" }] });
     call("relate_entities", { from: user, to: list, fromCardinality: "exactly-one", toCardinality: "zero-or-many", label: "owns", identifying: false });
     call("relate_entities", { from: list, to: item, fromCardinality: "exactly-one", toCardinality: "zero-or-many", label: "contains", identifying: true });
-    id("write_flow", {
+    const addItemFlow = id("write_flow", {
       name: "Add an item",
       description: "What happens when someone adds an item to a shared list.",
       steps: [
@@ -150,8 +150,7 @@ export function buildDemo(out, env = process.env) {
     });
     commit("Data model and the add-item flow");
 
-    // 4. An agent extends the add-item endpoint. (No tasks: the read-only
-    // canvas only shows the tracker where tasks can be saved.)
+    // 4. An agent extends the add-item endpoint.
     agent = "claude";
     call("write_documentation", {
       elementId: addItem,
@@ -185,6 +184,18 @@ export function buildDemo(out, env = process.env) {
     const partner = id("write_infra_node", { kind: "external", label: "Grocery partner API", x: 300, y: 360 });
     call("connect_infra", { from: api, to: partner, label: "place order" });
     commit("Document sharing and ordering");
+
+    // 6. Sam plans the sharing release, so the Tasks timeline has a plan to draw.
+    // Dates are relative to the build day: "today" always lands mid-plan.
+    const day = (offset) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+    const task = (args) => id("create_task", args);
+    const schema = task({ title: "Add list members table", type: "task", status: "done", priority: "high", labels: ["backend"], startDate: day(-9), dueDate: day(-6) });
+    const membersApi = task({ title: "POST /lists/{id}/members", type: "feature", status: "in_progress", priority: "high", labels: ["backend"], startDate: day(-5), dueDate: day(2), dependsOn: [schema], endpointId: shareButton });
+    const invite = task({ title: "Invite email", type: "feature", status: "todo", labels: ["backend"], startDate: day(1), dueDate: day(5), dependsOn: [membersApi] });
+    const shareUi = task({ title: "Build the share screen", type: "feature", status: "in_progress", labels: ["frontend"], startDate: day(-3), dueDate: day(4), elementId: share });
+    const stale = task({ title: "Shared list shows stale items", type: "bug", status: "blocked", priority: "urgent", labels: ["backend"], startDate: day(-2), dueDate: day(3), dependsOn: [membersApi], flowId: addItemFlow });
+    task({ title: "Sharing beta", type: "milestone", status: "todo", dueDate: day(8), dependsOn: [invite, shareUi, stale] });
+    commit("Plan the sharing release");
 
     forward("validate");
     rmSync(out, { recursive: true, force: true });

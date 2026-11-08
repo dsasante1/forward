@@ -174,9 +174,18 @@ describe("the demo", () => {
     const isBuilder = (v: string) => builder.some((b) => v === b || v.startsWith(`${b} via `) || (b.includes("@") && v.includes(b)));
     expect(strings.filter(([, v]) => isBuilder(v))).toEqual([]);
 
-    const bundle = JSON.parse(raw) as { project: { name: string }; elements: unknown[]; timeline: unknown[] };
+    const bundle = JSON.parse(raw) as {
+      project: { name: string };
+      elements: unknown[];
+      timeline: unknown[];
+      tasks: { startDate?: string; dueDate?: string; dependsOn: string[] }[];
+    };
     expect(bundle.project.name).toBe("Pantry");
     expect(bundle.elements.length).toBeGreaterThan(20);
     expect(bundle.timeline.length).toBeGreaterThan(10); // History has something to show
+    // Tasks open on the timeline, so it has a dated plan with dependencies to draw.
+    expect(bundle.tasks.length).toBeGreaterThan(3);
+    expect(bundle.tasks.every((t) => t.dueDate)).toBe(true);
+    expect(bundle.tasks.some((t) => t.dependsOn.length)).toBe(true);
   }, 120_000);
 });
