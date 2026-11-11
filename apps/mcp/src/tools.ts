@@ -6,6 +6,7 @@ import {
   ApiBinding,
   CaptureSnapshot,
   DesignElement,
+  ElementType,
   ImageFit,
   MAX_IMPORT_ELEMENTS,
   Entity,
@@ -23,7 +24,9 @@ import {
   dayToIso,
   digest,
   entityToMermaid,
+  estimateTextSize,
   findDependencyCycles,
+  fitWarnings,
   flattenTimelines,
   flowToMermaid,
   imageSize,
@@ -61,6 +64,7 @@ import {
   pruneAssets,
   saveAgentNode,
   saveElement,
+  saveElements,
   saveEntity,
   saveEntityRelation,
   saveInfraEdge,
@@ -171,6 +175,59 @@ function fail(message: string) {
 /** A client-side id for a new infra node/edge, mirroring the canvas' scheme. */
 function genId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Default size for a new element: text sized to fit its content, anything else 120×40. */
+function defaultSize(
+  type: string,
+  text: string | undefined,
+  style: { fontSize?: number; fontWeight?: number } | undefined,
+): { width: number; height: number } {
+  if (type === "text" && text) return estimateTextSize(text, style);
+  return { width: 120, height: 40 };
+}
+
+/**
+ * An element's geometry for a reader: absolute canvas position plus, when it
+ * is nested, `local` — its offset from the parent's top-left, which is what
+ * `relative:true` takes.
+ */
+function geometry(el: DesignElement, byId: Map<string, DesignElement>) {
+  const parent = el.parentId ? byId.get(el.parentId) : undefined;
+  return {
+    x: el.x,
+    y: el.y,
+    width: el.width,
+    height: el.height,
+    parentId: el.parentId,
+    ...(parent ? { local: { x: el.x - parent.x, y: el.y - parent.y } } : {}),
+  };
+}
+
+/** Problems with where an element landed (outside its parent, text overflow). */
+function placementWarnings(el: DesignElement, byId: Map<string, DesignElement>): string[] {
+  return fitWarnings(el, el.parentId ? byId.get(el.parentId) : undefined);
+}
+
+/** `{ warnings }` when there are any, so a clean result stays short. */
+function withWarnings(warnings: string[]): { warnings?: string[] } {
+  return warnings.length ? { warnings } : {};
+}
+
+/** Every id below `id` in the parentId tree. */
+function descendantsOf(id: string, elements: DesignElement[]): DesignElement[] {
+  const out: DesignElement[] = [];
+  const queue = [id];
+  while (queue.length) {
+    const parent = queue.shift()!;
+    for (const el of elements) {
+      if (el.parentId === parent && el.id !== id && !out.includes(el)) {
+        out.push(el);
+        queue.push(el.id);
+      }
+    }
+  }
+  return out;
 }
 
 /** Catch-up baselines, matching the canvas timeline's window selector. */
@@ -325,18 +382,23 @@ server.registerTool(
     description:
       "List every design element on the canvas for this project (id, name, type, text, " +
       "whether it already has API documentation, and — for drafts generated from code — the " +
-      "route/component it came from). Start here to see what you can document.",
+      "route/component it came from). Each carries its geometry: absolute x/y/width/height, " +
+      "parentId, and `local` — its offset inside the parent, the coordinates relative:true takes. " +
+      "Start here to see what you can document or where to draw.",
     inputSchema: {},
   },
   async () => {
     try {
       const elements = await fetchElements(getConfig());
+      const byId = new Map(elements.map((e) => [e.id, e]));
       return ok(
         elements.map((el) => ({
           id: el.id,
           name: el.name,
           type: el.type,
           ...(el.text ? { text: el.text } : {}),
+          ...geometry(el, byId),
+          ...(el.componentId ? { componentId: el.componentId } : {}),
           documented: Boolean(el.apiBinding),
           docTitle: el.apiBinding?.title,
           ...(el.origin ? { fromCode: { route: el.origin.route, ...(el.origin.component ? { component: el.origin.component } : {}) } } : {}),
@@ -376,8 +438,9 @@ server.registerTool(
   async ({ query, limit }) => {
     try {
       const elements = await fetchElements(getConfig());
+      const byId = new Map(elements.map((e) => [e.id, e]));
       const ranked = rankElements(query, elements).slice(0, limit ?? 5);
-      return ok(ranked);
+      return ok(ranked.map((c) => ({ ...c, ...geometry(byId.get(c.id)!, byId) })));
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -1222,25 +1285,37 @@ server.registerTool(
       "Draw a new element on the canvas — a frame (container/screen), rectangle (button/card/" +
       "input), ellipse (circle/oval), text label, a reusable component, or an instance of one. Designers usually own " +
       "this, so prefer documenting existing elements; create when the design is genuinely " +
-      "missing the thing you built. Set parentId to nest inside a frame; for an instance set " +
-      "type:\"instance\" and componentId to the master component's id.",
+      "missing the thing you built. To draw a whole screen, use create_design (one call). " +
+      "Coordinates are absolute canvas positions; set parentId to nest inside a frame and " +
+      "relative:true to give x/y as an offset from the parent's top-left instead. A text " +
+      "element never wraps (break lines with \\n); omit width/height to size it to its text. " +
+      "For an instance set type:\"instance\" and componentId to the master: it takes the " +
+      "master's look, and its own `text` and `style` override the master's (the master's " +
+      "children are not copied, so put per-instance labels in `text` or as children of the " +
+      "instance). The result lists `warnings` when the element lands outside its parent or its " +
+      "text overflows its box.",
     inputSchema: {
       type: DesignElement.shape.type.describe(
         "frame, rectangle, ellipse, text, component, or instance.",
       ),
       name: DesignElement.shape.name.describe("Display name for the element."),
-      x: z.number().describe("Canvas x (top-left)."),
-      y: z.number().describe("Canvas y (top-left)."),
-      width: z.number().nonnegative().optional().describe("Width (default 120)."),
-      height: z.number().nonnegative().optional().describe("Height (default 40)."),
-      text: DesignElement.shape.text.describe('Text content, for type:"text".'),
+      x: z.number().describe("Canvas x (top-left); with relative:true, the offset from the parent's left."),
+      y: z.number().describe("Canvas y (top-left); with relative:true, the offset from the parent's top."),
+      relative: z
+        .boolean()
+        .optional()
+        .describe("x/y are relative to the parent's top-left (needs parentId). Default false: absolute."),
+      width: z.number().nonnegative().optional().describe("Width (default: fits the text for type:text, else 120; an instance's master's)."),
+      height: z.number().nonnegative().optional().describe("Height (default: fits the text for type:text, else 40; an instance's master's)."),
+      text: DesignElement.shape.text.describe('Text content: the label of a type:"text" element, or a label drawn inside a shape or instance.'),
       parentId: DesignElement.shape.parentId.describe(
         "Id of the frame to nest inside, or null for top level.",
       ),
       style: Style.optional().describe(
         "Optional fill/stroke/font styling, borders, and corner rounding. `radius` (or " +
           "`radii` {tl,tr,br,bl}) rounds corners; `strokeWidth` (or `strokeWidths` " +
-          "{top,right,bottom,left}) sets border width per side; `strokeStyle` is solid/dashed/dotted.",
+          "{top,right,bottom,left}) sets border width per side; `strokeStyle` is solid/dashed/dotted; " +
+          "`fontSize`/`fontWeight`/`fontFamily`/`color` style text.",
       ),
       rotation: z
         .number()
@@ -1251,19 +1326,130 @@ server.registerTool(
       ),
     },
   },
-  async ({ x, y, width, height, ...fields }) => {
+  async ({ x, y, relative, width, height, ...fields }) => {
     try {
+      const cfg = getConfig();
+      const elements = await fetchElements(cfg);
+      const byId = new Map(elements.map((e) => [e.id, e]));
+      const parent = fields.parentId ? byId.get(fields.parentId) : undefined;
+      if (fields.parentId && !parent) return fail(`No parent element "${fields.parentId}".`);
+      if (relative && !parent) return fail("relative:true needs parentId: x/y are offsets from the parent.");
+      const master = fields.type === "instance" && fields.componentId ? byId.get(fields.componentId) : undefined;
+      if (fields.type === "instance" && fields.componentId && !master) return fail(`No master component "${fields.componentId}".`);
+      const size = master ? { width: master.width, height: master.height } : defaultSize(fields.type, fields.text, fields.style);
       const element = DesignElement.parse({
         ...fields,
         id: genId("el"),
-        x,
-        y,
-        width: width ?? 120,
-        height: height ?? 40,
+        x: relative ? parent!.x + x : x,
+        y: relative ? parent!.y + y : y,
+        width: width ?? size.width,
+        height: height ?? size.height,
         updatedAt: new Date().toISOString(),
       });
-      await saveElement(getConfig(), withoutBinding(element));
-      return ok({ id: element.id, type: element.type, action: "created" });
+      await saveElement(cfg, withoutBinding(element));
+      byId.set(element.id, element);
+      return ok({
+        id: element.id,
+        type: element.type,
+        action: "created",
+        ...geometry(element, byId),
+        ...withWarnings(placementWarnings(element, byId)),
+      });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- write: a whole screen (or several) in one call -------------------------
+const DesignItem = z.object({
+  ref: z.string().min(1).optional().describe("Your name for this item, so later items can use it as parent or componentId."),
+  parent: z
+    .string()
+    .optional()
+    .describe("ref of an earlier item, or an existing element id. x/y are relative to it. Omit for a top-level item (absolute x/y)."),
+  type: ElementType.describe("frame, rectangle, ellipse, text, component, or instance."),
+  name: z.string().max(500).optional().describe("Display name (default: the text, else the type)."),
+  x: z.number().describe("Offset from the parent's left; absolute canvas x for a top-level item."),
+  y: z.number().describe("Offset from the parent's top; absolute canvas y for a top-level item."),
+  width: z.number().nonnegative().optional().describe("Default: fits the text for type:text; an instance's master's size; else 120."),
+  height: z.number().nonnegative().optional().describe("Default: fits the text for type:text; an instance's master's size; else 40."),
+  text: z.string().optional().describe("A text element's content (\\n breaks lines; text never wraps), or a label drawn inside a shape or instance."),
+  style: Style.optional().describe("fill, stroke, strokeWidth(s), strokeStyle, radius/radii, fontSize, fontWeight, fontFamily, color."),
+  rotation: z.number().optional().describe("Degrees clockwise about the center."),
+  componentId: z.string().optional().describe('For type:"instance": the ref of a component item in this call, or an existing component id.'),
+});
+
+server.registerTool(
+  "create_design",
+  {
+    title: "Create a design (many elements) in one call",
+    description:
+      "Draw a screen — a frame and everything in it — or several, in one call instead of one " +
+      "create_element per shape. Pass `elements`, a flat list in drawing order: each item may " +
+      "name itself with `ref` and nest in an earlier item with `parent` (a ref, or an existing " +
+      "element id), and its x/y are then relative to that parent's top-left, so a button at " +
+      "(24, 760) sits 24px from the frame's left whatever the frame's position. Later items paint " +
+      "on top of earlier siblings. Components and instances work in the same call: give the " +
+      "component a ref and set an instance's componentId to it; an instance takes the master's " +
+      "look and size, and its own text/style override them. All-or-nothing: if any item is " +
+      "invalid, nothing is written. Returns every new id (and `refs`: ref → id) plus `warnings` " +
+      "for items outside their parent or text that overflows its box. Images: set them " +
+      "afterwards with set_element_image.",
+    inputSchema: {
+      elements: z.array(DesignItem).min(1).max(MAX_IMPORT_ELEMENTS).describe("The items, parents before their children."),
+    },
+  },
+  async ({ elements: items }) => {
+    try {
+      const cfg = getConfig();
+      const existing = await fetchElements(cfg);
+      const byId = new Map(existing.map((e) => [e.id, e]));
+      const refs = new Map<string, string>();
+      const built: DesignElement[] = [];
+      let layer = existing.reduce((m, e) => Math.max(m, e.z), 0);
+      const stamp = new Date().toISOString();
+      const resolve = (ref: string | undefined) => (ref === undefined ? undefined : refs.get(ref) ?? (byId.has(ref) ? ref : null));
+      for (const [i, item] of items.entries()) {
+        const where = `elements[${i}]${item.ref ? ` ("${item.ref}")` : ""}`;
+        if (item.ref && refs.has(item.ref)) return fail(`${where}: ref "${item.ref}" is used twice.`);
+        const parentId = resolve(item.parent);
+        if (parentId === null) return fail(`${where}: parent "${item.parent}" is neither an earlier ref nor an existing element id.`);
+        const parent = parentId ? byId.get(parentId)! : undefined;
+        const componentId = resolve(item.componentId);
+        if (componentId === null) return fail(`${where}: componentId "${item.componentId}" is neither an earlier ref nor an existing element id.`);
+        if (item.type === "instance" && !componentId) return fail(`${where}: an instance needs componentId.`);
+        const master = componentId ? byId.get(componentId) : undefined;
+        const size = master ? { width: master.width, height: master.height } : defaultSize(item.type, item.text, item.style);
+        const el = DesignElement.parse({
+          id: genId("el"),
+          type: item.type,
+          name: item.name ?? (item.text ? item.text.slice(0, 80) : item.type),
+          x: (parent?.x ?? 0) + item.x,
+          y: (parent?.y ?? 0) + item.y,
+          width: item.width ?? size.width,
+          height: item.height ?? size.height,
+          parentId: parentId ?? null,
+          z: ++layer,
+          ...(item.text !== undefined ? { text: item.text } : {}),
+          ...(item.style ? { style: item.style } : {}),
+          ...(item.rotation !== undefined ? { rotation: item.rotation } : {}),
+          ...(componentId ? { componentId } : {}),
+          updatedAt: stamp,
+        });
+        if (item.ref) refs.set(item.ref, el.id);
+        byId.set(el.id, el);
+        built.push(el);
+      }
+      const saved = await saveElements(cfg, built.map(withoutBinding));
+      const warnings = built.flatMap((el, i) => placementWarnings(el, byId).map((w) => `elements[${i}]: ${w}`));
+      return ok({
+        action: "created",
+        count: saved.length,
+        ids: saved.map((e) => e.id),
+        refs: Object.fromEntries(refs),
+        ...withWarnings(warnings),
+      });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -1277,13 +1463,19 @@ server.registerTool(
     description:
       "Change fields of an existing element without touching the rest (or its API docs): move " +
       "(x/y), resize (width/height), rename, restyle, re-parent (parentId), edit text, or " +
-      "promote it to a component (type:\"component\"). Only the fields you pass are changed.",
+      "promote it to a component (type:\"component\"). Only the fields you pass are changed. " +
+      "Moving an element moves everything nested in it too, as dragging does on the canvas " +
+      "(moveChildren:false leaves them). relative:true reads x/y as an offset from the " +
+      "(new or current) parent. The result lists `warnings` when the element ends up outside its " +
+      "parent or its text overflows its box.",
     inputSchema: {
       elementId: z.string().min(1).describe("The design element id to update."),
       type: DesignElement.shape.type.optional().describe("New element type."),
       name: z.string().optional().describe("New display name."),
-      x: z.number().optional().describe("New canvas x."),
-      y: z.number().optional().describe("New canvas y."),
+      x: z.number().optional().describe("New canvas x (or, with relative:true, offset from the parent's left)."),
+      y: z.number().optional().describe("New canvas y (or, with relative:true, offset from the parent's top)."),
+      relative: z.boolean().optional().describe("x/y are relative to the parent's top-left. Default false: absolute."),
+      moveChildren: z.boolean().optional().describe("When x/y change, move nested elements by the same amount (default true)."),
       width: z.number().nonnegative().optional().describe("New width."),
       height: z.number().nonnegative().optional().describe("New height."),
       rotation: z
@@ -1306,14 +1498,42 @@ server.registerTool(
       componentId: z.string().optional().describe("New master component id (instances)."),
     },
   },
-  async ({ elementId, ...patch }) => {
+  async ({ elementId, relative, moveChildren, ...patch }) => {
     try {
+      const cfg = getConfig();
+      const elements = await fetchElements(cfg);
+      const byId = new Map(elements.map((e) => [e.id, e]));
+      const current = byId.get(elementId);
+      if (!current) return fail(`No design element "${elementId}".`);
       // Drop keys the caller omitted so they don't clobber existing values.
-      const clean = Object.fromEntries(
+      const clean: Record<string, unknown> = Object.fromEntries(
         Object.entries(patch).filter(([, v]) => v !== undefined),
       );
-      const next = await patchElement(getConfig(), elementId, clean);
-      return ok({ id: next.id, type: next.type, action: "updated" });
+      if (relative) {
+        const parentId = patch.parentId === undefined ? current.parentId : patch.parentId;
+        const parent = parentId ? byId.get(parentId) : undefined;
+        if (!parent) return fail("relative:true needs a parent: the element has none and no parentId was given.");
+        if (patch.x !== undefined) clean.x = parent.x + patch.x;
+        if (patch.y !== undefined) clean.y = parent.y + patch.y;
+      }
+      const next = await patchElement(cfg, elementId, clean);
+      byId.set(next.id, next);
+      const dx = next.x - current.x;
+      const dy = next.y - current.y;
+      let moved = 0;
+      if ((dx || dy) && moveChildren !== false) {
+        const shifted = descendantsOf(elementId, elements).map((d) => withoutBinding({ ...d, x: d.x + dx, y: d.y + dy }));
+        if (shifted.length) for (const d of await saveElements(cfg, shifted)) byId.set(d.id, d);
+        moved = shifted.length;
+      }
+      return ok({
+        id: next.id,
+        type: next.type,
+        action: "updated",
+        ...geometry(next, byId),
+        ...(moved ? { movedChildren: moved } : {}),
+        ...withWarnings(placementWarnings(next, byId)),
+      });
     } catch (err) {
       return fail((err as Error).message);
     }

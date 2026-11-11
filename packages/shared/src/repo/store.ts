@@ -167,6 +167,25 @@ export class RepoStore {
     return next;
   }
 
+  /**
+   * Upsert many elements in one call (the `create_design` tool), each with
+   * {@link saveElement}'s rules. Every element is validated before any file is
+   * written, so one bad element leaves the project untouched.
+   */
+  saveElements(input: unknown): DesignElement[] {
+    if (!Array.isArray(input)) throw new RepoError(400, "Invalid design elements: expected an array.");
+    if (input.length > MAX_IMPORT_ELEMENTS) {
+      throw new RepoError(400, `${input.length} elements in one call; the limit is ${MAX_IMPORT_ELEMENTS}.`);
+    }
+    const parsed = input.map((el, i) => this.parse(DesignElement, el, `design element [${i}]`));
+    const ids = new Set<string>();
+    for (const el of parsed) {
+      if (ids.has(el.id)) throw new RepoError(400, `Duplicate design element id "${el.id}" in one call.`);
+      ids.add(el.id);
+    }
+    return parsed.map((el) => this.saveElement(el));
+  }
+
   /** Partial update that preserves untouched fields, including the binding and origin. */
   patchElement(id: string, patch: unknown): DesignElement {
     const current = this.requireElement(id);

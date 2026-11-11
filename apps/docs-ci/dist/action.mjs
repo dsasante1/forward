@@ -13383,6 +13383,26 @@ var RepoStore = class {
     this.write("elements", next.id, next);
     return next;
   }
+  /**
+   * Upsert many elements in one call (the `create_design` tool), each with
+   * {@link saveElement}'s rules. Every element is validated before any file is
+   * written, so one bad element leaves the project untouched.
+   */
+  saveElements(input2) {
+    if (!Array.isArray(input2))
+      throw new RepoError(400, "Invalid design elements: expected an array.");
+    if (input2.length > MAX_IMPORT_ELEMENTS) {
+      throw new RepoError(400, `${input2.length} elements in one call; the limit is ${MAX_IMPORT_ELEMENTS}.`);
+    }
+    const parsed = input2.map((el, i) => this.parse(DesignElement, el, `design element [${i}]`));
+    const ids = /* @__PURE__ */ new Set();
+    for (const el of parsed) {
+      if (ids.has(el.id))
+        throw new RepoError(400, `Duplicate design element id "${el.id}" in one call.`);
+      ids.add(el.id);
+    }
+    return parsed.map((el) => this.saveElement(el));
+  }
   /** Partial update that preserves untouched fields, including the binding and origin. */
   patchElement(id, patch) {
     const current = this.requireElement(id);
@@ -14599,6 +14619,7 @@ function createRepoRouter(store) {
   };
   on("GET", "/elements", () => store.listElements());
   on("POST", "/elements/import", (_p, body) => store.importDesign(body));
+  on("POST", "/elements/batch", (_p, body) => store.saveElements(body));
   on("PUT", "/elements/:id", (_p, body) => store.saveElement(body));
   on("PATCH", "/elements/:id", ([id], body) => store.patchElement(id, body));
   on("DELETE", "/elements/:id", ([id], _b, q) => ({

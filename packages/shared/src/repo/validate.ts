@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { z } from "zod";
 import { MAX_ASSET_BYTES, assetRefs, sniffImage } from "../assets.js";
+import { outsideParent } from "../design-fit.js";
 import { findDependencyCycles, parseTaskDay } from "../gantt.js";
 import {
   AgentNode,
@@ -121,6 +122,12 @@ export function validateRepo(root: string): ValidationIssue[] {
     !id || loaded[key].has(id);
   for (const { file, value: el } of loaded.elements.values()) {
     if (!has("elements", el.parentId)) warn(file, `parentId "${el.parentId}" not found.`);
+    // Entirely outside its parent is almost always a misplaced child (absolute
+    // vs relative coordinates). Code drafts mirror the page, so they're exempt.
+    const parent = el.parentId ? loaded.elements.get(el.parentId)?.value : undefined;
+    if (parent && !el.origin && outsideParent(el, parent)) {
+      warn(file, `"${el.name || el.id}" is entirely outside its parent "${parent.name || parent.id}"; coordinates are absolute.`);
+    }
     if (!has("elements", el.componentId)) warn(file, `componentId "${el.componentId}" not found.`);
   }
   for (const { file, value: e } of loaded.infraEdges.values()) {

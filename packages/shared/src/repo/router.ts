@@ -36,6 +36,7 @@ export function createRepoRouter(store: RepoStore) {
   // design elements + API docs
   on("GET", "/elements", () => store.listElements());
   on("POST", "/elements/import", (_p, body) => store.importDesign(body));
+  on("POST", "/elements/batch", (_p, body) => store.saveElements(body));
   on("PUT", "/elements/:id", (_p, body) => store.saveElement(body));
   on("PATCH", "/elements/:id", ([id], body) => store.patchElement(id!, body));
   on("DELETE", "/elements/:id", ([id], _b, q) => ({

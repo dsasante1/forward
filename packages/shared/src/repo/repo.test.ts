@@ -140,6 +140,16 @@ describe("repo mode through forward-core/api", () => {
     expect((await api.fetchElements(cfg)).map((e) => e.id)).toEqual(["keep"]);
   });
 
+  it("saves many elements in one call, all or nothing", async () => {
+    const saved = await api.saveElements(cfg, [el("frame", { type: "frame" }), el("child", { parentId: "frame" })]);
+    expect(saved.map((e) => e.id)).toEqual(["frame", "child"]);
+    expect((await api.fetchElements(cfg)).map((e) => e.id).sort()).toEqual(["child", "frame"]);
+    // One invalid element (or a repeated id) and nothing is written.
+    await expect(api.saveElements(cfg, [el("ok"), { ...el("bad"), width: -1 }])).rejects.toThrow(/design element \[1\] at width/);
+    await expect(api.saveElements(cfg, [el("dup"), el("dup")])).rejects.toThrow(/Duplicate design element id "dup"/);
+    expect((await api.fetchElements(cfg)).map((e) => e.id).sort()).toEqual(["child", "frame"]);
+  });
+
   it("keeps odd ids inside their directory", async () => {
     const id = "../../etc/passwd";
     await api.saveElement(cfg, el(id));
@@ -405,6 +415,13 @@ describe("validateRepo", () => {
       ".forward/design/renamed.json",
     ]);
     expect(issues.find((i) => i.level === "warning")?.message).toMatch(/parentId "ghost"/);
+  });
+
+  it("warns about a child entirely outside its parent", async () => {
+    await api.saveElement(cfg, el("frame", { type: "frame", x: 1000, y: 0, width: 400, height: 400 }));
+    await api.saveElement(cfg, el("inside", { parentId: "frame", x: 1010, y: 10 }));
+    await api.saveElement(cfg, el("lost", { parentId: "frame", x: 10, y: 10 }));
+    expect(validateRepo(root).map((i) => i.message)).toEqual([expect.stringMatching(/"lost" is entirely outside its parent "frame"/)]);
   });
 
   it("warns on an unplottable due date and on dependency cycles", async () => {

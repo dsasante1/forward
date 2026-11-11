@@ -245,6 +245,74 @@ describe("tools through the in-memory client (repo mode)", () => {
     expect((await json("list_images", { prune: true })).removed).toEqual([created.asset]);
     expect(existsSync(join(root, ".forward/assets", created.asset))).toBe(false);
   });
+
+  // --- agent ergonomics: one call per screen, relative coordinates, keys ----
+  describe("agent ergonomics", () => {
+    const json = async (name: string, args: Record<string, unknown>) => {
+      const { callTool } = await import("./call.js");
+      const res = await callTool(name, args);
+      expect(res.isError, res.text).toBe(false);
+      return JSON.parse(res.text);
+    };
+    const failing = async (name: string, args: Record<string, unknown>) => {
+      const { callTool } = await import("./call.js");
+      const res = await callTool(name, args);
+      expect(res.isError, res.text).toBe(true);
+      return res.text;
+    };
+    const stored = (id: string) => JSON.parse(readFileSync(join(root, ".forward/design", `${id}.json`), "utf8"));
+
+    it("create_design draws a nested screen with relative coordinates, components and instances", async () => {
+      const out = await json("create_design", {
+        elements: [
+          { ref: "screen", type: "frame", name: "Dashboard", x: 1000, y: 200, width: 800, height: 600 },
+          { ref: "card", parent: "screen", type: "component", name: "KPI card", x: 24, y: 24, width: 200, height: 100 },
+          { parent: "card", type: "text", text: "Active", x: 16, y: 12 },
+          { parent: "screen", type: "instance", componentId: "card", x: 240, y: 24, text: "On-time" },
+          { parent: "screen", type: "rectangle", name: "Lost", x: -900, y: 0, width: 40, height: 40 },
+        ],
+      });
+      expect(out).toMatchObject({ action: "created", count: 5 });
+      const { screen, card } = out.refs;
+      expect(stored(card)).toMatchObject({ x: 1024, y: 224, parentId: screen });
+      const label = stored(out.ids[2]);
+      expect(label).toMatchObject({ x: 1040, y: 236, parentId: card, name: "Active" });
+      expect(label.width).toBeGreaterThan(30); // sized to its text
+      expect(stored(out.ids[3])).toMatchObject({ type: "instance", componentId: card, width: 200, height: 100, x: 1240, text: "On-time" });
+      expect(stored(out.ids[3]).z).toBeGreaterThan(stored(card).z);
+      expect(out.warnings).toEqual([expect.stringMatching(/^elements\[4\]: "Lost" .* entirely outside "Dashboard"/)]);
+
+      // All or nothing: a bad parent writes nothing.
+      const before = readdirSync(join(root, ".forward/design")).length;
+      expect(await failing("create_design", { elements: [{ type: "frame", x: 0, y: 0 }, { parent: "ghost", type: "text", text: "x", x: 0, y: 0 }] })).toMatch(
+        /elements\[1\]: parent "ghost"/,
+      );
+      expect(readdirSync(join(root, ".forward/design")).length).toBe(before);
+    });
+
+    it("create_element and update_element take relative coordinates, warn, and move children", async () => {
+      const frame = await json("create_element", { type: "frame", name: "Shell", x: 500, y: 500, width: 300, height: 300 });
+      const btn = await json("create_element", { type: "rectangle", name: "Btn", parentId: frame.id, relative: true, x: 20, y: 30 });
+      expect(btn).toMatchObject({ x: 520, y: 530, local: { x: 20, y: 30 } });
+      expect(btn.warnings).toBeUndefined();
+      const lost = await json("create_element", { type: "rectangle", name: "Lost", parentId: frame.id, x: 20, y: 30 });
+      expect(lost.warnings).toEqual([expect.stringMatching(/entirely outside "Shell".*relative:true/)]);
+      const cramped = await json("create_element", { type: "text", name: "T", text: "A long label in a tiny box", x: 0, y: 0, width: 40, height: 10 });
+      expect(cramped.warnings).toEqual([expect.stringMatching(/text needs about/)]);
+      expect(await failing("create_element", { type: "rectangle", name: "R", relative: true, x: 0, y: 0 })).toMatch(/needs parentId/);
+
+      const moved = await json("update_element", { elementId: frame.id, x: 600, y: 700 });
+      expect(moved).toMatchObject({ x: 600, y: 700, movedChildren: 2 });
+      expect(stored(btn.id)).toMatchObject({ x: 620, y: 730 });
+      await json("update_element", { elementId: btn.id, relative: true, x: 5, y: 5 });
+      expect(stored(btn.id)).toMatchObject({ x: 605, y: 705 });
+      await json("update_element", { elementId: frame.id, x: 0, y: 0, moveChildren: false });
+      expect(stored(btn.id)).toMatchObject({ x: 605, y: 705 });
+
+      const listed = await json("list_design_elements", {});
+      expect(listed.find((e: { id: string }) => e.id === btn.id)).toMatchObject({ parentId: frame.id, local: { x: 605, y: 705 } });
+    });
+  });
 });
 
 const BUILT_CLI = join(import.meta.dirname, "../../dist/cli.js");
