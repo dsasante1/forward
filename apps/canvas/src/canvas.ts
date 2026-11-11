@@ -53,6 +53,7 @@ import {
   saveTasksMode,
   tasksPanelWide,
   type TasksMode,
+  type TasksStatusFilter,
 } from "./tasks-view.js";
 import { renderMemberView } from "./member-view.js";
 import { createRosterLoader, type RosterLoader } from "./roster-loader.js";
@@ -472,6 +473,8 @@ let showTasks = false; // show/hide the project task-tracker panel
 let showTheme = false; // show/hide the theme editor drawer
 let taskFilterLinked = false; // restrict the task list to the current selection
 let taskMode: TasksMode = DEFAULT_TASKS_MODE; // the task panel's layout: timeline (Gantt) or list; the user's choice is restored on mount
+let taskTimelineDayWidth = 28;
+let taskStatusFilter: TasksStatusFilter = "all";
 
 // The rail behaves as a set of mutually-exclusive workspace modes. `view` is the
 // single source of truth; the legacy `show*`/`flowOpen` booleans above are derived
@@ -4980,9 +4983,19 @@ function renderTasksPanel(): void {
       mode: taskMode,
       readOnly: !source.saveTask,
       today: localToday(),
+      timelineDayWidth: taskTimelineDayWidth,
+      statusFilter: taskStatusFilter,
     },
     {
       onClose: toggleTasks,
+      onSetStatusFilter: (filter) => {
+        taskStatusFilter = filter;
+        renderTasksPanel();
+      },
+      onTimelineZoom: (delta) => {
+        taskTimelineDayWidth = Math.max(16, Math.min(64, taskTimelineDayWidth + delta));
+        renderTasksPanel();
+      },
       onSetMode: (mode) => {
         taskMode = mode;
         saveTasksMode(() => window.localStorage, mode);
@@ -5011,6 +5024,14 @@ function renderTasksPanel(): void {
         saveTaskOptimistic(updated, () => tasks.set(id, prev), "update");
         renderTasksPanel();
       },
+      onEdit: (id, patch) => {
+        const prev = tasks.get(id);
+        if (!prev) return;
+        const updated = applyTaskChange(prev, patch, TASK_ACTOR);
+        tasks.set(id, updated);
+        saveTaskOptimistic(updated, () => tasks.set(id, prev), "update");
+        renderTasksPanel();
+      },
       onDelete: (id) => {
         const prev = tasks.get(id);
         if (!prev) return;
@@ -5031,7 +5052,9 @@ function renderTasksPanel(): void {
         renderTasksPanel();
       },
       onSelectElement: (id) => {
-        if (elements.has(id)) select(id);
+        if (!elements.has(id)) return;
+        setView("design");
+        select(id);
       },
     },
   );
