@@ -221,24 +221,8 @@
 .fwd-crumb .crumb-link { cursor: pointer; }
 .fwd-crumb .crumb-link:hover { color: var(--text-1); text-decoration: underline; }
 .fwd-crumb .crumb-link:focus-visible { outline: 1px solid var(--text-2); outline-offset: 2px; }
-.fwd-live {
-  margin-left: auto; display: flex; align-items: center; gap: 8px;
-  font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.08em;
-}
-.fwd-live-dot {
-  width: 7px; height: 7px; border-radius: 50%; background: var(--ok);
-  animation: fwdpulse 2s ease-in-out infinite;
-}
-@keyframes fwdpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-/* Offline: the poll loop can't reach the backend. Warm the dot/label to the
-   error tone and swap the calm pulse for an urgent blink. */
-.fwd-live.offline { color: var(--err); }
-.fwd-live.offline .fwd-live-dot { background: var(--err); animation: fwdblink 1s steps(2, jump-none) infinite; }
-@keyframes fwdblink { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
-/* right cluster of the top strip: saved stamp + Save + live indicator */
+/* right cluster of the top strip: saved stamp + Save */
 .fwd-topright { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-.fwd-topright .fwd-live { margin-left: 0; }
-.fwd-live[hidden] { display: none; }
 .fwd-saved { font-family: var(--mono); font-size: 11px; color: #62615c; }
 .fwd-saved:empty { display: none; }
 .fwd-savebtn {
@@ -406,6 +390,14 @@
 #zoombar #zoomLabel {
   min-width: 48px; text-align: center; color: var(--text-3);
   font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+#zoomShortcutHint {
+  margin: 0 3px 0 5px; padding-left: 9px; border-left: 1px solid var(--line-2);
+  color: var(--muted-2); white-space: nowrap; font: 10px var(--mono);
+}
+#zoomShortcutHint kbd {
+  color: var(--text-2); font: inherit; border: 1px solid var(--line-3);
+  border-radius: 3px; padding: 1px 3px; background: var(--surface-2);
 }
 
 /* "Back to project" pill — anchored to the stage (bottom-right of the canvas
@@ -1770,7 +1762,6 @@ button.tk-g-label:hover .tk-g-title { color: var(--accent); }
   .fwd-topstrip { gap: 10px; padding: 0 12px; }
   .fwd-crumb { min-width: 0; overflow: hidden; white-space: nowrap; }
   .fwd-crumb > * { flex: none; }
-  .fwd-live > :not(.fwd-live-dot) { display: none; }
   .fwd-topright { gap: 8px; flex: none; }
   .fwd-saved { display: none; }
   #tasks, #tasks.tk-wide { top: 8px; right: 8px; bottom: 8px; left: 8px; width: auto; }

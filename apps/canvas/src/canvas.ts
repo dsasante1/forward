@@ -88,7 +88,6 @@ const SKELETON = `
       <div class="fwd-topright">
         <span id="savedLabel" class="fwd-saved"></span>
         <button id="saveCheckpoint" class="fwd-savebtn" type="button" title="Save design checkpoint (⌘S)" hidden></button>
-        <div class="fwd-live" id="liveSync" title="Live sync with the Forward backend" hidden><span class="fwd-live-dot"></span><span class="fwd-live-label">LIVE SYNC</span></div>
       </div>
     </div>
     <div id="stage">
@@ -99,6 +98,7 @@ const SKELETON = `
         <span id="zoomLabel">100%</span>
         <button id="zoomIn" title="Zoom in">+</button>
         <button id="zoomFit" title="Fit to content">Fit</button>
+        <span id="zoomShortcutHint" title="Keyboard shortcuts: + or = zoom in, - zoom out, 0 fit to content"><kbd>+</kbd>/<kbd>-</kbd> zoom · <kbd>0</kbd> fit</span>
         <button id="edgeScrollToggle" type="button" aria-pressed="true">
           <svg class="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 12 3 15 6"></polyline><polyline points="9 18 12 21 15 18"></polyline><polyline points="6 9 3 12 6 15"></polyline><polyline points="18 9 21 12 18 15"></polyline><line x1="12" y1="3" x2="12" y2="21"></line><line x1="3" y1="12" x2="21" y2="12"></line><line class="es-slash" x1="4" y1="20" x2="20" y2="4"></line></svg>
         </button>
@@ -869,28 +869,12 @@ function subscribeAll(): void {
       if (flowOpen) void renderFlowPanel(); // keep an open diagram in sync with new data
     }),
   );
-  // Connection health: flip the LIVE SYNC pill to a "reconnecting" state when the
-  // poll loop can't reach the backend, so a dropped connection isn't silent. The
-  // pill stays hidden for sources with no backend to lose (a static export, the
-  // extension webview), where it would claim a sync that isn't happening.
+  // Connection health still retries writes queued during a backend outage.
   const unsubStatus = source.subscribeStatus?.((status) => {
     const offline = status !== "online";
     // Back online: re-send any write that failed while we were down, so a move
     // or doc save made during the outage isn't silently lost.
     if (!offline && (failedWrites.size > 0 || failedDocs.size > 0)) flushFailedWrites();
-    const pill = uiRoot?.querySelector("#liveSync") as HTMLElement | null;
-    const label = pill?.querySelector(".fwd-live-label");
-    if (!pill || !label) return;
-    pill.hidden = false;
-    pill.classList.toggle("offline", offline);
-    // "auth" means the backend answered but rejected us (expired session) — a
-    // retry can't fix it, so tell the user what to do instead of "reconnecting".
-    label.textContent =
-      status === "auth" ? "SIGN-IN EXPIRED" : offline ? "RECONNECTING…" : "LIVE SYNC";
-    pill.title =
-      status === "auth"
-        ? "The session expired — sign in again to resume syncing. Unsaved edits are queued in this tab."
-        : "Live sync with the Forward backend";
   });
   if (unsubStatus) disposers.push(unsubStatus);
   // Queued/in-flight writes live only in this tab's memory: warn before the
@@ -3401,6 +3385,23 @@ on(window, "keydown", (e) => {
       deleteSelected();
     }
     return;
+  }
+  if (view === "design" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    if (e.key === "+" || e.key === "=") {
+      e.preventDefault();
+      zoomToCenter(zoom * ZOOM_STEP);
+      return;
+    }
+    if (e.key === "-") {
+      e.preventDefault();
+      zoomToCenter(zoom / ZOOM_STEP);
+      return;
+    }
+    if (e.key === "0") {
+      e.preventDefault();
+      fitView();
+      return;
+    }
   }
   // Single-key shortcuts, ignored when modified so they don't
   // clash with browser/OS chords. "v" is select/move; the rest arm a draw tool
