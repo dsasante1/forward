@@ -338,6 +338,22 @@ describe("tools through the in-memory client (repo mode)", () => {
       await json("delete_task", { taskId: first.key });
       await json("remove_person", { name: "Lena Fischer" });
     });
+
+    it("saves, previews, restores and deletes checkpoints", async () => {
+      const cp = await json("create_checkpoint", { title: "Before", tag: "milestone" });
+      const extra = await json("create_element", { type: "rectangle", name: "Extra", x: 0, y: 0 });
+      const listed = await json("list_checkpoints", {});
+      expect(listed.checkpoints[0]).toMatchObject({ id: cp.id, title: "Before", tag: "milestone" });
+      expect(listed.checkpoints[0].snapshot).toBeUndefined();
+
+      const preview = await json("restore_checkpoint", { checkpointId: cp.id });
+      expect(preview).toMatchObject({ action: "preview", changes: { elements: { removed: 1, restored: 0 } } });
+      expect(existsSync(join(root, ".forward/design", `${extra.id}.json`))).toBe(true);
+      await json("restore_checkpoint", { checkpointId: cp.id, confirm: true });
+      expect(existsSync(join(root, ".forward/design", `${extra.id}.json`))).toBe(false);
+      await json("delete_checkpoint", { checkpointId: cp.id });
+      expect((await json("list_checkpoints", {})).count).toBe(0);
+    });
   });
 });
 

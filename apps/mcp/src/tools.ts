@@ -5,6 +5,7 @@ import {
   AgentNode,
   ApiBinding,
   CaptureSnapshot,
+  CheckpointTag,
   DesignElement,
   ElementType,
   ImageFit,
@@ -44,7 +45,9 @@ import {
 } from "forward-core";
 import {
   bindApiToElement,
+  createCheckpoint,
   deleteAgentNode,
+  deleteCheckpoint,
   deleteElement,
   deleteEntity,
   deleteInfraFlow,
@@ -53,6 +56,7 @@ import {
   deletePerson,
   deleteTask,
   fetchAgents,
+  fetchCheckpoints,
   fetchElements,
   fetchEntities,
   fetchFlows,
@@ -64,6 +68,7 @@ import {
   listMembers,
   patchElement,
   pruneAssets,
+  restoreCheckpoint,
   saveAgentNode,
   saveElement,
   saveElements,
@@ -2461,6 +2466,130 @@ server.registerTool(
     try {
       await deletePerson(getConfig(), name);
       return ok({ uid: name, action: "removed" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- checkpoints: named, restorable snapshots of design + infra -------------
+server.registerTool(
+  "list_checkpoints",
+  {
+    title: "List checkpoints",
+    description:
+      "Read the project's checkpoints, newest first: named snapshots of the whole canvas (design " +
+      "elements and the infra graph with its flows) that the canvas History panel can restore. " +
+      "Each has a title, note, tag (milestone / checkpoint / wip), author, time, per-layer change " +
+      "counts, and how many elements and infra nodes it holds.",
+    inputSchema: {},
+  },
+  async () => {
+    try {
+      const checkpoints = await fetchCheckpoints(getConfig());
+      return ok({
+        count: checkpoints.length,
+        checkpoints: checkpoints.map(({ snapshot, ...cp }) => ({
+          ...cp,
+          elements: snapshot.elements.length,
+          infraNodes: snapshot.infraNodes.length,
+          flows: snapshot.infraFlows.length,
+        })),
+      });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "create_checkpoint",
+  {
+    title: "Save a checkpoint",
+    description:
+      "Freeze the current design and infra graph into a named checkpoint, e.g. before a large " +
+      "redesign, so it can be restored. The snapshot is taken from what's saved in .forward/ now. " +
+      "It is a file like any other: commit it.",
+    inputSchema: {
+      title: z.string().min(1).max(500).describe('Short name, e.g. "Before the checkout redesign".'),
+      description: z.string().optional().describe("Markdown note: what state this captures and why."),
+      tag: CheckpointTag.optional().describe("milestone, checkpoint (default) or wip."),
+    },
+  },
+  async ({ title, description, tag }) => {
+    try {
+      const cp = await createCheckpoint(getConfig(), { title, description: description ?? "", tag: tag ?? "checkpoint" });
+      return ok({ id: cp.id, title: cp.title, changes: cp.changes, elements: cp.snapshot.elements.length, action: "created" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "restore_checkpoint",
+  {
+    title: "Restore a checkpoint",
+    description:
+      "Rewind the design elements and the infra graph (nodes, edges, flows) to a checkpoint. This " +
+      "replaces them: anything drawn since is removed (API-doc history, tasks, entities and agents " +
+      "are untouched; git can still undo it). Without confirm:true it only reports what would " +
+      "change; call again with confirm:true to restore. Consider create_checkpoint first.",
+    inputSchema: {
+      checkpointId: z.string().min(1).describe("The checkpoint id (from list_checkpoints)."),
+      confirm: z.boolean().optional().describe("true to restore; omit to preview the change."),
+    },
+  },
+  async ({ checkpointId, confirm }) => {
+    try {
+      const cfg = getConfig();
+      const cp = (await fetchCheckpoints(cfg)).find((c) => c.id === checkpointId);
+      if (!cp) return fail(`No checkpoint "${checkpointId}". See list_checkpoints.`);
+      const [elements, infra, flows] = await Promise.all([fetchElements(cfg), fetchInfra(cfg), fetchFlows(cfg)]);
+      const delta = (now: Array<{ id: string }>, then: Array<{ id: string }>) => {
+        const before = new Set(then.map((x) => x.id));
+        const current = new Set(now.map((x) => x.id));
+        return {
+          removed: now.filter((x) => !before.has(x.id)).length,
+          restored: then.filter((x) => !current.has(x.id)).length,
+          kept: then.filter((x) => current.has(x.id)).length,
+        };
+      };
+      const changes = {
+        elements: delta(elements, cp.snapshot.elements),
+        infraNodes: delta(infra.nodes, cp.snapshot.infraNodes),
+        infraEdges: delta(infra.edges, cp.snapshot.infraEdges),
+        flows: delta(flows, cp.snapshot.infraFlows),
+      };
+      if (!confirm) {
+        return ok({
+          checkpoint: { id: cp.id, title: cp.title, createdAt: cp.createdAt },
+          action: "preview",
+          changes,
+          hint: "Nothing changed yet. removed = exists now but not in the checkpoint; kept items revert to their saved state. Call again with confirm:true to restore.",
+        });
+      }
+      await restoreCheckpoint(cfg, cp.id);
+      return ok({ checkpoint: { id: cp.id, title: cp.title }, action: "restored", changes });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "delete_checkpoint",
+  {
+    title: "Delete a checkpoint",
+    description: "Remove a checkpoint. The canvas is untouched; git history keeps the file.",
+    inputSchema: {
+      checkpointId: z.string().min(1).describe("The checkpoint id (from list_checkpoints)."),
+    },
+  },
+  async ({ checkpointId }) => {
+    try {
+      await deleteCheckpoint(getConfig(), checkpointId);
+      return ok({ checkpointId, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }
