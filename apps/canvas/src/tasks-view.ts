@@ -1,4 +1,4 @@
-import { buildGanttModel, type GanttModel, type Task, type TaskPatch, type TaskStatus } from "forward-core";
+import { buildGanttModel, isIsoDay, type GanttModel, type Task, type TaskPatch, type TaskStatus } from "forward-core";
 
 /**
  * The project task tracker (pillar 4): one overlay panel that lists the
@@ -369,6 +369,26 @@ function taskCard(
   return card;
 }
 
+/** A task date as a date input's value: an ISO day, else empty (a legacy free-form label can't be shown). */
+export function dateInputValue(value: string | undefined): string {
+  return value && isIsoDay(value) ? value : "";
+}
+
+/**
+ * The patch the edit form saves. A date is only sent when its input changed, so
+ * saving an edit never clears a date the input couldn't show (a legacy label);
+ * an emptied input clears it.
+ */
+export function taskEditPatch(
+  task: Task,
+  form: { title: string; description: string; type: Task["type"]; priority: Task["priority"]; startDate: string; dueDate: string },
+): TaskPatch {
+  const patch: TaskPatch = { title: form.title.trim(), description: form.description, type: form.type, priority: form.priority };
+  if (form.startDate !== dateInputValue(task.startDate)) patch.startDate = form.startDate || undefined;
+  if (form.dueDate !== dateInputValue(task.dueDate)) patch.dueDate = form.dueDate || undefined;
+  return patch;
+}
+
 function editForm(task: Task, onCancel: () => void, onSave: (patch: TaskPatch) => void): HTMLElement {
   const form = hEl("form", "", "tk-edit-form") as HTMLFormElement;
   const field = (labelText: string, name: string, value: string, multiline = false): HTMLInputElement | HTMLTextAreaElement => {
@@ -400,8 +420,8 @@ function editForm(task: Task, onCancel: () => void, onSave: (patch: TaskPatch) =
   const typeWrap = hEl("label", "", "tk-edit-field"); typeWrap.append(hEl("span", "Type", "tk-input-label"), type);
   const priorityWrap = hEl("label", "", "tk-edit-field"); priorityWrap.append(hEl("span", "Priority", "tk-input-label"), priority);
   const dates = hEl("div", "", "tk-edit-dates");
-  const start = field("Start date", "startDate", task.startDate ?? "") as HTMLInputElement;
-  const due = field("Due date", "dueDate", task.dueDate && /^\\d{4}-\\d{2}-\\d{2}$/.test(task.dueDate) ? task.dueDate : "") as HTMLInputElement;
+  const start = field("Start date", "startDate", dateInputValue(task.startDate)) as HTMLInputElement;
+  const due = field("Due date", "dueDate", dateInputValue(task.dueDate)) as HTMLInputElement;
   start.type = due.type = "date";
   dates.append(start.parentElement!, due.parentElement!);
   form.append(typeWrap, priorityWrap, dates);
@@ -413,7 +433,10 @@ function editForm(task: Task, onCancel: () => void, onSave: (patch: TaskPatch) =
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (!title.value.trim()) return;
-    onSave({ title: title.value.trim(), description: description.value, type: type.value as Task["type"], priority: priority.value as Task["priority"], startDate: start.value || undefined, dueDate: due.value || undefined });
+    onSave(taskEditPatch(task, {
+      title: title.value, description: description.value, type: type.value as Task["type"],
+      priority: priority.value as Task["priority"], startDate: start.value, dueDate: due.value,
+    }));
   });
   return form;
 }
