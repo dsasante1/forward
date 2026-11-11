@@ -18,10 +18,11 @@ import {
   InfraFlow,
   InfraNode,
   McpServerNode,
+  Person,
   Task,
   VersionEntry,
 } from "../schema.js";
-import { contributors } from "./git.js";
+import { contributors, withDeclared } from "./git.js";
 import {
   COLLECTIONS,
   FORWARD_DIR,
@@ -51,6 +52,7 @@ const SCHEMAS: Record<Exclude<CollectionKey, "history">, z.ZodTypeAny> = {
   tasks: Task,
   checkpoints: Checkpoint,
   dismissed: DismissedDraft,
+  people: Person,
 };
 
 /**
@@ -162,7 +164,7 @@ export function validateRepo(root: string): ValidationIssue[] {
     }
   }
   const tasks = [...loaded.tasks.values()];
-  warnUnknownAssignees(root, tasks, warn);
+  warnUnknownAssignees(root, tasks, [...loaded.people.values()].map((p) => p.value), warn);
   for (const cycle of findDependencyCycles(tasks.map((t) => t.value))) {
     const keys = cycle.map((id) => loaded.tasks.get(id)!.value.key || id);
     const path = [...keys, keys[0]].join(" → ");
@@ -240,15 +242,18 @@ function checkAssets(
 function warnUnknownAssignees(
   root: string,
   tasks: Array<{ file: string; value: { assignees: string[] } }>,
+  people: Person[],
   warn: (file: string, message: string) => void,
 ): void {
   if (!tasks.some((t) => t.value.assignees.length)) return;
-  const { members, shallow } = contributors(root);
-  if (shallow || !members.length) return;
-  const known = new Set(members.map((m) => m.userId));
+  const git = contributors(root);
+  if (git.shallow || (!git.members.length && !people.length)) return;
+  const known = new Set(withDeclared(git, people).members.map((m) => m.userId));
   for (const { file, value } of tasks) {
     for (const uid of value.assignees) {
-      if (!known.has(uid)) warn(file, `Assignee "${uid}" hasn't committed to ${FORWARD_DIR}/, so isn't on the roster.`);
+      if (!known.has(uid)) {
+        warn(file, `Assignee "${uid}" hasn't committed to ${FORWARD_DIR}/ and isn't declared in ${FORWARD_DIR}/people/, so isn't on the roster.`);
+      }
     }
   }
 }

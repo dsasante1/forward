@@ -1,6 +1,6 @@
 /// <reference types="node" />
 import type { ApiRequest, ApiResponse } from "../api-rest.js";
-import { contributors, projectTimeline } from "./git.js";
+import { contributors, projectTimeline, withDeclared } from "./git.js";
 import { RepoError, type RepoStore } from "./store.js";
 
 type Handler = (
@@ -25,7 +25,8 @@ const SEG = "([^/]+)";
  * runs for the canvas.
  *
  * Access is whatever the git host grants, so there are no membership, invite
- * or token routes; the roster is a read-only view of git contributors.
+ * or token routes; the roster is git contributors plus declared people, who
+ * only exist to be assigned tasks and grant no access.
  */
 export function createRepoRouter(store: RepoStore) {
   const routes: Route[] = [];
@@ -90,8 +91,11 @@ export function createRepoRouter(store: RepoStore) {
   on("POST", "/assets/prune", (_p, _b, q) => store.pruneAssets({ dryRun: q.get("dryRun") === "true" }));
   on("GET", "/assets/:name", ([name]) => store.readAsset(name!));
 
-  // contributor roster, derived from git history (read-only)
-  on("GET", "/members", () => contributors(store.root));
+  // contributor roster: git history plus declared people
+  on("GET", "/members", () => withDeclared(contributors(store.root), store.listPeople()));
+  on("GET", "/people", () => store.listPeople());
+  on("PUT", "/people/:id", (_p, body) => store.savePerson(body));
+  on("DELETE", "/people/:id", ([id]) => store.deletePerson(id!));
 
   return async function handle(req: ApiRequest): Promise<ApiResponse> {
     const url = new URL(req.path, "http://repo.local");

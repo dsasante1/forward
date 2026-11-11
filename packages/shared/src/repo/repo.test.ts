@@ -401,6 +401,44 @@ describe("validateRepo assignees", () => {
   });
 });
 
+describe("declared people", () => {
+  beforeEach(() => {
+    git("init", "-q", "-b", "main");
+    git("config", "user.name", "Ada");
+    git("config", "user.email", "ada@example.com");
+    git("config", "commit.gpgsign", "false");
+  });
+  const assigned = (who: string) => api.saveTask(cfg, { id: "t1", key: "FWD-1", title: "T", assignees: [who], createdAt: T, updatedAt: T } as unknown as Task);
+
+  it("adds people to the roster before they commit, once, and satisfies validate", async () => {
+    await api.saveElement(cfg, el("a"));
+    git("add", "-A");
+    git("commit", "-qm", "x");
+    const lena = await api.savePerson(cfg, { id: " Lena Fischer ", email: "lena@example.com" });
+    expect(lena).toMatchObject({ id: "Lena Fischer", email: "lena@example.com", addedBy: "tester" });
+    // Ada is a contributor already; declaring her again doesn't list her twice.
+    await api.savePerson(cfg, { id: "Ada" });
+    const roster = await api.listMembers(cfg);
+    expect(roster.members.map((m) => [m.uid, m.declared ?? false])).toEqual([["Ada", false], ["Lena Fischer", true]]);
+
+    await assigned("Lena Fischer");
+    git("add", "-A");
+    git("commit", "-qm", "y");
+    expect(validateRepo(root).filter((i) => i.message.includes("Assignee"))).toEqual([]);
+    await assigned("Nobody");
+    expect(validateRepo(root).filter((i) => i.message.includes("Assignee"))).toHaveLength(1);
+  });
+
+  it("keeps who added someone when they are re-declared, and 404s an unknown removal", async () => {
+    const first = await api.savePerson(cfg, { id: "Lena" });
+    const again = await api.savePerson(cfg, { id: "Lena", email: "l@example.com" });
+    expect(again).toMatchObject({ addedAt: first.addedAt, email: "l@example.com" });
+    await api.deletePerson(cfg, "Lena");
+    expect(await api.fetchPeople(cfg)).toEqual([]);
+    await expect(api.deletePerson(cfg, "Lena")).rejects.toThrow(/No declared person/);
+  });
+});
+
 describe("validateRepo", () => {
   it("passes a clean project and flags broken files and dangling links", async () => {
     await api.saveElement(cfg, el("a"));

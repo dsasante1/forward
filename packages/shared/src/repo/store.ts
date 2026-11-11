@@ -51,6 +51,7 @@ import {
   InfraFlow,
   InfraNode,
   McpServerNode,
+  Person,
   Task,
   VersionEntry,
   descendantIds,
@@ -938,6 +939,33 @@ export class RepoStore {
 
   deleteTask(id: string): void {
     this.remove("tasks", id);
+  }
+
+  // --- people (declared roster entries) ------------------------------------
+
+  listPeople(): Person[] {
+    return this.readAll("people", Person).sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  /**
+   * Declare a person by the name they commit under, so tasks can be assigned to
+   * them before their first commit. Re-declaring updates the email and keeps
+   * when and by whom they were first added.
+   */
+  savePerson(input: unknown): Person {
+    const body = (input ?? {}) as { id?: unknown; email?: unknown };
+    const prior = typeof body.id === "string" ? this.readOne("people", body.id.trim(), Person) : undefined;
+    const person = this.parse(
+      Person,
+      { ...body, addedBy: prior?.addedBy ?? this.author, addedAt: prior?.addedAt ?? this.iso() },
+      "person",
+    );
+    this.write("people", person.id, person);
+    return person;
+  }
+
+  deletePerson(id: string): void {
+    if (!this.remove("people", id)) throw new RepoError(404, `No declared person "${id}"`);
   }
 
   // --- checkpoints ---------------------------------------------------------
