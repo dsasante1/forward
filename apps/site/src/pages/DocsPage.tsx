@@ -1607,7 +1607,11 @@ export function DocsPage() {
                   </tr>
                   <tr>
                     <td>forward call &lt;tool&gt; ['&lt;json&gt;' | -]</td>
-                    <td>Run an agent tool from the shell (same code as MCP). Each tool also runs directly as a command, with its arguments as flags.</td>
+                    <td>Run an agent tool from the shell (same code as MCP). Each tool also runs directly as a command, with its arguments as flags; <code className="d-code">forward &lt;tool&gt; --help</code> shows them.</td>
+                  </tr>
+                  <tr>
+                    <td>forward call --batch &lt;file | -&gt;</td>
+                    <td>Run many tool calls in one process: a JSON array or JSON Lines of <code className="d-code">{"{"}"tool", "args", "as"{"}"}</code> steps, where <code className="d-code">"$name.id"</code> in an argument is an earlier step's result.</td>
                   </tr>
                 </tbody>
               </table>

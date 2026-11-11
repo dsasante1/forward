@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { assetRefs } from "forward-core";
@@ -18,7 +18,7 @@ import {
   validateRepo,
 } from "forward-core/repo";
 import { parseArgs, str, type Args } from "./cli/args.js";
-import { callTool, close, coerceFlags, listTools, type ToolInfo } from "./cli/call.js";
+import { callTool, close, coerceFlags, listTools, parseBatch, runBatch, type JsonSchema, type ToolInfo } from "./cli/call.js";
 import { findBrowsers } from "./browser/find.js";
 import { captureSnippet } from "./capture.js";
 import { scaffoldAgents, scaffoldGithub, scaffoldRoot, type AgentTarget, type ScaffoldResult } from "./cli/scaffold.js";
@@ -64,6 +64,10 @@ Agents
   forward <tool> [--arg value ...]
   forward call <tool> ['<json args>' | -]
                              Run an agent tool from the shell (same code as MCP)
+  forward <tool> --help      One tool's arguments, nested shapes included
+  forward call --batch <file | ->
+                             Run many tool calls in one process: a JSON array or JSON Lines of
+                             {"tool", "args", "as"?}; "$name.id" in args is an earlier result
 
 Environment
   FORWARD_REPO               Use this repository instead of searching up from the cwd
@@ -109,9 +113,12 @@ async function main(argv: string[]): Promise<number> {
     case "tools":
       return cmdTools(sub);
     case "call":
+      if (sub.flags.batch !== undefined) return cmdBatch(sub);
+      if (sub.flags.help && sub.positionals[0]) return cmdTools(sub);
       return cmdCall(sub.positionals[0], sub);
     default:
       if (args.flags.help) {
+        if ((await listTools()).some((t) => t.name === cmd)) return cmdTools({ positionals: [cmd], flags: {} });
         process.stdout.write(HELP);
         return 0;
       }
@@ -314,11 +321,52 @@ function printTool(t: ToolInfo): void {
   }
   console.log("Arguments:");
   for (const [k, p] of Object.entries(props)) {
-    const type = Array.isArray(p.type) ? p.type.join("|") : p.type ?? (p.anyOf ? "any" : "");
-    const choices = p.enum ? ` (${p.enum.join(", ")})` : "";
-    console.log(`  --${k}  ${type}${choices}${required.has(k) ? "  required" : ""}`);
+    console.log(`  --${k}  ${typeLabel(p)}${required.has(k) ? "  required" : ""}`);
     if (p.description) console.log(`      ${p.description}`);
+    printFields(p, "      ");
   }
+}
+
+/** A schema's type for a reader: `string`, `number[]`, `object`, `a | b | c`. */
+function typeLabel(p: JsonSchema): string {
+  const inner = p.anyOf?.filter((a) => a.type !== "null");
+  if (inner?.length === 1) return typeLabel(inner[0]!);
+  if (p.enum) return p.enum.map(String).join(" | ");
+  if (p.type === "array" && p.items) return `${typeLabel(p.items)}[]`;
+  if (Array.isArray(p.type)) return p.type.filter((t) => t !== "null").join("|");
+  return p.type ?? (p.anyOf ? "any" : "");
+}
+
+/**
+ * The fields of an object argument (or of an array's items), one level deep
+ * per call and recursing, so `style`, flow `steps` and `create_design`'s
+ * `elements` show what goes inside them.
+ */
+function printFields(p: JsonSchema, indent: string, depth = 0): void {
+  const inner = p.anyOf?.filter((a) => a.type !== "null");
+  const obj = inner?.length === 1 ? inner[0]! : p.type === "array" && p.items ? p.items : p;
+  if (!obj.properties || depth > 2) return;
+  const required = new Set(obj.required ?? []);
+  for (const [k, f] of Object.entries(obj.properties)) {
+    const desc = f.description ? `  ${f.description}` : "";
+    console.log(`${indent}.${k}  ${typeLabel(f)}${required.has(k) ? "  required" : ""}${desc}`);
+    printFields(f, `${indent}  `, depth + 1);
+  }
+}
+
+/** `forward call --batch <file | ->`: many tool calls through one client. */
+async function cmdBatch(a: Args): Promise<number> {
+  const source = a.flags.batch === true ? a.positionals[0] : String(a.flags.batch);
+  if (!source) throw new Error("Usage: forward call --batch <file | ->");
+  const text = source === "-" ? await readStdin() : readFileSync(source, "utf8");
+  const outcomes = await runBatch(parseBatch(text));
+  console.log(JSON.stringify(outcomes, null, 2));
+  const failed = outcomes.find((o) => !o.ok);
+  if (failed) {
+    console.error(`forward: step ${failed.step} (${failed.tool}${failed.as ? ` as ${failed.as}` : ""}) failed; later steps did not run.`);
+    return 1;
+  }
+  return 0;
 }
 
 /**
