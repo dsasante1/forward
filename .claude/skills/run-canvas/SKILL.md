@@ -26,8 +26,9 @@ node <repo>/apps/mcp/dist/cli.js serve         # prints http://127.0.0.1:4747/
 Seed data from the shell with the same tools agents use, e.g.
 `node <repo>/apps/mcp/dist/cli.js create_element --type frame --name Login --x 0 --y 0 --width 400 --height 600`.
 
-For a fast edit loop on canvas code, run Vite on the host (`npm run dev:host -w apps/canvas`)
-and keep `forward serve` running for the data; or rebuild the canvas and restart `serve`.
+For a fast edit loop on canvas code, run `npm run dev` from the repo root: Vite with hot reload,
+with the REST routes served in-process by `apps/canvas/dev-api.ts` over `$FORWARD_REPO` (or a
+scratch project in `$TMPDIR/forward-canvas-dev`). Seed it with `FORWARD_REPO=<that dir> forward <tool>`.
 
 To check the read-only GitHub Pages view: `forward export --out /tmp/site`, then serve that
 folder with any static server.

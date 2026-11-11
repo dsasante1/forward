@@ -12,7 +12,8 @@
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "bootstrap": "npm install && npm run build"
+    "bootstrap": "npm install && npm run build",
+    "dev": "npm run build -w packages/shared && npm run dev:host -w apps/canvas"
   },
   "devDependencies": {
     "@types/node": "^22.12.0",
