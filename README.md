@@ -9,7 +9,7 @@ integrate, change or remove.
 
 - **Lives in git.** The whole project is plain JSON in `.forward/`, one file per record. It is
   versioned, reviewed and merged with the code it describes. No server and no account are needed.
-- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 42 tools with full
+- **AI-agent first.** Claude Code, Codex, Cursor, Copilot or any MCP client gets 43 tools with full
   parity with the canvas. Agents without MCP use the same tools through the `forward` CLI.
 - **GitHub native.** One workflow validates `.forward/` on pull requests, posts a catch-up digest
   as a PR comment, and publishes a read-only canvas to GitHub Pages.
@@ -55,7 +55,7 @@ configuration is needed: the server finds the nearest `.forward/` and works on t
 **Without MCP**, the CLI calls the very same tool code in-process:
 
 ```bash
-forward tools                                   # list all 42 tools
+forward tools                                   # list all 43 tools
 forward tools write_documentation               # one tool's arguments
 forward find_element --query "login button"
 forward write_documentation --element-id el_123 --title "POST /login" --description "Body: email, password"

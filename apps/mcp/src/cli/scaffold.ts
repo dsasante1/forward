@@ -35,7 +35,8 @@ infrastructure graph and flows, the data model and tasks in \`.forward/\`
   running app with \`import_design_from_code\` (\`forward capture <url> <route>\`;
   \`dryRun\` first). Drafts stay in step with the code until someone edits or
   adopts them. If the app can't run, read the components and sketch the screen
-  with \`create_element\` instead.
+  with \`create_design\` (one call per screen, coordinates relative to the parent)
+  instead, and act on any \`warnings\` it returns.
 - When you add a service, queue, cache or database, update the architecture with
   \`write_infra_node\` and \`connect_infra\`. For schema changes use \`write_entity\`
   and \`relate_entities\`.

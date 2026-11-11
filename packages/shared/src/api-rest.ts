@@ -201,6 +201,16 @@ export async function saveElement(
   );
 }
 
+/** Upsert many elements in one call, all-or-nothing: every element is
+ * validated before any is written. Bindings are never sent (see saveElement). */
+export async function saveElements(
+  cfg: ApiConfig,
+  elements: SaveableElement[],
+): Promise<DesignElement[]> {
+  const raw = await request<unknown[]>(cfg, "POST", "/elements/batch", elements);
+  return parseAll(raw, DesignElement);
+}
+
 /**
  * Write elements generated from frontend code in one call (see
  * design-import.ts and `RepoStore.importDesign`). The backend decides per
