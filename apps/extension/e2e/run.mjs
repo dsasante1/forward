@@ -97,7 +97,8 @@ const code = spawn(
     "--new-window",
     repo,
   ],
-  { env, stdio: "ignore" },
+  // Its own process group, so cleanup can stop VS Code's helper processes too.
+  { env, stdio: "ignore", detached: process.platform !== "win32" },
 );
 
 let workbench;
@@ -170,7 +171,29 @@ try {
   await workbench?.screenshot({ path: join(out, "failure.png") }).catch(() => {});
 } finally {
   await browser?.close().catch(() => {});
-  code.kill("SIGKILL");
-  rmSync(base, { recursive: true, force: true, maxRetries: 3 });
+  await stopVSCode(code);
+  try {
+    rmSync(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (err) {
+    // A temp dir left behind is not a test failure.
+    console.warn(`extension e2e: could not remove ${base}: ${err.message}`);
+  }
 }
 process.exit(failed ? 1 : 0);
+
+/**
+ * Kill VS Code and every helper it started (window, extension host, shared
+ * process), then wait for the main process to exit, so nothing is still writing
+ * to the profile while it is deleted.
+ */
+async function stopVSCode(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((done) => child.once("exit", done));
+  try {
+    if (process.platform === "win32") child.kill("SIGKILL");
+    else process.kill(-child.pid, "SIGKILL");
+  } catch {
+    child.kill("SIGKILL");
+  }
+  await Promise.race([exited, new Promise((done) => setTimeout(done, 5_000))]);
+}
