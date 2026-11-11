@@ -1,4 +1,4 @@
-import { buildGanttModel, type GanttModel, type Task, type TaskStatus } from "forward-core";
+import { buildGanttModel, type GanttModel, type Task, type TaskPatch, type TaskStatus } from "forward-core";
 
 /**
  * The project task tracker (pillar 4): one overlay panel that lists the
@@ -19,6 +19,7 @@ import { buildGanttModel, type GanttModel, type Task, type TaskStatus } from "fo
 
 /** Which layout the panel shows. */
 export type TasksMode = "list" | "timeline";
+export type TasksStatusFilter = TaskStatus | "all";
 
 /** The layout the panel opens in until the user picks the other one. */
 export const DEFAULT_TASKS_MODE: TasksMode = "timeline";
@@ -77,11 +78,16 @@ export interface TasksContext {
   readOnly: boolean;
   /** The viewer's today, `YYYY-MM-DD`, marked on the timeline. */
   today: string;
+  /** Day width in pixels for the timeline scale. */
+  timelineDayWidth: number;
+  statusFilter: TasksStatusFilter;
 }
 
 export interface TasksCallbacks {
   onClose: () => void;
   onSetMode: (mode: TasksMode) => void;
+  onTimelineZoom: (delta: number) => void;
+  onSetStatusFilter: (filter: TasksStatusFilter) => void;
   onToggleFilter: () => void;
   /** Create a task; the panel supplies title + the focus links it derives. */
   onCreate: (input: {
@@ -90,6 +96,7 @@ export interface TasksCallbacks {
     flowId?: string;
   }) => void;
   onChangeStatus: (taskId: string, status: TaskStatus) => void;
+  onEdit: (taskId: string, patch: TaskPatch) => void;
   onDelete: (taskId: string) => void;
   /** Select the linked design element on the canvas. */
   onSelectElement: (elementId: string) => void;
@@ -144,6 +151,30 @@ export function renderTasksView(
     });
     modes.append(b);
   }
+  const counts = new Map<TasksStatusFilter, number>([["all", tasks.length]]);
+  for (const task of tasks) counts.set(task.status, (counts.get(task.status) ?? 0) + 1);
+  const filters = hEl("div", "", "tk-status-filters");
+  filters.setAttribute("role", "group");
+  filters.setAttribute("aria-label", "Filter tasks by status");
+  const filterOptions: [TasksStatusFilter, string][] = [
+    ["all", "All"],
+    ["todo", STATUS_LABEL.todo],
+    ["in_progress", STATUS_LABEL.in_progress],
+    ["blocked", STATUS_LABEL.blocked],
+    ["done", STATUS_LABEL.done],
+  ];
+  for (const [filter, label] of filterOptions) {
+    const b = hEl("button", "", "tk-status-filter") as HTMLButtonElement;
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(ctx.statusFilter === filter));
+    b.setAttribute("aria-label", `${label} tasks (${counts.get(filter) ?? 0})`);
+    b.append(hEl("span", label), hEl("span", String(counts.get(filter) ?? 0), "tk-status-count"));
+    b.addEventListener("click", () => {
+      if (ctx.statusFilter !== filter) cb.onSetStatusFilter(filter);
+    });
+    filters.append(b);
+  }
+  head.append(filters);
   head.append(modes);
   const close = hEl("button", "✕", "tk-close") as HTMLButtonElement;
   close.title = "Close";
@@ -153,6 +184,9 @@ export function renderTasksView(
 
   const body = hEl("div", "", "tk-body");
   host.append(body);
+  const shownTasks = ctx.statusFilter === "all"
+    ? tasks
+    : tasks.filter((task) => task.status === ctx.statusFilter);
 
   // --- create row (pre-links to the current selection when there is one) ---
   if (!ctx.readOnly) body.append(createForm(ctx, cb));
@@ -170,44 +204,60 @@ export function renderTasksView(
   }
 
   if (!tasks.length) {
-    body.append(hEl("p", "No tasks yet.", "tk-empty"));
+    const emptyMessage = ctx.filterLinked
+      ? `No tasks linked to ${ctx.focus.label ?? "selection"}.`
+      : "No tasks yet.";
+    body.append(hEl("p", emptyMessage, "tk-empty"));
+    return;
+  }
+  if (!shownTasks.length) {
+    body.append(hEl("p", `No ${STATUS_LABEL[ctx.statusFilter as TaskStatus].toLowerCase()} tasks.`, "tk-empty"));
     return;
   }
 
   if (ctx.mode === "timeline") {
-    body.append(timeline(buildGanttModel(tasks, { today: ctx.today })!, cb));
+    body.append(timeline(buildGanttModel(shownTasks, { today: ctx.today, dayWidth: ctx.timelineDayWidth })!, cb));
     return;
   }
 
   // --- grouped by status, in lifecycle order ---
+  const groups = hEl("div", "", "tk-groups");
   const byStatus = new Map<TaskStatus, Task[]>();
   for (const s of STATUS_ORDER) byStatus.set(s, []);
-  for (const t of tasks) byStatus.get(t.status)!.push(t);
+  for (const t of shownTasks) byStatus.get(t.status)!.push(t);
 
   for (const status of STATUS_ORDER) {
-    const group = byStatus.get(status)!;
-    if (!group.length) continue;
+    const statusTasks = byStatus.get(status)!;
+    if (!statusTasks.length) continue;
+    const group = hEl("section", "", "tk-status-group");
     const title = hEl("div", "", "tk-group-title");
     title.append(hEl("span", STATUS_LABEL[status]));
-    title.append(hEl("span", String(group.length), "tk-count"));
-    body.append(title);
+    title.append(hEl("span", String(statusTasks.length), "tk-count"));
+    group.append(title);
 
-    for (const task of group) {
-      body.append(taskCard(task, status, ctx, cb));
+    for (const task of statusTasks) {
+      group.append(taskCard(task, status, ctx, cb));
     }
+    groups.append(group);
   }
+  body.append(groups);
 }
 
 function createForm(ctx: TasksContext, cb: TasksCallbacks): HTMLElement {
   const form = hEl("form", "", "tk-create") as HTMLFormElement;
+  const field = hEl("div", "", "tk-input-field");
+  const label = hEl("label", "Task title", "tk-input-label") as HTMLLabelElement;
+  label.htmlFor = "tk-task-title";
   const input = document.createElement("input");
+  input.id = "tk-task-title";
   input.className = "tk-input";
   input.placeholder = ctx.focus.label
     ? `New task for ${ctx.focus.label}…`
     : "New task…";
   const addBtn = hEl("button", "Add", "tk-add") as HTMLButtonElement;
   addBtn.type = "submit";
-  form.append(input, addBtn);
+  field.append(label, input);
+  form.append(field, addBtn);
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const title = input.value.trim();
@@ -228,7 +278,9 @@ function taskCard(
   ctx: TasksContext,
   cb: TasksCallbacks,
 ): HTMLElement {
-  const card = hEl("div", "", `tk-card tk-card-${status}`);
+  const card = hEl("div", "", `tk-card tk-card-${status}${ctx.readOnly ? "" : " tk-card-editable"}`);
+  const main = hEl("div", "", "tk-card-main");
+  const meta = hEl("div", "", "tk-card-meta");
 
   const headRow = hEl("div", "", "tk-card-head");
   // Status dot doubles as the "advance status" control.
@@ -239,22 +291,38 @@ function taskCard(
   } else {
     const dot = hEl("button", "", `tk-dot tk-dot-${status}`) as HTMLButtonElement;
     dot.title = `Mark ${STATUS_LABEL[nextStatus(status)]}`;
+    dot.setAttribute("aria-label", `Mark “${task.title}” as ${STATUS_LABEL[nextStatus(status)]}`);
     dot.addEventListener("click", () => cb.onChangeStatus(task.id, nextStatus(status)));
     headRow.append(dot);
   }
   headRow.append(hEl("span", task.title, "tk-title"));
 
+  let editButton: HTMLButtonElement | undefined;
+  if (!ctx.readOnly) {
+    editButton = hEl("button", "Edit", "tk-edit") as HTMLButtonElement;
+    editButton.type = "button";
+    editButton.setAttribute("aria-label", `Edit “${task.title}”`);
+    editButton.addEventListener("click", () => {
+      card.replaceWith(editForm(task, () => card.replaceWith(taskCard(task, status, ctx, cb)),
+        (patch) => cb.onEdit(task.id, patch)));
+    });
+  }
+
+  let deleteButton: HTMLButtonElement | undefined;
   if (!ctx.readOnly) {
     const del = hEl("button", "✕", "tk-del") as HTMLButtonElement;
     del.title = "Delete task";
+    del.setAttribute("aria-label", `Delete “${task.title}”`);
     del.addEventListener("click", () => cb.onDelete(task.id));
-    headRow.append(del);
+    deleteButton = del;
   }
-  card.append(headRow);
+  main.append(headRow);
 
   if (task.description.trim()) {
-    card.append(hEl("p", task.description.trim(), "tk-desc"));
+    main.append(hEl("p", task.description.trim(), "tk-desc"));
   }
+  card.append(main);
+  if (task.dueDate?.trim()) meta.append(hEl("span", `Due ${task.dueDate}`, "tk-chip tk-due"));
 
   // --- link chips ---
   // A live link is clickable (jumps to the element); a dangling one (its target
@@ -289,9 +357,65 @@ function taskCard(
     );
   }
   for (const uid of task.assignees) chips.append(hEl("span", `@${uid}`, "tk-chip"));
-  if (chips.childElementCount) card.append(chips);
+  if (chips.childElementCount) meta.append(chips);
+  if (meta.childElementCount) card.append(meta);
+  if (editButton || deleteButton) {
+    const actions = hEl("div", "", "tk-card-actions");
+    if (editButton) actions.append(editButton);
+    if (deleteButton) actions.append(deleteButton);
+    card.append(actions);
+  }
 
   return card;
+}
+
+function editForm(task: Task, onCancel: () => void, onSave: (patch: TaskPatch) => void): HTMLElement {
+  const form = hEl("form", "", "tk-edit-form") as HTMLFormElement;
+  const field = (labelText: string, name: string, value: string, multiline = false): HTMLInputElement | HTMLTextAreaElement => {
+    const wrap = hEl("label", "", "tk-edit-field");
+    wrap.append(hEl("span", labelText, "tk-input-label"));
+    const input = multiline ? document.createElement("textarea") : document.createElement("input");
+    input.name = name;
+    input.className = "tk-edit-control";
+    input.value = value;
+    if (name === "title") { input.required = true; input.maxLength = 200; }
+    if (name === "description") input.maxLength = 10000;
+    wrap.append(input);
+    form.append(wrap);
+    return input;
+  };
+  const title = field("Title", "title", task.title) as HTMLInputElement;
+  const description = field("Description", "description", task.description, true) as HTMLTextAreaElement;
+  const type = document.createElement("select");
+  type.className = "tk-edit-control";
+  for (const [value, label] of [["task", "Task"], ["bug", "Bug"], ["feature", "Feature"], ["milestone", "Milestone"]] as const) {
+    const option = document.createElement("option"); option.value = value; option.textContent = label; type.append(option);
+  }
+  type.value = task.type;
+  const priority = document.createElement("select"); priority.className = "tk-edit-control";
+  for (const [value, label] of [["low", "Low"], ["medium", "Medium"], ["high", "High"], ["urgent", "Urgent"]] as const) {
+    const option = document.createElement("option"); option.value = value; option.textContent = label; priority.append(option);
+  }
+  priority.value = task.priority;
+  const typeWrap = hEl("label", "", "tk-edit-field"); typeWrap.append(hEl("span", "Type", "tk-input-label"), type);
+  const priorityWrap = hEl("label", "", "tk-edit-field"); priorityWrap.append(hEl("span", "Priority", "tk-input-label"), priority);
+  const dates = hEl("div", "", "tk-edit-dates");
+  const start = field("Start date", "startDate", task.startDate ?? "") as HTMLInputElement;
+  const due = field("Due date", "dueDate", task.dueDate && /^\\d{4}-\\d{2}-\\d{2}$/.test(task.dueDate) ? task.dueDate : "") as HTMLInputElement;
+  start.type = due.type = "date";
+  dates.append(start.parentElement!, due.parentElement!);
+  form.append(typeWrap, priorityWrap, dates);
+  const actions = hEl("div", "", "tk-edit-actions");
+  const save = hEl("button", "Save", "tk-add") as HTMLButtonElement; save.type = "submit";
+  const cancel = hEl("button", "Cancel", "tk-edit-cancel") as HTMLButtonElement; cancel.type = "button";
+  cancel.addEventListener("click", onCancel);
+  actions.append(save, cancel); form.append(actions);
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!title.value.trim()) return;
+    onSave({ title: title.value.trim(), description: description.value, type: type.value as Task["type"], priority: priority.value as Task["priority"], startDate: start.value || undefined, dueDate: due.value || undefined });
+  });
+  return form;
 }
 
 function linkChip(text: string, cls: string, onClick: () => void): HTMLElement {
@@ -341,6 +465,26 @@ function place(node: HTMLElement, x: number, y: number, w: number, h: number): H
 function timeline(model: GanttModel, cb: TasksCallbacks): HTMLElement {
   const AXIS_H = 44;
   const LABEL_W = 220;
+  const section = hEl("section", "", "tk-timeline");
+  const tools = hEl("div", "", "tk-g-tools");
+  const start = new Date(`${model.rangeStart}T00:00:00Z`);
+  const end = new Date((start.getTime() + (model.totalDays - 1) * 86_400_000));
+  const dateFmt = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+  const rangeText = `${dateFmt.format(start)} – ${dateFmt.format(end)}${model.today ? ` · Today ${model.today.label}` : ""}`;
+  const range = hEl("span", rangeText, "tk-g-range");
+  tools.append(range);
+  const zoom = hEl("div", "", "tk-g-zoom");
+  zoom.setAttribute("role", "group");
+  zoom.setAttribute("aria-label", "Timeline zoom");
+  for (const [label, delta] of [["−", -4], ["+", 4]] as const) {
+    const button = hEl("button", label, "tk-g-zoom-btn") as HTMLButtonElement;
+    button.type = "button";
+    button.setAttribute("aria-label", delta < 0 ? "Zoom out" : "Zoom in");
+    button.addEventListener("click", () => cb.onTimelineZoom(delta));
+    zoom.append(button);
+  }
+  tools.append(zoom);
+  section.append(tools);
   const wrap = hEl("div", "", "tk-gantt");
   const grid = hEl("div", "", "tk-g-grid");
   grid.style.gridTemplateColumns = `${LABEL_W}px ${model.timelineW}px`;
@@ -447,6 +591,10 @@ function timeline(model: GanttModel, cb: TasksCallbacks): HTMLElement {
       const fill = hEl("div", "", "tk-g-fill");
       fill.style.width = `${Math.round(row.progress * 100)}%`;
       bar.append(fill);
+      if (row.wPx >= 112) {
+        const label = hEl("span", row.task.title, "tk-g-bar-label");
+        bar.append(label);
+      }
       bar.title = tip;
       body.append(bar);
     }
@@ -460,5 +608,6 @@ function timeline(model: GanttModel, cb: TasksCallbacks): HTMLElement {
       wrap.scrollLeft = x;
     });
   }
-  return wrap;
+  section.append(wrap);
+  return section;
 }
