@@ -37,6 +37,7 @@ import {
   renderPanel,
   openInspectorDocs,
 } from "./panel.js";
+import { appendMarkdown } from "./markdown.js";
 import {
   ACCEPTED_IMAGE_TYPES,
   firstImageFile,
@@ -2738,7 +2739,7 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
   if (desc) {
     const body = document.createElementNS(XHTML_NS, "div");
     body.setAttribute("class", "doc-card-desc");
-    appendMarkdownPreview(body, preview);
+    appendMarkdown(body, preview);
     card.append(body);
   }
 
@@ -2750,62 +2751,6 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
   fo.append(card);
   g.append(fo);
   return g;
-}
-
-/** Render a deliberately small, safe Markdown subset using DOM nodes only. */
-function appendMarkdownPreview(host: Element, markdown: string): void {
-  const blocks = markdown.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
-  for (const block of blocks) {
-    const lines = block.split("\n");
-    const listLines = lines.map((line) => /^(\s*)([-*+] |\d+\. )(.*)$/.exec(line));
-    if (listLines.every(Boolean)) {
-      const ordered = /^\s*\d+\. /.test(lines[0] ?? "");
-      const list = document.createElementNS(XHTML_NS, ordered ? "ol" : "ul");
-      for (const match of listLines) {
-        const item = document.createElementNS(XHTML_NS, "li");
-        appendInlineMarkdown(item, match?.[3] ?? "");
-        list.append(item);
-      }
-      host.append(list);
-      continue;
-    }
-    const paragraph = document.createElementNS(XHTML_NS, "p");
-    lines.forEach((line, index) => {
-      if (index) paragraph.append(document.createElementNS(XHTML_NS, "br"));
-      appendInlineMarkdown(paragraph, line);
-    });
-    host.append(paragraph);
-  }
-}
-
-/** Inline emphasis/code and HTTPS/HTTP links; raw HTML is always plain text. */
-function appendInlineMarkdown(host: Element, source: string): void {
-  const token = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g;
-  let last = 0;
-  for (const match of source.matchAll(token)) {
-    const index = match.index ?? 0;
-    if (index > last) host.append(document.createTextNode(source.slice(last, index)));
-    const full = match[0];
-    let node: Element;
-    if (match[2]) {
-      node = document.createElementNS(XHTML_NS, "a");
-      node.setAttribute("href", match[2]);
-      node.setAttribute("target", "_blank");
-      node.setAttribute("rel", "noopener noreferrer");
-      node.textContent = match[1] ?? "";
-    } else if (match[3]) {
-      node = document.createElementNS(XHTML_NS, "code"); node.textContent = match[3];
-    } else if (match[4] || match[5]) {
-      node = document.createElementNS(XHTML_NS, "strong"); node.textContent = match[4] ?? match[5] ?? "";
-    } else if (match[6] || match[7]) {
-      node = document.createElementNS(XHTML_NS, "em"); node.textContent = match[6] ?? match[7] ?? "";
-    } else {
-      host.append(document.createTextNode(full)); last = index + full.length; continue;
-    }
-    host.append(node);
-    last = index + full.length;
-  }
-  if (last < source.length) host.append(document.createTextNode(source.slice(last)));
 }
 
 // ========================================================================

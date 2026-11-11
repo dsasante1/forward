@@ -14,6 +14,7 @@ import {
   type StrokeStyle,
   type VersionEntry,
 } from "forward-core";
+import { appendMarkdown } from "./markdown.js";
 
 type Patch = Partial<DesignElement>;
 type InspectorTab = "properties" | "docs";
@@ -1334,51 +1335,16 @@ function renderApiDocs(
   });
   header.append(edit);
   root.append(header);
-  if (b?.description.trim()) root.append(renderMarkdownDocument(b.description));
-  else root.append(h("p", "No documentation content yet.", "docs-view-copy"));
+  if (b?.description.trim()) {
+    const rendered = document.createElement("div");
+    rendered.className = "docs-rendered";
+    appendMarkdown(rendered, b.description);
+    root.append(rendered);
+  } else root.append(h("p", "No documentation content yet.", "docs-view-copy"));
   const remove = document.createElement("button"); remove.type = "button";
   remove.className = "doc-remove"; remove.textContent = "Remove documentation";
   remove.addEventListener("click", () => { docsDrafts.delete(el.id); onChange({ apiBinding: undefined }); });
   root.append(remove);
-}
-
-function renderMarkdownDocument(markdown: string): HTMLElement {
-  const content = document.createElement("div"); content.className = "docs-rendered";
-  for (const block of markdown.trim().split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean)) {
-    const lines = block.split("\n");
-    const listItems = lines.map((line) => /^(\s*)([-*+] |\d+\. )(.*)$/.exec(line));
-    if (listItems.every(Boolean)) {
-      const list = document.createElement(lines[0]?.match(/^\s*\d+\. /) ? "ol" : "ul");
-      for (const item of listItems) {
-        const li = document.createElement("li"); appendMarkdownInline(li, item?.[3] ?? ""); list.append(li);
-      }
-      content.append(list);
-    } else {
-      const p = document.createElement("p");
-      lines.forEach((line, index) => { if (index) p.append(document.createElement("br")); appendMarkdownInline(p, line); });
-      content.append(p);
-    }
-  }
-  return content;
-}
-
-function appendMarkdownInline(host: Element, source: string): void {
-  const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g;
-  let last = 0;
-  for (const match of source.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    if (index > last) host.append(document.createTextNode(source.slice(last, index)));
-    let node: HTMLElement;
-    if (match[2]) {
-      const link = document.createElement("a"); link.href = match[2]; link.target = "_blank"; link.rel = "noopener noreferrer";
-      link.textContent = match[1] ?? ""; node = link;
-    } else if (match[3]) { const code = document.createElement("code"); code.textContent = match[3]; node = code; }
-    else if (match[4] || match[5]) { const strong = document.createElement("strong"); strong.textContent = match[4] ?? match[5] ?? ""; node = strong; }
-    else if (match[6] || match[7]) { const em = document.createElement("em"); em.textContent = match[6] ?? match[7] ?? ""; node = em; }
-    else { host.append(document.createTextNode(match[0])); last = index + match[0].length; continue; }
-    host.append(node); last = index + match[0].length;
-  }
-  if (last < source.length) host.append(document.createTextNode(source.slice(last)));
 }
 
 /**
