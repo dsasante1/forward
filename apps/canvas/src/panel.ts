@@ -16,13 +16,22 @@ import {
 } from "forward-core";
 
 type Patch = Partial<DesignElement>;
+type InspectorTab = "properties" | "docs";
+
+let inspectorTab: InspectorTab = "properties";
+let docsEditingId: string | null = null;
+const docsDrafts = new Map<string, ApiBinding>();
+
+/** Open the selected element's Docs tab, optionally straight into its editor. */
+export function openInspectorDocs(elementId: string, edit = false): void {
+  inspectorTab = "docs";
+  docsEditingId = edit ? elementId : null;
+}
 
 /**
  * Render the right-hand panel for the selected element:
  *   1. Geometry + style properties (editable -> onChange).
- *   2. The API binding the backend attached (read-only here; it's authored from
- *      VS Code). This is the seam between design and backend.
- *   3. Version history of that binding.
+ *   2. A dedicated Docs view for reading, adding, and editing API documentation.
  */
 export function renderPanel(
   root: HTMLElement,
@@ -49,6 +58,7 @@ export function renderPanel(
    * there.
    */
   onPickImage?: () => void,
+  onPanelRefresh?: () => void,
 ): void {
   root.replaceChildren();
   if (!el) {
@@ -62,6 +72,36 @@ export function renderPanel(
 
   // --- header: type chip + name + type subtitle ---
   root.append(inspectorHeader(el, onClose));
+  const tabs = document.createElement("div");
+  tabs.className = "inspector-tabs";
+  tabs.setAttribute("role", "group");
+  tabs.setAttribute("aria-label", "Inspector sections");
+  for (const [value, label] of [["properties", "Properties"], ["docs", "Docs"]] as const) {
+    const tab = document.createElement("button");
+    tab.type = "button";
+    tab.className = `inspector-tab${inspectorTab === value ? " active" : ""}`;
+    tab.setAttribute("aria-pressed", String(inspectorTab === value));
+    tab.textContent = label;
+    tab.addEventListener("click", () => {
+      inspectorTab = value;
+      onPanelRefresh?.();
+    });
+    tabs.append(tab);
+  }
+  root.append(tabs);
+
+  if (inspectorTab === "docs") {
+    const docs = document.createElement("div");
+    docs.className = "panel-docs-view";
+    docs.classList.add("panel-section--docs");
+    renderApiDocs(docs, el, onChange, onDocument, onPanelRefresh);
+    root.append(docs);
+    const history = section("Version history", false);
+    history.append(timelineList(timeline));
+    root.append(history);
+    return;
+  }
+
   if (el.origin) root.append(fromCodeSection(el.origin, onAdopt));
 
   // --- Position & size (2-col floating-label grid) ---
@@ -164,17 +204,6 @@ export function renderPanel(
     root.append(imageSection(style, onChange, onPickImage));
   }
 
-  // --- API documentation (authored here in the canvas OR from VS Code; both
-  //     write to the same apiBinding sub-tree, so either side can edit) ---
-  const docs = section("API documentation");
-  docs.classList.add("panel-section--docs"); // targetable by the canvas's "Add API docs" context-menu action
-  renderApiDocs(docs, el, onChange, onDocument);
-  root.append(docs);
-
-  // --- version history ---
-  const history = section("Version history");
-  history.append(timelineList(timeline));
-  root.append(history);
 }
 
 /** Human labels for the deployment environments. */
@@ -1215,92 +1244,141 @@ function section(title: string, open = true): HTMLDetailsElement {
   return d;
 }
 
-/**
- * The editable API-documentation section. When the element has no binding yet
- * we show a single "Add documentation" button; clicking it seeds a minimal,
- * schema-valid binding. Once present, every field edits the SAME apiBinding
- * sub-tree VS Code writes to, so the two authoring surfaces stay in sync.
- */
 function renderApiDocs(
   root: HTMLElement,
   el: DesignElement,
   onChange: (patch: Patch) => void,
   onDocument?: (binding: ApiBinding) => void,
+  onRefresh?: () => void,
 ): void {
   const b = el.apiBinding;
+  const isEditing = docsEditingId === el.id;
+  const existing = docsDrafts.get(el.id) ?? b ?? { title: el.name || el.id, description: "" };
 
-  if (!b) {
-    // Floating-label affordance: a "+" chip beside an uppercase action label.
+  if (!b && !isEditing) {
+    const empty = document.createElement("div");
+    empty.className = "docs-empty-state";
+    empty.append(h("h3", "No documentation yet", "docs-view-title"));
+    empty.append(h("p", "Add API or behaviour notes for this design element.", "docs-view-copy"));
     const add = document.createElement("button");
-    add.type = "button";
-    add.className = "doc-add-row";
-    const plus = h("span", "+", "doc-add-plus");
-    const label = h("span", "Add documentation", "doc-add-label");
-    add.append(plus, label);
-    add.addEventListener("click", () =>
-      onChange({
-        apiBinding: { title: el.name || el.id, description: "" },
-      }),
-    );
-    const hint = h(
-      "p",
-      "Add it here, or from VS Code via “Document API on Design Element”.",
-      "empty",
-    );
-    root.append(add, hint);
+    add.type = "button"; add.className = "doc-save"; add.textContent = "Add documentation";
+    add.addEventListener("click", () => {
+      docsEditingId = el.id;
+      docsDrafts.set(el.id, { title: el.name || el.id, description: "" });
+      onRefresh?.();
+      requestAnimationFrame(() => root.querySelector<HTMLInputElement>(".docs-title-input")?.focus());
+    });
+    empty.append(add);
+    root.append(empty);
     return;
   }
 
-  // Merge a single field into the existing binding and push it back up.
-  const set = (patch: Partial<ApiBinding>) =>
-    onChange({ apiBinding: { ...b, ...patch } });
-
-  // Docs-first: the title + free-form Markdown body carry the meaning, and work
-  // for any kind of binding (REST, GraphQL, gRPC, CLI, a background job…). We keep
-  // references to the live inputs so the "Save documentation" button can read the
-  // current text directly — even text the user hasn't blurred out of yet.
-  const titleInput = textInput(b.title, (v) => set({ title: v }));
-  root.append(row("Title", titleInput));
-  const docsInput = document.createElement("textarea");
-  docsInput.rows = 8;
-  docsInput.value = b.description;
-  docsInput.placeholder =
-    "Free-form Markdown — describe the endpoint, behaviour, examples…";
-  docsInput.addEventListener("change", () => set({ description: docsInput.value }));
-  const docsDiv = document.createElement("div");
-  docsDiv.className = "row row-stack";
-  const docsLabel = document.createElement("label");
-  docsLabel.textContent = "Docs";
-  docsDiv.append(docsLabel, docsInput);
-  root.append(docsDiv);
-
-  // Explicit "Save documentation" — commits the current binding as a new entry in
-  // the version history (and so the History timeline's API tab). Only shown when
-  // the source can record history (`onDocument` provided).
-  if (onDocument) {
-    const save = document.createElement("button");
-    save.type = "button";
-    save.className = "doc-save";
-    save.textContent = "Save documentation";
-    // preventDefault on mousedown keeps the textarea focused, so its `change`
-    // doesn't fire a panel rebuild between mousedown and click (which would drop
-    // this handler). We then read the live values straight off the inputs.
-    save.addEventListener("mousedown", (e) => e.preventDefault());
-    save.addEventListener("click", () => {
-      onDocument({
-        ...b,
-        title: titleInput.value.trim() || el.name || el.id,
-        description: docsInput.value,
-      });
+  if (isEditing) {
+    const form = document.createElement("form");
+    form.className = "docs-edit-form";
+    const titleInput = document.createElement("input");
+    titleInput.type = "text"; titleInput.value = existing.title; titleInput.maxLength = 160;
+    titleInput.className = "docs-title-input";
+    const titleRow = document.createElement("div"); titleRow.className = "row docs-edit-row";
+    const titleLabel = document.createElement("label"); titleLabel.textContent = "Title";
+    titleRow.append(titleLabel, titleInput);
+    const description = document.createElement("textarea");
+    description.rows = 12; description.value = existing.description;
+    description.placeholder = "Markdown documentation, examples, behaviour…";
+    const descriptionWrap = document.createElement("div"); descriptionWrap.className = "docs-markdown-field";
+    const descriptionLabel = document.createElement("label"); descriptionLabel.textContent = "Documentation · Markdown";
+    descriptionWrap.append(descriptionLabel, description);
+    form.append(titleRow, descriptionWrap);
+    const remember = (): void => {
+      docsDrafts.set(el.id, { title: titleInput.value, description: description.value });
+    };
+    titleInput.addEventListener("input", remember);
+    description.addEventListener("input", remember);
+    const actions = document.createElement("div"); actions.className = "docs-actions";
+    const save = document.createElement("button"); save.type = "submit";
+    save.className = "doc-save"; save.textContent = "Save documentation";
+    const cancel = document.createElement("button"); cancel.type = "button";
+    cancel.className = "docs-cancel"; cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => {
+      docsDrafts.delete(el.id); docsEditingId = null; onRefresh?.();
     });
-    root.append(save);
+    actions.append(save, cancel);
+    if (b) {
+      const remove = document.createElement("button"); remove.type = "button";
+      remove.className = "doc-remove"; remove.textContent = "Remove documentation";
+      remove.addEventListener("click", () => {
+        docsDrafts.delete(el.id); docsEditingId = null; onChange({ apiBinding: undefined });
+      });
+      actions.append(remove);
+    }
+    form.append(actions);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const binding = { ...existing, title: titleInput.value.trim() || el.name || el.id, description: description.value };
+      docsDrafts.delete(el.id); docsEditingId = null;
+      if (onDocument) onDocument(binding);
+      else onChange({ apiBinding: binding });
+    });
+    root.append(form);
+    return;
   }
 
-  const remove = document.createElement("button");
-  remove.className = "doc-remove";
-  remove.textContent = "Remove documentation";
-  remove.addEventListener("click", () => onChange({ apiBinding: undefined }));
+  const header = document.createElement("div"); header.className = "docs-view-header";
+  header.append(h("h3", b?.title ?? existing.title, "docs-view-title"));
+  const edit = document.createElement("button"); edit.type = "button";
+  edit.className = "docs-edit-button"; edit.textContent = "Edit docs";
+  edit.addEventListener("click", () => {
+    docsEditingId = el.id;
+    onRefresh?.();
+    requestAnimationFrame(() => root.querySelector<HTMLInputElement>(".docs-title-input")?.focus());
+  });
+  header.append(edit);
+  root.append(header);
+  if (b?.description.trim()) root.append(renderMarkdownDocument(b.description));
+  else root.append(h("p", "No documentation content yet.", "docs-view-copy"));
+  const remove = document.createElement("button"); remove.type = "button";
+  remove.className = "doc-remove"; remove.textContent = "Remove documentation";
+  remove.addEventListener("click", () => { docsDrafts.delete(el.id); onChange({ apiBinding: undefined }); });
   root.append(remove);
+}
+
+function renderMarkdownDocument(markdown: string): HTMLElement {
+  const content = document.createElement("div"); content.className = "docs-rendered";
+  for (const block of markdown.trim().split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean)) {
+    const lines = block.split("\n");
+    const listItems = lines.map((line) => /^(\s*)([-*+] |\d+\. )(.*)$/.exec(line));
+    if (listItems.every(Boolean)) {
+      const list = document.createElement(lines[0]?.match(/^\s*\d+\. /) ? "ol" : "ul");
+      for (const item of listItems) {
+        const li = document.createElement("li"); appendMarkdownInline(li, item?.[3] ?? ""); list.append(li);
+      }
+      content.append(list);
+    } else {
+      const p = document.createElement("p");
+      lines.forEach((line, index) => { if (index) p.append(document.createElement("br")); appendMarkdownInline(p, line); });
+      content.append(p);
+    }
+  }
+  return content;
+}
+
+function appendMarkdownInline(host: Element, source: string): void {
+  const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g;
+  let last = 0;
+  for (const match of source.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > last) host.append(document.createTextNode(source.slice(last, index)));
+    let node: HTMLElement;
+    if (match[2]) {
+      const link = document.createElement("a"); link.href = match[2]; link.target = "_blank"; link.rel = "noopener noreferrer";
+      link.textContent = match[1] ?? ""; node = link;
+    } else if (match[3]) { const code = document.createElement("code"); code.textContent = match[3]; node = code; }
+    else if (match[4] || match[5]) { const strong = document.createElement("strong"); strong.textContent = match[4] ?? match[5] ?? ""; node = strong; }
+    else if (match[6] || match[7]) { const em = document.createElement("em"); em.textContent = match[6] ?? match[7] ?? ""; node = em; }
+    else { host.append(document.createTextNode(match[0])); last = index + match[0].length; continue; }
+    host.append(node); last = index + match[0].length;
+  }
+  if (last < source.length) host.append(document.createTextNode(source.slice(last)));
 }
 
 /**

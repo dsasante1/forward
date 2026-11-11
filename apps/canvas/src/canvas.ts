@@ -35,6 +35,7 @@ import {
   renderEntityPanel,
   renderInfraPanel,
   renderPanel,
+  openInspectorDocs,
 } from "./panel.js";
 import {
   ACCEPTED_IMAGE_TYPES,
@@ -2655,23 +2656,39 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
   const method = m ? (m[1] ?? "").toUpperCase() : "";
   const heading = (m ? (m[2] ?? "").trim() : title) || title;
   const desc = b.description.trim();
+  const previewLimit = 150;
+  const isTruncated = desc.length > previewLimit;
+  const preview = isTruncated
+    ? `${desc.slice(0, previewLimit).replace(/\s+\S*$/, "").trimEnd()}…`
+    : desc;
 
   // Anchor at the right-edge midpoint; a short horizontal stub leads to the card,
   // whose left edge meets the line. World-space, so it pans/zooms with the design.
   const ax = el.x + el.width;
   const ay = el.y + el.height / 2;
-  const stub = ax + 30;
   const cardW = 262;
-  const cardX = stub;
-  const cardY = ay - 34;
-  const cardH = 150;
+  const cardH = 176;
+  const cardY = ay - cardH / 2;
+  const rightX = ax + 30;
+  const leftX = el.x - 30 - cardW;
+  const visibleOthers = [...elements.values()]
+    .filter((other) => other.id !== raw.id && !isHidden(other))
+    .map(resolved);
+  const overlapCount = (x: number): number => visibleOthers.filter((other) =>
+    x < other.x + other.width + 12 && x + cardW + 12 > other.x &&
+    cardY < other.y + other.height + 12 && cardY + cardH + 12 > other.y,
+  ).length;
+  const placeLeft = overlapCount(leftX) < overlapCount(rightX);
+  const cardX = placeLeft ? leftX : rightX;
+  const stub = placeLeft ? el.x - 30 : ax + 30;
+  const anchorX = placeLeft ? el.x : ax;
 
   const g = svgEl("g", { class: "doc-leader" }) as SVGGElement;
   g.dataset.id = raw.id;
 
   g.append(
     svgEl("polyline", {
-      points: `${ax},${ay} ${stub},${ay} ${cardX},${ay}`,
+      points: `${anchorX},${ay} ${stub},${ay} ${placeLeft ? cardX + cardW : cardX},${ay}`,
       class: "doc-leader-line",
     }),
   );
@@ -2690,6 +2707,16 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
   const card = document.createElementNS(XHTML_NS, "div");
   card.setAttribute("class", "doc-card");
   card.dataset.id = raw.id;
+  card.setAttribute("role", "button");
+  card.setAttribute("tabindex", "0");
+  card.setAttribute("aria-label", `Open documentation for ${title}`);
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      event.stopPropagation();
+      openApiDocsFor(raw.id, false);
+    }
+  });
 
   const head = document.createElementNS(XHTML_NS, "div");
   head.setAttribute("class", "doc-card-head");
@@ -2711,13 +2738,74 @@ function drawDocLeader(raw: DesignElement): SVGGElement {
   if (desc) {
     const body = document.createElementNS(XHTML_NS, "div");
     body.setAttribute("class", "doc-card-desc");
-    body.textContent = desc;
+    appendMarkdownPreview(body, preview);
     card.append(body);
   }
+
+  const action = document.createElementNS(XHTML_NS, "div");
+  action.setAttribute("class", "doc-card-action");
+  action.textContent = isTruncated ? "Preview truncated · Open full docs ↗" : "Open full docs ↗";
+  card.append(action);
 
   fo.append(card);
   g.append(fo);
   return g;
+}
+
+/** Render a deliberately small, safe Markdown subset using DOM nodes only. */
+function appendMarkdownPreview(host: Element, markdown: string): void {
+  const blocks = markdown.split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean);
+  for (const block of blocks) {
+    const lines = block.split("\n");
+    const listLines = lines.map((line) => /^(\s*)([-*+] |\d+\. )(.*)$/.exec(line));
+    if (listLines.every(Boolean)) {
+      const ordered = /^\s*\d+\. /.test(lines[0] ?? "");
+      const list = document.createElementNS(XHTML_NS, ordered ? "ol" : "ul");
+      for (const match of listLines) {
+        const item = document.createElementNS(XHTML_NS, "li");
+        appendInlineMarkdown(item, match?.[3] ?? "");
+        list.append(item);
+      }
+      host.append(list);
+      continue;
+    }
+    const paragraph = document.createElementNS(XHTML_NS, "p");
+    lines.forEach((line, index) => {
+      if (index) paragraph.append(document.createElementNS(XHTML_NS, "br"));
+      appendInlineMarkdown(paragraph, line);
+    });
+    host.append(paragraph);
+  }
+}
+
+/** Inline emphasis/code and HTTPS/HTTP links; raw HTML is always plain text. */
+function appendInlineMarkdown(host: Element, source: string): void {
+  const token = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|__([^_]+)__|\*([^*]+)\*|_([^_]+)_/g;
+  let last = 0;
+  for (const match of source.matchAll(token)) {
+    const index = match.index ?? 0;
+    if (index > last) host.append(document.createTextNode(source.slice(last, index)));
+    const full = match[0];
+    let node: Element;
+    if (match[2]) {
+      node = document.createElementNS(XHTML_NS, "a");
+      node.setAttribute("href", match[2]);
+      node.setAttribute("target", "_blank");
+      node.setAttribute("rel", "noopener noreferrer");
+      node.textContent = match[1] ?? "";
+    } else if (match[3]) {
+      node = document.createElementNS(XHTML_NS, "code"); node.textContent = match[3];
+    } else if (match[4] || match[5]) {
+      node = document.createElementNS(XHTML_NS, "strong"); node.textContent = match[4] ?? match[5] ?? "";
+    } else if (match[6] || match[7]) {
+      node = document.createElementNS(XHTML_NS, "em"); node.textContent = match[6] ?? match[7] ?? "";
+    } else {
+      host.append(document.createTextNode(full)); last = index + full.length; continue;
+    }
+    host.append(node);
+    last = index + full.length;
+  }
+  if (last < source.length) host.append(document.createTextNode(source.slice(last)));
 }
 
 // ========================================================================
@@ -2835,6 +2923,16 @@ svg.addEventListener("pointerdown", (e) => {
   const pt = toCanvas(e);
   const handleEl = (e.target as Element).closest("[data-handle]");
   const elEl = (e.target as Element).closest("[data-id]");
+
+  // Docs callouts are XHTML inside an SVG foreignObject, so their hit target is
+  // an HTMLElement rather than an SVGElement. Open the inspector directly
+  // instead of treating a click as a canvas pan or shape drag.
+  const docCard = (e.target as Element).closest(".doc-card");
+  if (docCard instanceof HTMLElement && docCard.dataset.id) {
+    e.preventDefault();
+    openApiDocsFor(docCard.dataset.id, false);
+    return;
+  }
 
   if (tool !== "select") {
     const id = `el_${Date.now().toString(36)}`;
@@ -3138,7 +3236,10 @@ svg.addEventListener("pointerover", (e) => {
   // pointerdown landed on a detached element and the tap never reached the svg.
   if (gesture || e.pointerType === "touch") return;
   const elEl = (e.target as Element).closest?.("[data-id]");
-  const id = elEl instanceof SVGElement ? (elEl.dataset.id ?? null) : null;
+  const docCard = (e.target as Element).closest?.(".doc-card");
+  const id = docCard instanceof HTMLElement
+    ? (docCard.dataset.id ?? null)
+    : elEl instanceof SVGElement ? (elEl.dataset.id ?? null) : null;
   if (id !== hoverId) {
     hoverId = id;
     if (showDocs) render();
@@ -4063,32 +4164,18 @@ function syncInspectorToggle(): void {
   btn.setAttribute("aria-pressed", String(inspectorOpen));
 }
 
-/** Context-menu "Add/Edit API docs": seed a minimal binding if the element has
- * none (the same seed the panel's "Add documentation" button writes), open the
- * inspector, and land focus in the docs section's title field. */
-function openApiDocsFor(id: string): void {
+/** Open documentation from a canvas preview in read mode, or from the context
+ * menu in edit mode. New docs remain an editor draft until the user saves. */
+function openApiDocsFor(id: string, edit = true): void {
   const el = elements.get(id);
   if (!el) return;
-  if (!el.apiBinding) {
-    const updated = {
-      ...el,
-      apiBinding: { title: el.name || el.id, description: "" },
-      updatedAt: now(),
-    };
-    elements.set(id, updated);
-    // A local draft (the server strips a binding sent via saveElement); it's
-    // committed by "Save documentation" and shielded from polls until then.
-    unsavedDocIds.add(id);
-    draftDocIds.add(id); // fresh seed — nothing on the server to unbind yet
-  }
+  openInspectorDocs(id, edit);
   if (!inspectorOpen) {
     inspectorOpen = true;
     syncInspectorToggle();
   }
   select(id); // render() repaints the canvas and rebuilds the drawer
-  const title = panel.querySelector<HTMLInputElement>(".panel-section--docs input");
-  title?.focus();
-  title?.select();
+  if (edit) requestAnimationFrame(() => panel.querySelector<HTMLInputElement>(".docs-title-input")?.focus());
 }
 
 /** Show or hide the right drawer, collapsing its grid column when hidden so the
@@ -4216,6 +4303,7 @@ function renderSelectionPanel(): void {
     toggleInspector,
     el?.origin ? () => adoptDraft(el.id) : undefined,
     el && source.uploadAsset ? () => void setImageOn(el.id) : undefined,
+    renderSelectionPanel,
   );
 }
 
