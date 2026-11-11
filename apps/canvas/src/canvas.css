@@ -644,11 +644,12 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
 .doc-leader-dot { fill: var(--accent); }
 .doc-card-fo { overflow: visible; }
 .doc-card {
-  box-sizing: border-box; width: max-content; max-width: 250px;
+  box-sizing: border-box; display: flex; flex-direction: column; width: 100%; height: 100%;
   background: var(--surface); border: 1px solid var(--line-3);
-  border-radius: 10px; padding: 13px 15px;
+  border-radius: 10px; padding: 11px 13px; cursor: pointer;
   font-family: var(--sans); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
 }
+.doc-card:hover, .doc-card:focus-visible { border-color: var(--accent); outline: none; }
 .doc-card-head { display: flex; align-items: center; gap: 7px; }
 .doc-card-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
 .doc-card-method {
@@ -661,13 +662,50 @@ rect.el-selected.el-changed, ellipse.el-selected.el-changed { stroke: var(--acce
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .doc-card-desc {
-  margin-top: 8px; font-size: 12px; line-height: 1.5; color: var(--muted);
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  max-height: 54px; overflow: hidden; margin-top: 7px; font-size: 11.5px; line-height: 1.45; color: var(--muted);
 }
+.doc-card-desc p { margin: 0; }
+.doc-card-desc p + p, .doc-card-desc ul + p, .doc-card-desc p + ul { margin-top: 4px; }
+.doc-card-desc ul, .doc-card-desc ol { margin: 0; padding-left: 16px; }
+.doc-card-desc code { font-family: var(--mono); color: var(--text); background: var(--surface-3); border-radius: 3px; padding: 0 2px; }
+.doc-card-desc a { color: var(--accent); text-decoration: underline; }
+.doc-card-action { margin-top: auto; padding-top: 6px; color: var(--accent); font-size: 10px; font-weight: 600; }
 
 /* --- right panel: properties + drawers --- */
 #panel { background: var(--bg-panel); border-left: 1px solid var(--line); overflow: auto; padding: 22px 20px; }
 #panel h2 { margin: 0 0 4px; font-size: 17px; font-weight: 600; color: var(--text); }
+#panel .inspector-tabs {
+  display: flex; gap: 4px; margin: 16px 0 18px; padding: 3px;
+  background: var(--surface-2); border: 1px solid var(--line-2); border-radius: 9px;
+}
+#panel .inspector-tab {
+  flex: 1; border: 0; border-radius: 6px; padding: 8px 10px;
+  background: transparent; color: var(--muted-2); font: 600 12px var(--sans); cursor: pointer;
+}
+#panel .inspector-tab:hover { color: var(--text); }
+#panel .inspector-tab.active { background: var(--surface-4); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .14); }
+#panel .panel-docs-view { min-width: 0; }
+#panel .docs-view-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+#panel .docs-view-title { margin: 2px 0 12px; color: var(--text); font-size: 16px; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
+#panel .docs-view-copy { color: var(--muted-2); font-size: 12.5px; line-height: 1.55; }
+#panel .docs-edit-button, #panel .docs-cancel {
+  flex: none; border: 1px solid var(--line-3); border-radius: 7px; padding: 7px 10px;
+  background: transparent; color: var(--text-2); font: 600 11.5px var(--sans); cursor: pointer;
+}
+#panel .docs-edit-button:hover, #panel .docs-cancel:hover { border-color: var(--accent); color: var(--text); }
+#panel .docs-rendered { color: var(--text-2); font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+#panel .docs-rendered p { margin: 0 0 12px; white-space: pre-wrap; }
+#panel .docs-rendered ul, #panel .docs-rendered ol { margin: 0 0 12px; padding-left: 22px; }
+#panel .docs-rendered code { padding: 1px 4px; border-radius: 4px; background: var(--surface-3); color: var(--text); font-family: var(--mono); font-size: 11.5px; }
+#panel .docs-rendered a { color: var(--accent); text-decoration: underline; }
+#panel .docs-edit-form { display: flex; flex-direction: column; gap: 8px; }
+#panel .docs-edit-row { margin: 0 0 5px; }
+#panel .docs-markdown-field { display: flex; flex-direction: column; gap: 7px; }
+#panel .docs-markdown-field > label { color: var(--muted-2); font-size: 12px; }
+#panel .docs-markdown-field textarea { min-height: 220px; resize: vertical; }
+#panel .docs-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+#panel .docs-actions .doc-remove { margin-top: 2px; }
+#panel .docs-empty-state { padding: 8px 0 16px; }
 #panel h3 {
   margin: 18px 0 12px; font-family: var(--mono); font-size: 10.5px;
   letter-spacing: .16em; text-transform: uppercase; color: var(--faint);
