@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import { thirdPartyNotices } from "../../scripts/third-party-notices.mjs";
+import { forwardDevApi } from "./dev-api.js";
 
 // Builds the standalone canvas host (host/) that the `forward` CLI ships:
 // `forward serve` serves it with a live config, `forward export` copies it next
@@ -15,6 +16,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 4096,
   },
   plugins: [
+    forwardDevApi(),
     {
       // Mermaid and the rest are inlined into the chunks; ship their licenses alongside.
       name: "third-party-notices",

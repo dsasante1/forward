@@ -19,6 +19,7 @@ Run from the repo root (npm workspaces; Node >= 22.12 to develop, `.nvmrc` pins 
 - `npm test` — run all Vitest suites across workspaces
 - `npm run typecheck` — typecheck all workspaces
 - `npm run bootstrap` — `install` → `build`
+- `npm run dev` — the canvas with hot reload on Vite (`localhost:5173`): builds `packages/shared`, then a dev-only plugin (`apps/canvas/dev-api.ts`) serves the repo router in-process over `$FORWARD_REPO` or a scratch project in `$TMPDIR/forward-canvas-dev`
 
 The `forward` CLI (after `npm run build`, `node apps/mcp/dist/cli.js` is the binary):
 - `forward init` — create `.forward/` plus AGENTS.md/CLAUDE.md, `.mcp.json`, `.cursor/mcp.json` and `.github/workflows/forward.yml` in a repo
