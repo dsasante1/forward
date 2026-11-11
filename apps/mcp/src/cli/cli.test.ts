@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { initRepo } from "forward-core/repo";
 import { parseArgs } from "./args.js";
-import { coerceFlags, type ToolInfo } from "./call.js";
+import { coerceFlags, parseBatch, resolveRefs, runBatch, type ToolInfo } from "./call.js";
 import { ACTION_REF, AGENT_INSTRUCTIONS, scaffoldAgents, workflowYaml } from "./scaffold.js";
 import { VERSION } from "../version.js";
 
@@ -40,6 +40,43 @@ describe("coerceFlags", () => {
   it("rejects unknown arguments and bad numbers", () => {
     expect(() => coerceFlags(tool, { nope: "1" })).toThrow(/Unknown argument --nope/);
     expect(() => coerceFlags(tool, { x: "abc" })).toThrow(/must be a number/);
+  });
+});
+
+describe("batch", () => {
+  it("parses a JSON array or JSON Lines, skipping comments", () => {
+    const steps = [{ tool: "a", args: { x: 1 }, as: "first" }, { tool: "b" }];
+    expect(parseBatch(JSON.stringify(steps))).toEqual(steps);
+    expect(parseBatch(`# setup\n{"tool":"a","args":{"x":1},"as":"first"}\n\n// then\n{"tool":"b"}\n`)).toEqual(steps);
+    expect(() => parseBatch(`{"args":{}}`)).toThrow(/needs a "tool"/);
+  });
+
+  it("resolves whole-string references to earlier results, by name or index", () => {
+    const results = new Map<string, unknown>([["frame", { id: "el_1", refs: { card: "el_2" } }], ["0", { id: "el_1" }]]);
+    expect(resolveRefs({ parentId: "$frame.id", list: ["$0.id", "$frame.refs.card"], note: "costs $5", n: 3 }, results)).toEqual({
+      parentId: "el_1",
+      list: ["el_1", "el_2"],
+      note: "costs $5",
+      n: 3,
+    });
+    expect(() => resolveRefs("$nope.id", results)).toThrow(/no earlier step named "nope"/);
+    expect(() => resolveRefs("$frame.missing", results)).toThrow(/has no "missing"/);
+  });
+
+  it("feeds results forward and stops at the first failure", async () => {
+    const calls: Array<[string, unknown]> = [];
+    const fake = async (tool: string, args: Record<string, unknown>) => {
+      calls.push([tool, args]);
+      return tool === "boom" ? { text: "it broke", isError: true } : { text: JSON.stringify({ id: `${tool}_id` }), isError: false };
+    };
+    const out = await runBatch(
+      [{ tool: "make", as: "m" }, { tool: "use", args: { parent: "$m.id", prev: "$0.id" } }, { tool: "boom" }, { tool: "never" }],
+      fake,
+    );
+    expect(calls.map(([t]) => t)).toEqual(["make", "use", "boom"]);
+    expect(calls[1]![1]).toEqual({ parent: "make_id", prev: "make_id" });
+    expect(out.map((o) => o.ok)).toEqual([true, true, false]);
+    expect(out[2]).toMatchObject({ step: 2, tool: "boom", result: "it broke" });
   });
 });
 

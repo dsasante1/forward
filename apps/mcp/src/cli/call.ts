@@ -38,6 +38,8 @@ export interface JsonSchema {
   items?: JsonSchema;
   default?: unknown;
   anyOf?: JsonSchema[];
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
 }
 
 export async function listTools(): Promise<ToolInfo[]> {
@@ -122,4 +124,109 @@ function coerce(value: string | boolean, prop: JsonSchema, key: string): unknown
     default:
       return value;
   }
+}
+
+/** One step of `forward call --batch`: a tool call, optionally named for later steps. */
+export interface BatchStep {
+  tool: string;
+  args?: Record<string, unknown>;
+  /** A name later steps use in `$name.path` references (else `$<index>`). */
+  as?: string;
+}
+
+export interface BatchOutcome {
+  step: number;
+  tool: string;
+  as?: string;
+  ok: boolean;
+  result: unknown;
+}
+
+/**
+ * Parse a batch file: a JSON array of steps, or one step per line (JSON Lines;
+ * blank lines and lines starting with `#` or `//` are skipped).
+ */
+export function parseBatch(text: string): BatchStep[] {
+  const trimmed = text.trim();
+  const steps: unknown[] = trimmed.startsWith("[")
+    ? (JSON.parse(trimmed) as unknown[])
+    : trimmed
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l && !l.startsWith("#") && !l.startsWith("//"))
+        .map((l, i) => {
+          try {
+            return JSON.parse(l) as unknown;
+          } catch (err) {
+            throw new Error(`Batch line ${i + 1} is not JSON: ${(err as Error).message}`);
+          }
+        });
+  return steps.map((raw, i) => {
+    const step = raw as Partial<BatchStep>;
+    if (!step || typeof step.tool !== "string") throw new Error(`Batch step ${i} needs a "tool" name.`);
+    if (step.args !== undefined && (typeof step.args !== "object" || Array.isArray(step.args))) {
+      throw new Error(`Batch step ${i} ("${step.tool}"): "args" must be an object.`);
+    }
+    return { tool: step.tool, ...(step.args ? { args: step.args } : {}), ...(step.as ? { as: step.as } : {}) };
+  });
+}
+
+const REF = /^\$([A-Za-z_][\w-]*|\d+)((?:\.[\w-]+)*)$/;
+
+/**
+ * Replace every string that is exactly `$name.path` (or `$<index>.path`) with
+ * that value from an earlier step's result, e.g. `"$frame.id"`, `"$0.refs.card"`.
+ * A string that only contains a `$` elsewhere is left alone.
+ */
+export function resolveRefs(value: unknown, results: Map<string, unknown>): unknown {
+  if (typeof value === "string") {
+    const m = REF.exec(value);
+    if (!m) return value;
+    if (!results.has(m[1]!)) throw new Error(`"${value}": no earlier step named "${m[1]}".`);
+    let out: unknown = results.get(m[1]!);
+    for (const key of m[2]!.split(".").filter(Boolean)) {
+      if (out === null || typeof out !== "object" || !(key in out)) throw new Error(`"${value}": the result of "${m[1]}" has no "${key}".`);
+      out = (out as Record<string, unknown>)[key];
+    }
+    return out;
+  }
+  if (Array.isArray(value)) return value.map((v) => resolveRefs(v, results));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, resolveRefs(v, results)]));
+  }
+  return value;
+}
+
+/**
+ * Run steps in order through one client (one process, one connection), feeding
+ * earlier results into later arguments. Stops at the first failing step.
+ */
+export async function runBatch(
+  steps: BatchStep[],
+  call: (tool: string, args: Record<string, unknown>) => Promise<CallResult> = callTool,
+): Promise<BatchOutcome[]> {
+  const results = new Map<string, unknown>();
+  const out: BatchOutcome[] = [];
+  for (const [i, step] of steps.entries()) {
+    const label = { step: i, tool: step.tool, ...(step.as ? { as: step.as } : {}) };
+    let args: Record<string, unknown>;
+    try {
+      args = resolveRefs(step.args ?? {}, results) as Record<string, unknown>;
+    } catch (err) {
+      out.push({ ...label, ok: false, result: (err as Error).message });
+      break;
+    }
+    const res = await call(step.tool, args);
+    let result: unknown = res.text;
+    try {
+      result = JSON.parse(res.text);
+    } catch {
+      // not JSON (markdown output, or an error message): keep the text
+    }
+    out.push({ ...label, ok: !res.isError, result });
+    if (res.isError) break;
+    results.set(String(i), result);
+    if (step.as) results.set(step.as, result);
+  }
+  return out;
 }
