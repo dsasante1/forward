@@ -12,6 +12,7 @@ import {
   InfraFlow,
   InfraNode,
   McpServerNode,
+  Person,
   ProjectTimelineEvent,
   type SaveableElement,
   Task,
@@ -300,6 +301,8 @@ export interface RosterMember {
   /** A hosting-platform automation account, not a person. */
   bot: boolean;
   addedAt: string;
+  /** Declared in `.forward/people/` (to be assigned work), not yet a git contributor. */
+  declared?: boolean;
 }
 
 export interface Roster {
@@ -316,6 +319,7 @@ export async function listMembers(cfg: ApiConfig): Promise<Roster> {
       name?: string | null;
       bot: boolean;
       addedAt: string;
+      declared?: boolean;
     }>;
     shallow: boolean;
   }>(cfg, "/members");
@@ -326,9 +330,28 @@ export async function listMembers(cfg: ApiConfig): Promise<Roster> {
       name: m.name ?? null,
       bot: m.bot,
       addedAt: m.addedAt,
+      ...(m.declared ? { declared: true } : {}),
     })),
     shallow: roster?.shallow ?? false,
   };
+}
+
+/** Declared people (`.forward/people/`): roster entries for people who haven't committed yet. */
+export async function fetchPeople(cfg: ApiConfig): Promise<Person[]> {
+  const raw = await get<unknown[]>(cfg, "/people");
+  return parseAll(raw, Person);
+}
+
+/** Declare a person by the git name they will commit under (their uid). */
+export async function savePerson(
+  cfg: ApiConfig,
+  person: { id: string; email?: string | null },
+): Promise<Person> {
+  return Person.parse(await request<unknown>(cfg, "PUT", `/people/${encodeURIComponent(person.id)}`, person));
+}
+
+export async function deletePerson(cfg: ApiConfig, id: string): Promise<void> {
+  await request(cfg, "DELETE", `/people/${encodeURIComponent(id)}`);
 }
 
 // --------------------------------------------------------------------------

@@ -81,7 +81,7 @@ A "project id" is the `id` in `.forward/forward.json`.
 
 ### Access control
 
-Access is whatever the git host grants: who can push to the repository can change the project. The roster (`GET /members`, `list_members`) is derived from git contributors (`.mailmap` applied; a shallow clone says so) and is read-only. `forward serve` has no accounts, so it binds to loopback, requires a random per-session token on every API call, and rejects unexpected `Host` headers.
+Access is whatever the git host grants: who can push to the repository can change the project. The roster (`GET /members`, `list_members`) is derived from git contributors (`.mailmap` applied; a shallow clone says so), plus people declared in `.forward/people/` (`add_person`, keyed by the git name they'll commit under) so tasks can be assigned before someone's first commit; a declared entry grants no access. `forward serve` has no accounts, so it binds to loopback, requires a random per-session token on every API call, and rejects unexpected `Host` headers.
 
 ## Conventions
 

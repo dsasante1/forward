@@ -12676,6 +12676,14 @@ var Task = external_exports.object({
   /** ISO-8601 timestamp of the last write. */
   updatedAt: external_exports.string().datetime()
 });
+var Person = external_exports.object({
+  /** The person's git author name; also their uid in task `assignees`. */
+  id: external_exports.string().trim().min(1).max(SHORT_TEXT_MAX),
+  email: external_exports.string().max(SHORT_TEXT_MAX).nullable().default(null),
+  /** Who declared them, stamped by the backend. */
+  addedBy: external_exports.string().max(SHORT_TEXT_MAX).optional(),
+  addedAt: external_exports.string().datetime()
+});
 var CheckpointTag = external_exports.enum(["milestone", "checkpoint", "wip"]);
 var CheckpointChange = external_exports.object({
   layer: external_exports.enum(["API", "INFRA", "DESIGN", "FLOW"]),
@@ -13292,7 +13300,8 @@ var COLLECTIONS = {
   servers: "agents/servers",
   tasks: "tasks",
   checkpoints: "checkpoints",
-  dismissed: "dismissed"
+  dismissed: "dismissed",
+  people: "people"
 };
 var ASSETS_DIR = "assets";
 var FORWARD_GITATTRIBUTES = `${ASSETS_DIR}/** binary
@@ -14060,6 +14069,26 @@ var RepoStore = class {
   deleteTask(id) {
     this.remove("tasks", id);
   }
+  // --- people (declared roster entries) ------------------------------------
+  listPeople() {
+    return this.readAll("people", Person).sort((a, b) => a.id.localeCompare(b.id));
+  }
+  /**
+   * Declare a person by the name they commit under, so tasks can be assigned to
+   * them before their first commit. Re-declaring updates the email and keeps
+   * when and by whom they were first added.
+   */
+  savePerson(input2) {
+    const body = input2 ?? {};
+    const prior = typeof body.id === "string" ? this.readOne("people", body.id.trim(), Person) : void 0;
+    const person = this.parse(Person, { ...body, addedBy: prior?.addedBy ?? this.author, addedAt: prior?.addedAt ?? this.iso() }, "person");
+    this.write("people", person.id, person);
+    return person;
+  }
+  deletePerson(id) {
+    if (!this.remove("people", id))
+      throw new RepoError(404, `No declared person "${id}"`);
+  }
   // --- checkpoints ---------------------------------------------------------
   listCheckpoints() {
     return this.readAll("checkpoints", Checkpoint).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -14450,6 +14479,12 @@ function contributors2(root) {
     lastRoster = { key, roster };
   return roster;
 }
+function withDeclared(roster, people) {
+  const names = new Set(roster.members.map((m) => m.userId));
+  const emails = new Set(roster.members.map((m) => m.email?.toLowerCase()).filter(Boolean));
+  const declared = people.filter((p) => !names.has(p.id) && !(p.email && emails.has(p.email.toLowerCase()))).map((p) => ({ userId: p.id, email: p.email, name: p.id, bot: false, addedAt: p.addedAt, declared: true }));
+  return { ...roster, members: [...roster.members, ...declared] };
+}
 function mtimeOf(file2) {
   try {
     return statSync2(file2).mtimeMs;
@@ -14662,7 +14697,10 @@ function createRepoRouter(store) {
   on("PUT", "/assets", (_p, body) => store.saveAsset(body));
   on("POST", "/assets/prune", (_p, _b, q) => store.pruneAssets({ dryRun: q.get("dryRun") === "true" }));
   on("GET", "/assets/:name", ([name]) => store.readAsset(name));
-  on("GET", "/members", () => contributors2(store.root));
+  on("GET", "/members", () => withDeclared(contributors2(store.root), store.listPeople()));
+  on("GET", "/people", () => store.listPeople());
+  on("PUT", "/people/:id", (_p, body) => store.savePerson(body));
+  on("DELETE", "/people/:id", ([id]) => store.deletePerson(id));
   return async function handle(req) {
     const url2 = new URL(req.path, "http://repo.local");
     const method = req.method.toUpperCase();

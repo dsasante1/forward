@@ -312,6 +312,32 @@ describe("tools through the in-memory client (repo mode)", () => {
       const listed = await json("list_design_elements", {});
       expect(listed.find((e: { id: string }) => e.id === btn.id)).toMatchObject({ parentId: frame.id, local: { x: 605, y: 705 } });
     });
+
+    it("task tools take keys, resolve assignees, and refuse an endpoint without docs", async () => {
+      await json("add_person", { name: "Lena Fischer", email: "lena@example.com" });
+      const members = await json("list_members", {});
+      expect(members.members).toEqual([expect.objectContaining({ uid: "Lena Fischer", declared: true })]);
+
+      const first = await json("create_task", { title: "Schema" });
+      const second = await json("create_task", { title: "API", dependsOn: [first.key.toLowerCase()], assignees: ["LENA@example.com", "Ghost"] });
+      expect(second.warnings).toEqual([expect.stringMatching(/"Ghost" isn't on the roster/)]);
+      const task = (await json("get_task", { taskId: second.key })).task;
+      expect(task).toMatchObject({ dependsOn: [first.id], assignees: ["Lena Fischer", "Ghost"] });
+      await json("comment_task", { taskId: second.key, body: "On it." });
+      await json("update_task", { taskId: second.key, status: "done" });
+      expect(await failing("create_task", { title: "x", dependsOn: ["FWD-999"] })).toMatch(/No task "FWD-999"/);
+      expect((await json("list_tasks", { assignee: "lena fischer" })).count).toBe(1);
+
+      const btn = await json("create_element", { type: "rectangle", name: "Pay button", x: 0, y: 0 });
+      expect(await failing("create_task", { title: "x", endpointId: btn.id })).toMatch(/"Pay button"\) has no API docs.*Documented elements: .*POST \/checkout/);
+      await json("write_documentation", { elementId: btn.id, title: "POST /pay", description: "Pays." });
+      await json("create_task", { title: "Pay", endpointId: btn.id });
+      expect(await failing("write_flow", { name: "F", steps: [{ from: "a", to: "b", label: "x", endpointId: "nope" }] })).toMatch(
+        /"nope" is not a design element id.*POST \/pay/,
+      );
+      await json("delete_task", { taskId: first.key });
+      await json("remove_person", { name: "Lena Fischer" });
+    });
   });
 });
 

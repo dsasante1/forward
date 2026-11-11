@@ -3,7 +3,8 @@ import type { RosterMember } from "./source.js";
 /**
  * The contributor roster (the Contributors view): a read-only panel listing who
  * has worked on the project. Access is managed by the git host, so the roster
- * comes from git history and there is nothing to add, change or remove.
+ * comes from git history, plus people declared in `.forward/people/` (with
+ * `forward add_person`) so work can be assigned to them before they commit.
  *
  * This module only draws; the roster lives behind the CanvasSource.
  */
@@ -46,7 +47,7 @@ export function renderMemberView(
   const body = hEl("div", "", "mb-body");
   host.append(body);
   body.append(
-    hEl("p", "Everyone who has committed to .forward/. Access is managed by your git host.", "mb-hint"),
+    hEl("p", "Everyone who has committed to .forward/, plus declared people. Access is managed by your git host.", "mb-hint"),
   );
 
   if (state.loading) {
@@ -84,6 +85,11 @@ function memberRow(m: RosterMember): HTMLElement {
   }
   row.append(identity);
   if (m.bot) row.append(hEl("span", "bot", "mb-badge"));
+  if (m.declared) {
+    const tag = hEl("span", "declared", "mb-badge");
+    tag.title = "Declared in .forward/people/; hasn't committed yet";
+    row.append(tag);
+  }
   return row;
 }
 

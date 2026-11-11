@@ -70,6 +70,11 @@ describe("renderMemberView", () => {
     expect(host.all("mb-badge").map((n) => n.textContent)).toEqual(["bot"]);
   });
 
+  it("tags someone declared but not yet committed", () => {
+    const { host } = draw({ members: [member(), member({ uid: "Lena", name: "Lena", declared: true })] });
+    expect(host.all("mb-badge").map((n) => n.textContent)).toEqual(["declared"]);
+  });
+
   it("warns that a shallow clone's list may be incomplete", () => {
     expect(draw({ members: [member()], shallow: true }).host.all("mb-warn")).toHaveLength(1);
     expect(draw({ members: [member()] }).host.all("mb-warn")).toHaveLength(0);

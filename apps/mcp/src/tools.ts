@@ -40,6 +40,7 @@ import {
   withoutBinding,
   type CaptureNode,
   type CurrentLabel,
+  type Task as TaskRecord,
 } from "forward-core";
 import {
   bindApiToElement,
@@ -49,6 +50,7 @@ import {
   deleteInfraFlow,
   deleteInfraNode,
   deleteMcpServer,
+  deletePerson,
   deleteTask,
   fetchAgents,
   fetchElements,
@@ -71,6 +73,7 @@ import {
   saveInfraFlow,
   saveInfraNode,
   saveMcpServer,
+  savePerson,
   saveTask,
   unbindApiFromElement,
   uploadAsset,
@@ -228,6 +231,76 @@ function descendantsOf(id: string, elements: DesignElement[]): DesignElement[] {
     }
   }
   return out;
+}
+
+/** A task by its id or its key (`FWD-12`, any case). */
+function findTask(tasks: TaskRecord[], ref: string): TaskRecord | undefined {
+  const r = ref.trim();
+  return tasks.find((t) => t.id === r) ?? tasks.find((t) => t.key && t.key.toUpperCase() === r.toUpperCase());
+}
+
+/** Task ids for ids-or-keys; an unknown one is an error, not a dangling link. */
+function taskIds(tasks: TaskRecord[], refs: string[]): string[] {
+  return refs.map((ref) => {
+    const t = findTask(tasks, ref);
+    if (!t) throw new Error(`No task "${ref}". Pass a task id or key (e.g. FWD-3); see list_tasks.`);
+    return t.id;
+  });
+}
+
+/** The tool-input description for a task reference. */
+const TASK_REF = "The task's id or its key, e.g. FWD-3 (from list_tasks).";
+
+/**
+ * `endpointId` is the id of the design element whose apiBinding is the
+ * endpoint. Refuse one that names no element, or an element with no docs, and
+ * say which elements are documented, instead of storing a link that resolves
+ * to nothing.
+ */
+async function checkEndpoints(cfg: ApiConfig, ids: Array<string | undefined>): Promise<void> {
+  const wanted = [...new Set(ids.filter((id): id is string => Boolean(id)))];
+  if (!wanted.length) return;
+  const elements = await fetchElements(cfg);
+  const documented = elements.filter((e) => e.apiBinding);
+  const known = () =>
+    documented.length
+      ? ` Documented elements: ${documented.slice(0, 15).map((e) => `${e.id} (${e.apiBinding!.title})`).join(", ")}${documented.length > 15 ? ", …" : ""}.`
+      : " No element is documented yet.";
+  for (const id of wanted) {
+    const el = elements.find((e) => e.id === id);
+    if (!el) throw new Error(`endpointId "${id}" is not a design element id. endpointId is the id of the design element that carries the API docs.${known()}`);
+    if (!el.apiBinding) {
+      throw new Error(
+        `endpointId "${id}" ("${el.name}") has no API docs. endpointId is the id of the design element that carries the docs; ` +
+          `document it first with write_documentation, or link the element with elementId instead.${known()}`,
+      );
+    }
+  }
+}
+
+/** The description fragment every endpointId argument shares. */
+const ENDPOINT_ID = "Id of the design element that carries the endpoint's API docs (see list_design_elements, documented:true).";
+
+/**
+ * Map assignees given as a uid, a display name or an email (any case) to roster
+ * uids. Someone not on the roster is kept as given, with a warning saying how
+ * to fix it: soft references never block a write.
+ */
+async function resolveAssignees(cfg: ApiConfig, refs: string[]): Promise<{ uids: string[]; warnings: string[] }> {
+  if (!refs.length) return { uids: [], warnings: [] };
+  const { members } = await listMembers(cfg);
+  const warnings: string[] = [];
+  const uids = refs.map((ref) => {
+    const r = ref.trim().toLowerCase();
+    const m =
+      members.find((x) => x.uid === ref) ??
+      members.find((x) => x.uid.toLowerCase() === r || x.name?.toLowerCase() === r) ??
+      members.find((x) => x.email?.toLowerCase() === r);
+    if (m) return m.uid;
+    warnings.push(`Assignee "${ref}" isn't on the roster (list_members). Declare them with add_person so the assignment resolves.`);
+    return ref;
+  });
+  return { uids: [...new Set(uids)], warnings };
 }
 
 /** Catch-up baselines, matching the canvas timeline's window selector. */
@@ -982,7 +1055,7 @@ server.registerTool(
       "Document an MCP server the project exposes or consumes (or update one by passing its id). " +
       "Each server has a transport (stdio/http/sse), an origin (built = the project exposes it; " +
       "consumed = a third-party server it uses) and a list of tools. A tool may set `endpointId` " +
-      "to tie it to the design element whose apiBinding it wraps (see list_endpoints). Geometry is " +
+      "to the id of the design element whose API docs it wraps (documented:true in list_design_elements). Geometry is " +
       "optional. Returns the server id (use it in write_agent's mcpServerIds).",
     inputSchema: {
       id: McpServerNode.shape.id
@@ -998,7 +1071,7 @@ server.registerTool(
       tech: z.string().optional().describe('Optional runtime tag, e.g. "Node 20".'),
       description: McpServerNode.shape.description.describe("Free-form Markdown notes."),
       tools: McpServerNode.shape.tools.describe(
-        "Tools exposed: each is { name, description?, endpointId? }.",
+        "Tools exposed: each is { name, description?, endpointId? (a documented design element's id) }.",
       ),
       x: z.number().optional().describe("Canvas x (default 80)."),
       y: z.number().optional().describe("Canvas y (default 80)."),
@@ -1011,6 +1084,7 @@ server.registerTool(
   },
   async ({ id, x, y, ...fields }) => {
     try {
+      await checkEndpoints(getConfig(), (fields.tools ?? []).map((t) => t.endpointId));
       const server = McpServerNode.parse({
         ...fields,
         id: id ?? genId("mcp"),
@@ -1171,8 +1245,8 @@ server.registerTool(
       '"how signup works" as one call. Pass an ordered list of steps; each step\'s from/to are ' +
       "infra node ids (from list_infra — create the nodes first with write_infra_node). kind sets " +
       "the message style: sync (default, a solid request arrow), async (an open fire-and-" +
-      "forget arrow), or reply (a dashed return arrow). Set endpointId to tie a step to a " +
-      "documented design element. Pass an existing flow id to replace it, or omit to create. " +
+      "forget arrow), or reply (a dashed return arrow). Set endpointId to tie a step to an " +
+      "endpoint: the id of the design element carrying its API docs. Pass an existing flow id to replace it, or omit to create. " +
       "Replaces all steps — use add_flow_step to append to an existing flow without resending them. " +
       "Give consecutive steps the same `condition` (e.g. \"email free\" / \"email taken\") to wrap " +
       "them in a Mermaid alt/else block, so one endpoint's success and error paths render as a " +
@@ -1186,7 +1260,7 @@ server.registerTool(
       steps: z
         .array(InfraFlowStep)
         .describe(
-          "Ordered hops: { from, to, label, kind?: sync|async|reply, endpointId?, condition? }. " +
+          "Ordered hops: { from, to, label, kind?: sync|async|reply, endpointId? (the documented design element's id), condition? }. " +
             "Steps sharing a `condition` group into one alt block (adjacent differing conditions " +
             "become else branches).",
         ),
@@ -1194,12 +1268,14 @@ server.registerTool(
   },
   async ({ id, ...fields }) => {
     try {
+      const cfg = getConfig();
       const flow = InfraFlow.parse({
         ...fields,
         id: id ?? genId("flow"),
         updatedAt: new Date().toISOString(),
       });
-      await saveInfraFlow(getConfig(), flow);
+      await checkEndpoints(cfg, flow.steps.map((st) => st.endpointId));
+      await saveInfraFlow(cfg, flow);
       return ok({ id: flow.id, steps: flow.steps.length, action: id ? "updated" : "created" });
     } catch (err) {
       return fail((err as Error).message);
@@ -1226,9 +1302,7 @@ server.registerTool(
       kind: InfraFlowStep.shape.kind.describe(
         "message style: sync (default, solid request), async (open arrow), or reply (dashed return).",
       ),
-      endpointId: InfraFlowStep.shape.endpointId.describe(
-        "Optional design element id whose apiBinding drives this hop.",
-      ),
+      endpointId: InfraFlowStep.shape.endpointId.describe(`Optional. ${ENDPOINT_ID}`),
       condition: InfraFlowStep.shape.condition.describe(
         'Optional branch guard, e.g. "token valid" or "409 duplicate". Steps sharing a ' +
           "condition render inside one Mermaid alt/else block.",
@@ -1241,6 +1315,7 @@ server.registerTool(
       const flow = (await fetchFlows(cfg)).find((f) => f.id === flowId);
       if (!flow) return fail(`No infrastructure flow with id "${flowId}".`);
       const step = InfraFlowStep.parse(stepFields);
+      await checkEndpoints(cfg, [step.endpointId]);
       const next = InfraFlow.parse({
         ...flow,
         steps: [...flow.steps, step],
@@ -2020,8 +2095,9 @@ server.registerTool(
       "but optionally link into them. Each task carries a type (bug / feature / task / milestone), status " +
       "(todo / in_progress / blocked / done), priority, labels, assignees, a reporter, optional " +
       "start and due dates, dependencies on other tasks, a running activity/comment feed, and optional links: " +
-      "elementId (a design element), flowId (a narrated infra flow), and endpointId (a documented " +
-      "endpoint element). Filter by any " +
+      "elementId (a design element), flowId (a narrated infra flow), and endpointId (the design " +
+      "element carrying the endpoint's API docs). Each task has an id and a key (FWD-12); every task " +
+      "tool accepts either. Filter by any " +
       "of these to answer e.g. \"what high-priority bugs are left for the signup flow?\". Returns a " +
       "summary per task; call get_task for one task's full body + activity. Start here to reuse ids.",
     inputSchema: {
@@ -2031,15 +2107,17 @@ server.registerTool(
       type: Task.shape.type.unwrap().optional().describe("Only tasks of this type."),
       priority: Task.shape.priority.unwrap().optional().describe("Only tasks at this priority."),
       label: z.string().optional().describe("Only tasks carrying this label."),
-      assignee: z.string().optional().describe("Only tasks assigned to this uid."),
+      assignee: z.string().optional().describe("Only tasks assigned to this person (uid, name or email)."),
       elementId: z.string().optional().describe("Only tasks linked to this design element id."),
       flowId: z.string().optional().describe("Only tasks linked to this infra flow id."),
-      endpointId: z.string().optional().describe("Only tasks linked to this endpoint element id."),
+      endpointId: z.string().optional().describe("Only tasks linked to this endpoint (the documented design element's id)."),
     },
   },
-  async ({ status, type, priority, label, assignee, elementId, flowId, endpointId }) => {
+  async ({ status, type, priority, label, assignee: who, elementId, flowId, endpointId }) => {
     try {
-      let tasks = await fetchTasks(getConfig());
+      const cfg = getConfig();
+      let tasks = await fetchTasks(cfg);
+      const assignee = who ? (await resolveAssignees(cfg, [who])).uids[0] : undefined;
       if (status) tasks = tasks.filter((t) => t.status === status);
       if (type) tasks = tasks.filter((t) => t.type === type);
       if (priority) tasks = tasks.filter((t) => t.priority === priority);
@@ -2070,13 +2148,13 @@ server.registerTool(
       "to catch up on the discussion and history before commenting or changing a task, so you act " +
       "on the current state rather than a stale summary from list_tasks.",
     inputSchema: {
-      taskId: z.string().min(1).describe("The task id to read (from list_tasks)."),
+      taskId: z.string().min(1).describe(TASK_REF),
     },
   },
   async ({ taskId }) => {
     try {
-      const task = (await fetchTasks(getConfig())).find((t) => t.id === taskId);
-      if (!task) return fail(`No task with id "${taskId}".`);
+      const task = findTask(await fetchTasks(getConfig()), taskId);
+      if (!task) return fail(`No task "${taskId}". Pass a task id or key (e.g. FWD-3); see list_tasks.`);
       return ok({ task });
     } catch (err) {
       return fail((err as Error).message);
@@ -2171,7 +2249,7 @@ server.registerTool(
       status: Task.shape.status.describe("todo (default), in_progress, blocked, or done."),
       priority: Task.shape.priority.describe("low, medium (default), high, or urgent."),
       labels: Task.shape.labels.describe("Free-form label names, e.g. backend, bug."),
-      assignees: Task.shape.assignees.describe("uids from list_members to assign."),
+      assignees: Task.shape.assignees.describe("People to assign: a uid, name or email from list_members (declare newcomers with add_person)."),
       startDate: Task.shape.startDate.describe(
         "Planned start, ISO yyyy-mm-dd. Without it the timeline starts the task on the day it was created.",
       ),
@@ -2180,20 +2258,25 @@ server.registerTool(
           "\"next week\" is rejected.",
       ),
       dependsOn: Task.shape.dependsOn.describe(
-        "Task ids this one depends on (finish-to-start) — drives the timeline connectors.",
+        "Tasks this one depends on (finish-to-start), by id or key (FWD-3) — drives the timeline connectors.",
       ),
       elementId: Task.shape.elementId.describe("Design element this task concerns."),
       flowId: Task.shape.flowId.describe("Infra flow this task implements."),
-      endpointId: Task.shape.endpointId.describe("Documented endpoint element this task concerns."),
+      endpointId: Task.shape.endpointId.describe(ENDPOINT_ID),
     },
   },
   async (fields) => {
     try {
       const cfg = getConfig();
-      const existingKeys = (await fetchTasks(cfg)).map((t) => t.key);
-      const task = newTask(fields, { actor: AGENT, existingKeys });
+      const tasks = await fetchTasks(cfg);
+      await checkEndpoints(cfg, [fields.endpointId]);
+      const { uids, warnings } = await resolveAssignees(cfg, fields.assignees ?? []);
+      const task = newTask(
+        { ...fields, assignees: uids, dependsOn: taskIds(tasks, fields.dependsOn ?? []) },
+        { actor: AGENT, existingKeys: tasks.map((t) => t.key) },
+      );
       await saveTask(cfg, task);
-      return ok({ id: task.id, key: task.key, status: task.status, action: "created" });
+      return ok({ id: task.id, key: task.key, status: task.status, action: "created", ...withWarnings(warnings) });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -2212,7 +2295,7 @@ server.registerTool(
       "are preserved, and each change is recorded in the task's activity feed attributed to the " +
       "agent. The most common call is just flipping status.",
     inputSchema: {
-      taskId: z.string().min(1).describe("The task id to update (from list_tasks)."),
+      taskId: z.string().min(1).describe(TASK_REF),
       title: z.string().min(1).optional().describe("New title."),
       description: z.string().optional().describe("New Markdown description."),
       // unwrap() drops each field's default: zod 4 would fill it into an omitted
@@ -2221,7 +2304,7 @@ server.registerTool(
       status: Task.shape.status.unwrap().optional().describe("New status."),
       priority: Task.shape.priority.unwrap().optional().describe("New priority."),
       labels: Task.shape.labels.unwrap().optional().describe("Replace the label list."),
-      assignees: Task.shape.assignees.unwrap().optional().describe("Replace the assignee uid list."),
+      assignees: Task.shape.assignees.unwrap().optional().describe("Replace the assignees: uids, names or emails from list_members."),
       startDate: z
         .string()
         .optional()
@@ -2230,17 +2313,22 @@ server.registerTool(
         "New due date, ISO yyyy-mm-dd; an empty string clears it. A task filed before due dates had " +
           "to be ISO keeps its old label until you change it.",
       ),
-      dependsOn: Task.shape.dependsOn.unwrap().optional().describe("Replace the dependency task-id list."),
+      dependsOn: Task.shape.dependsOn.unwrap().optional().describe("Replace the dependencies: task ids or keys (FWD-3)."),
       elementId: z.string().optional().describe("Link to a design element id."),
       flowId: z.string().optional().describe("Link to an infra flow id."),
-      endpointId: z.string().optional().describe("Link to an endpoint element id."),
+      endpointId: z.string().optional().describe(ENDPOINT_ID),
     },
   },
   async ({ taskId, ...patch }) => {
     try {
       const cfg = getConfig();
-      const prev = (await fetchTasks(cfg)).find((t) => t.id === taskId);
-      if (!prev) return fail(`No task with id "${taskId}".`);
+      const tasks = await fetchTasks(cfg);
+      const prev = findTask(tasks, taskId);
+      if (!prev) return fail(`No task "${taskId}". Pass a task id or key (e.g. FWD-3); see list_tasks.`);
+      await checkEndpoints(cfg, [patch.endpointId]);
+      if (patch.dependsOn) patch.dependsOn = taskIds(tasks, patch.dependsOn);
+      let warnings: string[] = [];
+      if (patch.assignees) ({ uids: patch.assignees, warnings } = await resolveAssignees(cfg, patch.assignees));
       // Drop keys the caller omitted so they don't clobber existing values.
       const clean: Record<string, unknown> = Object.fromEntries(
         Object.entries(patch).filter(([, v]) => v !== undefined),
@@ -2249,7 +2337,7 @@ server.registerTool(
       if (patch.startDate === "") clean.startDate = undefined;
       const next = applyTaskChange(prev, clean, AGENT);
       await saveTask(cfg, next);
-      return ok({ id: next.id, status: next.status, action: "updated" });
+      return ok({ id: next.id, key: next.key, status: next.status, action: "updated", ...withWarnings(warnings) });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -2267,18 +2355,18 @@ server.registerTool(
       "The comment is attributed to the agent and sanitized server-side. Read the thread first with " +
       "get_task so your comment lands in context.",
     inputSchema: {
-      taskId: z.string().min(1).describe("The task id to comment on (from list_tasks)."),
+      taskId: z.string().min(1).describe(TASK_REF),
       body: z.string().min(1).describe("The comment text (Markdown)."),
     },
   },
   async ({ taskId, body }) => {
     try {
       const cfg = getConfig();
-      const prev = (await fetchTasks(cfg)).find((t) => t.id === taskId);
-      if (!prev) return fail(`No task with id "${taskId}".`);
+      const prev = findTask(await fetchTasks(cfg), taskId);
+      if (!prev) return fail(`No task "${taskId}". Pass a task id or key (e.g. FWD-3); see list_tasks.`);
       const next = commentOnTask(prev, AGENT, body);
       await saveTask(cfg, next);
-      return ok({ id: next.id, action: "commented" });
+      return ok({ id: next.id, key: next.key, action: "commented" });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -2294,13 +2382,16 @@ server.registerTool(
       "Remove a work item from the project's task tracker. The design elements and infra flows " +
       "it linked to are left untouched — only the task is deleted.",
     inputSchema: {
-      taskId: z.string().min(1).describe("The task id to delete."),
+      taskId: z.string().min(1).describe(TASK_REF),
     },
   },
   async ({ taskId }) => {
     try {
-      await deleteTask(getConfig(), taskId);
-      return ok({ taskId, action: "removed" });
+      const cfg = getConfig();
+      const task = findTask(await fetchTasks(cfg), taskId);
+      if (!task) return fail(`No task "${taskId}". Pass a task id or key (e.g. FWD-3); see list_tasks.`);
+      await deleteTask(cfg, task.id);
+      return ok({ taskId: task.id, key: task.key, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }
@@ -2313,8 +2404,9 @@ server.registerTool(
   {
     title: "List contributors",
     description:
-      "Read who has worked on the project: everyone who has committed to .forward/, from git " +
-      "history, with .mailmap applied. A member's uid is what a task's assignees hold; bot marks an " +
+      "Read who works on the project: everyone who has committed to .forward/, from git " +
+      "history with .mailmap applied, plus people declared with add_person (declared:true) who " +
+      "haven't committed yet. A member's uid is what a task's assignees hold; bot marks an " +
       "automation account. shallow means this is a shallow clone, so the list may be missing people. " +
       "Access itself is managed by the git host (repository permissions), not here.",
     inputSchema: {},
@@ -2322,6 +2414,53 @@ server.registerTool(
   async () => {
     try {
       return ok(await listMembers(getConfig()));
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+// --- people: declare someone before their first commit ----------------------
+server.registerTool(
+  "add_person",
+  {
+    title: "Declare a person",
+    description:
+      "Put someone on the roster before they have committed, so tasks can be assigned to them. " +
+      "Use the name they commit under (their git user.name): once they commit, their git identity " +
+      "and this entry are the same person and list_members shows them once. Writes " +
+      ".forward/people/<name>.json; it grants no access (the git host does that). Re-adding updates " +
+      "the email.",
+    inputSchema: {
+      name: z.string().trim().min(1).describe('Their git author name, e.g. "Lena Fischer". It becomes their uid.'),
+      email: z.string().optional().describe("Their email, so a commit under another name still matches them."),
+    },
+  },
+  async ({ name, email }) => {
+    try {
+      const person = await savePerson(getConfig(), { id: name, email: email ?? null });
+      return ok({ uid: person.id, email: person.email, action: "declared" });
+    } catch (err) {
+      return fail((err as Error).message);
+    }
+  },
+);
+
+server.registerTool(
+  "remove_person",
+  {
+    title: "Remove a declared person",
+    description:
+      "Take a declared person (add_person) off the roster. Git contributors can't be removed: " +
+      "they are the repository's history. Tasks assigned to them keep the uid.",
+    inputSchema: {
+      name: z.string().trim().min(1).describe("The declared person's uid (their name)."),
+    },
+  },
+  async ({ name }) => {
+    try {
+      await deletePerson(getConfig(), name);
+      return ok({ uid: name, action: "removed" });
     } catch (err) {
       return fail((err as Error).message);
     }

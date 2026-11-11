@@ -3,7 +3,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
-import type { ProjectTimelineEvent, TimelineDomain, VersionAction } from "../schema.js";
+import type { Person, ProjectTimelineEvent, TimelineDomain, VersionAction } from "../schema.js";
 import { ASSETS_DIR, FORWARD_DIR, collectionOf, type CollectionKey } from "./layout.js";
 
 /**
@@ -55,8 +55,10 @@ export interface Contributor {
   name: string;
   /** A hosting-platform automation account (`name[bot]`), not a person. */
   bot: boolean;
-  /** When they first committed to `.forward/`. */
+  /** When they first committed to `.forward/` (or, if declared, were declared). */
   addedAt: string;
+  /** Declared in `.forward/people/` and not yet seen in git history. */
+  declared?: boolean;
 }
 
 export interface Roster {
@@ -104,6 +106,20 @@ export function contributors(root: string): Roster {
   const roster = { members: [...out.values()], shallow: shallow === "true" };
   if (log !== undefined) lastRoster = { key, roster };
   return roster;
+}
+
+/**
+ * The roster with declared people (`.forward/people/`) added: someone who has
+ * committed under the same name, or the same email, is listed once, as the
+ * contributor. The rest are appended, marked `declared`.
+ */
+export function withDeclared(roster: Roster, people: Person[]): Roster {
+  const names = new Set(roster.members.map((m) => m.userId));
+  const emails = new Set(roster.members.map((m) => m.email?.toLowerCase()).filter(Boolean));
+  const declared = people
+    .filter((p) => !names.has(p.id) && !(p.email && emails.has(p.email.toLowerCase())))
+    .map((p): Contributor => ({ userId: p.id, email: p.email, name: p.id, bot: false, addedAt: p.addedAt, declared: true }));
+  return { ...roster, members: [...roster.members, ...declared] };
 }
 
 function mtimeOf(file: string): number {

@@ -20,6 +20,7 @@ import { join } from "node:path";
  *     agents/agents|servers/<id>.json
  *     tasks/<id>.json
  *     checkpoints/<id>.json
+ *     people/<id>.json                Person (declared roster entry; id = git name)
  *     dismissed/<elementId>.json      DismissedDraft (deleted code drafts)
  *     assets/<sha256>.<ext>           image bytes (content-addressed, never rewritten)
  */
@@ -41,6 +42,7 @@ export const COLLECTIONS = {
   tasks: "tasks",
   checkpoints: "checkpoints",
   dismissed: "dismissed",
+  people: "people",
 } as const;
 
 export type CollectionKey = keyof typeof COLLECTIONS;

@@ -778,6 +778,24 @@ export const Task = z.object({
 export type Task = z.infer<typeof Task>;
 
 // --------------------------------------------------------------------------
+// People — declared roster entries
+// --------------------------------------------------------------------------
+// The roster is derived from git contributors. A declared person adds someone
+// who hasn't committed to .forward/ yet, so a task can be assigned to them. The
+// id is the name they will commit under: once they do, the git contributor and
+// the declared entry are the same uid, and the roster shows them once.
+
+export const Person = z.object({
+  /** The person's git author name; also their uid in task `assignees`. */
+  id: z.string().trim().min(1).max(SHORT_TEXT_MAX),
+  email: z.string().max(SHORT_TEXT_MAX).nullable().default(null),
+  /** Who declared them, stamped by the backend. */
+  addedBy: z.string().max(SHORT_TEXT_MAX).optional(),
+  addedAt: z.string().datetime(),
+});
+export type Person = z.infer<typeof Person>;
+
+// --------------------------------------------------------------------------
 // Checkpoints (pillar 5) — manual, named snapshots of the canvas
 // --------------------------------------------------------------------------
 //
