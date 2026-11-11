@@ -74,7 +74,7 @@ const SKELETON = `
   <aside id="layers">
     <div class="fwd-layers-head">
       <svg class="tb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"></path><path d="M3 13l9 5 9-5"></path></svg>
-      <span class="fwd-layers-title">Layers</span>
+      <span class="fwd-layers-title">UI</span>
       <span class="fwd-layers-count" id="layersCount"></span>
     </div>
     <div class="fwd-layers-divider"></div>
@@ -459,6 +459,7 @@ let flowOpen = false; // is the rendered Flows view showing?
 let flowEdit = false; // is the flow editor (right column) open?
 let tool: Tool = "select";
 let selectedId: string | null = null;
+let multiSelectedIds: Set<string> | null = null;
 let hoverId: string | null = null; // element under the pointer (drives the doc leader line)
 let showDocs = true; // show/hide the minimized API indicators on documented elements
 let hoverScrollEnabled = true; // bare-cursor edge auto-scroll (drag-scroll is always on)
@@ -977,7 +978,7 @@ function buildToolbar(): void {
   // auto-returns to select), so the rail never grows with the shape catalog.
   // Layers sits at the top of the rail (above a divider), separate from the
   // panel tools — it toggles the left DESIGN TREE sidebar rather than a drawer.
-  const layersBtn = iconButton(layersIcon(), "Layers", toggleLayers);
+  const layersBtn = iconButton(layersIcon(), "UI", toggleLayers);
   layersBtn.dataset.toggle = "layers";
   layersBtn.classList.toggle("active", layersOpen);
   toolbar.append(layersBtn);
@@ -1221,7 +1222,7 @@ function render(): void {
       if (isHidden(el)) continue; // hidden via the layers eye toggle (or a hidden ancestor)
       design.append(drawElement(el));
     }
-    if (selectedId) {
+    if (selectedId && !multiSelectedIds) {
       const sel = elements.get(selectedId);
       // Don't draw selection handles over a hidden element (nothing is painted there).
       if (sel && !isHidden(sel)) design.append(...handles(sel));
@@ -3574,8 +3575,105 @@ function applyMove(id: string, dx: number, dy: number): void {
 
 function select(id: string | null): void {
   selectedId = id;
+  multiSelectedIds = null;
   if (id) selectedInfraId = null; // design + infra selection are exclusive
   render();
+}
+
+/** Current layer selection; modifier-click in the Layers tree builds a set. */
+function selectedLayerIds(): string[] {
+  return multiSelectedIds ? [...multiSelectedIds] : selectedId ? [selectedId] : [];
+}
+
+function groupableLayerIds(): string[] {
+  const selected = selectedLayerIds();
+  const chosen = new Set(selected);
+  return selected.filter((id) => {
+    let parent = elements.get(id)?.parentId ?? null;
+    while (parent) {
+      if (chosen.has(parent)) return false;
+      parent = elements.get(parent)?.parentId ?? null;
+    }
+    return elements.has(id);
+  });
+}
+
+function selectLayer(id: string, additive: boolean): void {
+  if (!additive) {
+    select(id);
+    return;
+  }
+  const next = new Set(multiSelectedIds ?? (selectedId ? [selectedId] : []));
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  if (!next.size) {
+    select(null);
+  } else if (next.size === 1) {
+    select([...next][0]!);
+  } else {
+    multiSelectedIds = next;
+    selectedId = id;
+    render();
+  }
+}
+
+/** Create a transparent frame around the selected layers; attached API docs stay
+ * on their original elements, so their badges and anchors move with the group. */
+function groupSelectedLayers(): void {
+  const roots = groupableLayerIds();
+  if (roots.length < 2) return;
+
+  const members = roots.map((id) => elements.get(id)!).filter(Boolean);
+  const x = Math.min(...members.map((el) => el.x));
+  const y = Math.min(...members.map((el) => el.y));
+  const right = Math.max(...members.map((el) => el.x + el.width));
+  const bottom = Math.max(...members.map((el) => el.y + el.height));
+  const id = `el_${Date.now().toString(36)}`;
+  const bounds = { x, y, width: Math.max(8, right - x), height: Math.max(8, bottom - y) };
+  const parents = new Set(members.map((el) => el.parentId));
+  const excluded = new Set(roots.flatMap((root) => [root, ...descendants(root, elements.values())]));
+  const parentId = parents.size === 1
+    ? members[0]!.parentId
+    : findParent(bounds, id, [...elements.values()].filter((el) => !excluded.has(el.id)));
+  const stamp = now();
+  const group = {
+    ...newElement(id, "frame", x, y),
+    name: "Group",
+    ...bounds,
+    parentId,
+    style: { fill: "transparent", stroke: "transparent", radius: 0 },
+    updatedAt: stamp,
+  };
+  elements.set(id, group);
+  void persistElement(group);
+  for (const member of members) {
+    const nested = { ...member, parentId: id, updatedAt: stamp };
+    elements.set(member.id, nested);
+    void persistElement(nested);
+  }
+  select(id);
+}
+
+/** Remove the selected frame wrapper and promote its direct children. */
+function ungroupSelectedLayer(): void {
+  if (!selectedId) return;
+  const group = elements.get(selectedId);
+  if (!group || group.type !== "frame") return;
+  if (group.apiBinding || inflightDocs.has(group.id) || unsavedDocIds.has(group.id)) {
+    notify("Save or remove this frame’s documentation before ungrouping it.");
+    return;
+  }
+  const children = [...elements.values()].filter((el) => el.parentId === group.id);
+  if (!children.length) return;
+  const stamp = now();
+  for (const child of children) {
+    const promoted = { ...child, parentId: group.parentId, updatedAt: stamp };
+    elements.set(child.id, promoted);
+    void persistElement(promoted);
+  }
+  elements.delete(group.id);
+  void source.deleteElement(group.id);
+  select(children[0]!.id);
 }
 
 // ---- inline text editing ------------------------------------------------
@@ -3723,17 +3821,51 @@ function renderLayers(): void {
   // Drop hidden ids whose element is gone (delete / restore / poll), so the set
   // never leaks stale ids across the various element-removal paths.
   for (const id of hiddenIds) if (!elements.has(id)) hiddenIds.delete(id);
+  if (multiSelectedIds) {
+    for (const id of multiSelectedIds) if (!elements.has(id)) multiSelectedIds.delete(id);
+    if (multiSelectedIds.size < 2) {
+      const remaining = [...multiSelectedIds][0];
+      multiSelectedIds = null;
+      if (remaining) selectedId = remaining;
+      else if (selectedId && !elements.has(selectedId)) selectedId = null;
+    }
+  }
   if (layersCountEl) layersCountEl.textContent = `${elements.size}`;
   layersBodyEl.replaceChildren();
   const label = document.createElement("div");
   label.className = "fwd-tree-label";
   label.textContent = "DESIGN TREE";
   layersBodyEl.append(label);
+  const hint = document.createElement("div");
+  hint.className = "fwd-layer-hint";
+  hint.textContent = "Shift/Ctrl/⌘-click to select multiple";
+  layersBodyEl.append(hint);
+
+  const selection = selectedLayerIds();
+  const actions = document.createElement("div");
+  actions.className = "fwd-layer-actions";
+  const groupButton = document.createElement("button");
+  groupButton.type = "button";
+  groupButton.textContent = "Group";
+  groupButton.disabled = groupableLayerIds().length < 2;
+  groupButton.title = groupButton.disabled ? "Select at least two UI elements with Shift or Ctrl/⌘-click" : "Group selected UI elements";
+  groupButton.addEventListener("click", groupSelectedLayers);
+  const ungroupButton = document.createElement("button");
+  ungroupButton.type = "button";
+  ungroupButton.textContent = "Ungroup";
+  const selectedElement = selection.length === 1 ? elements.get(selection[0]!) : undefined;
+  const hasChildren = Boolean(selectedElement && [...elements.values()].some((el) => el.parentId === selectedElement.id));
+  const hasOwnDocs = Boolean(selectedElement && (selectedElement.apiBinding || inflightDocs.has(selectedElement.id) || unsavedDocIds.has(selectedElement.id)));
+  ungroupButton.disabled = !selectedElement || selectedElement.type !== "frame" || !hasChildren || hasOwnDocs;
+  if (hasOwnDocs) ungroupButton.title = "Save or remove this frame’s documentation before ungrouping";
+  ungroupButton.addEventListener("click", ungroupSelectedLayer);
+  actions.append(groupButton, ungroupButton);
+  layersBodyEl.append(actions);
 
   for (const el of ordered()) {
     const row = document.createElement("div");
     row.className = "fwd-layer-row";
-    if (el.id === selectedId) row.classList.add("selected");
+    if (el.id === selectedId || multiSelectedIds?.has(el.id)) row.classList.add("selected");
     if (hiddenIds.has(el.id)) row.classList.add("hidden");
 
     const indent = document.createElement("span");
@@ -3766,8 +3898,8 @@ function renderLayers(): void {
     });
     row.append(eye);
 
-    row.addEventListener("click", () => {
-      select(el.id);
+    row.addEventListener("click", (event) => {
+      selectLayer(el.id, event.shiftKey || event.metaKey || event.ctrlKey);
       revealElement(el.id); // glide the canvas to it if it's off-screen
     });
     row.addEventListener("contextmenu", (e) => {
@@ -3780,9 +3912,10 @@ function renderLayers(): void {
 }
 
 function deleteSelected(): void {
-  if (!selectedId) return;
-  const id = selectedId;
-  for (const cid of [id, ...descendants(id, elements.values())]) {
+  const selected = selectedLayerIds().filter((id) => elements.has(id));
+  if (!selected.length) return;
+  const removeIds = new Set(selected.flatMap((id) => [id, ...descendants(id, elements.values())]));
+  for (const cid of removeIds) {
     elements.delete(cid);
     hiddenIds.delete(cid); // don't leak a stale hidden id
     // A genuinely in-flight upsert can land after this delete and resurrect the

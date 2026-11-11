@@ -149,6 +149,14 @@
   font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em;
   color: #5e5d58; margin: 3px 6px 9px;
 }
+.fwd-layer-hint { margin: -3px 6px 8px; color: var(--muted-2); font-size: 10px; }
+.fwd-layer-actions { display: flex; gap: 6px; margin: 0 4px 10px; }
+.fwd-layer-actions button {
+  flex: 1; padding: 6px 8px; border: 1px solid var(--line-2); border-radius: 6px;
+  background: var(--surface-2); color: var(--text-2); font: inherit; font-size: 11px; cursor: pointer;
+}
+.fwd-layer-actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--text); }
+.fwd-layer-actions button:disabled { opacity: .45; cursor: default; }
 .fwd-layer-row {
   display: flex; align-items: center; gap: 8px;
   padding: 5px 8px; border-radius: 7px; cursor: pointer;
