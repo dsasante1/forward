@@ -74,7 +74,21 @@ const VIEW_ORDER: HistoryView[] = [
 // so these survive re-renders (like the old endpoint-timeline view did).
 let view: HistoryView = "unified";
 let sort: HistorySort = "new";
+let dateFrom = "";
+let dateTo = "";
 let pickId: string | null = null;
+let compareIds: string[] = [];
+let comparing = false;
+type TimelineOrientation = "vertical" | "horizontal";
+const ORIENTATION_KEY = "fwd:historyOrientation";
+function loadOrientation(): TimelineOrientation {
+  try {
+    const saved = globalThis.localStorage?.getItem(ORIENTATION_KEY);
+    if (saved === "horizontal" || saved === "vertical") return saved;
+  } catch { /* Storage may be disabled. */ }
+  return "vertical";
+}
+let orientation: TimelineOrientation = loadOrientation();
 
 let lastEvents: ProjectTimelineEvent[] = [];
 let lastCheckpoints: Checkpoint[] = [];
@@ -102,10 +116,18 @@ function paint(): void {
   const root = lastRoot;
   const cb = lastCb;
   if (!root || !cb) return;
+  const previousScrollLeft = (root.querySelector(".tl2-scroll") as HTMLElement | null)?.scrollLeft ?? 0;
   root.replaceChildren();
+  root.classList.toggle("tl2-horizontal", orientation === "horizontal");
 
-  const tl = buildHistoryTimeline(lastEvents, lastCheckpoints, { view, sort });
-
+  const from = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : -Infinity;
+  const to = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : Infinity;
+  const events = lastEvents.filter((event) => event.timestamp >= from && event.timestamp <= to);
+  const checkpoints = lastCheckpoints.filter((checkpoint) => {
+    const timestamp = Date.parse(checkpoint.createdAt) || 0;
+    return timestamp >= from && timestamp <= to;
+  });
+  const tl = buildHistoryTimeline(events, checkpoints, { view, sort });
   // --- header ------------------------------------------------------------
   const head = div("tl2-head");
   const titles = div("tl2-titles");
@@ -135,6 +157,25 @@ function paint(): void {
   }
   head.append(views);
 
+  const orientations = div("tl2-orientations");
+  orientations.setAttribute("role", "group");
+  orientations.setAttribute("aria-label", "Timeline orientation");
+  for (const [value, label] of [["vertical", "Vertical"], ["horizontal", "Horizontal"]] as const) {
+    const btn = document.createElement("button");
+    btn.className = `tl2-orientation${orientation === value ? " active" : ""}`;
+    btn.type = "button";
+    btn.setAttribute("aria-pressed", String(orientation === value));
+    btn.textContent = label;
+    btn.addEventListener("click", () => {
+      if (orientation === value) return;
+      orientation = value;
+      try { globalThis.localStorage?.setItem(ORIENTATION_KEY, orientation); } catch { /* Session preference only. */ }
+      paint();
+    });
+    orientations.append(btn);
+  }
+  head.append(orientations);
+
   const sortBtn = document.createElement("button");
   sortBtn.className = "tl2-sort";
   sortBtn.type = "button";
@@ -154,27 +195,81 @@ function paint(): void {
   head.append(close);
   root.append(head);
 
+  const dateFilter = div("tl2-date-filter");
+  dateFilter.append(span("From", "tl2-date-label"));
+  dateFilter.append(dateInput("Start date", dateFrom, (value) => { dateFrom = value; pickId = null; paint(); }));
+  dateFilter.append(span("To", "tl2-date-label"));
+  dateFilter.append(dateInput("End date", dateTo, (value) => { dateTo = value; pickId = null; paint(); }));
+  if (dateFrom || dateTo) {
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "tl2-date-clear";
+    clear.textContent = "Clear dates";
+    clear.addEventListener("click", () => { dateFrom = ""; dateTo = ""; pickId = null; paint(); });
+    dateFilter.append(clear);
+  }
+  if (compareIds.length) {
+    const compareBar = div("tl2-compare-bar");
+    const countLabel = `${compareIds.length} item${compareIds.length === 1 ? "" : "s"} selected`;
+    compareBar.append(h("div", countLabel, "tl2-compare-count"));
+    const compare = document.createElement("button");
+    compare.type = "button";
+    compare.className = "tl2-compare-open";
+    compare.textContent = compareIds.length >= 2 ? "View side by side" : "Select one more item";
+    compare.disabled = compareIds.length < 2;
+    compare.addEventListener("click", () => { comparing = true; pickId = null; paint(); });
+    const clear = document.createElement("button");
+    clear.type = "button"; clear.className = "tl2-compare-clear"; clear.textContent = "Clear";
+    clear.addEventListener("click", () => { compareIds = []; paint(); });
+    compareBar.append(compare, clear);
+    root.append(compareBar);
+  }
+  root.append(dateFilter);
+
   // --- date rail ---------------------------------------------------------
   const scroll = div("tl2-scroll");
+  if (orientation === "horizontal") {
+    scroll.setAttribute("role", "region");
+    scroll.setAttribute("aria-label", "Scrollable history events; use left and right arrow keys to navigate");
+  }
   const rail = div("tl2-rail");
   if (!tl.rows.length) {
     rail.append(div("tl2-empty empty", "No history in this view yet."));
   } else {
     rail.append(div("tl2-rail-line"));
-    for (const r of tl.rows) rail.append(rowEl(r));
+    const hasPickedRow = tl.rows.some((row) => row.id === pickId);
+    tl.rows.forEach((r, index) => rail.append(rowEl(r, index, tl.rows, !hasPickedRow)));
   }
   scroll.append(rail);
   root.append(scroll);
+  scroll.scrollLeft = orientation === "horizontal" ? previousScrollLeft : 0;
 
-  // --- event viewer overlay ---------------------------------------------
+  // --- selected event detail --------------------------------------------
   const picked = pickId ? tl.rows.find((r) => r.id === pickId) : undefined;
+  // A selected event takes the foreground across the whole history view. The
+  // carousel remains mounted behind it, ready to return to when details close.
   if (picked) root.append(viewerEl(picked, tl.rows, cb));
+  if (comparing) {
+    const selected = compareIds.map((id) => tl.rows.find((row) => row.id === id)).filter((row): row is HistoryRow => !!row);
+    if (selected.length >= 2) root.append(compareEl(selected, tl.rows, cb));
+    else comparing = false;
+  }
+}
+
+function dateInput(label: string, value: string, onChange: (value: string) => void): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "date";
+  input.className = "tl2-date-input";
+  input.setAttribute("aria-label", label);
+  input.value = value;
+  input.addEventListener("change", () => onChange(input.value));
+  return input;
 }
 
 // --------------------------------------------------------------------------
 // Rows
 // --------------------------------------------------------------------------
-function rowEl(r: HistoryRow): HTMLElement {
+function rowEl(r: HistoryRow, rowIndex: number, rows: HistoryRow[], focusFirst: boolean): HTMLElement {
   const color = DOMAIN[r.domain].color;
   const d = new Date(r.timestamp);
 
@@ -190,6 +285,11 @@ function rowEl(r: HistoryRow): HTMLElement {
   wrap.append(dot);
 
   const card = div("tl2-card");
+  card.dataset.historyId = r.id;
+  card.tabIndex = r.id === pickId || (focusFirst && rowIndex === 0) ? 0 : -1;
+  card.setAttribute("role", "button");
+  card.setAttribute("aria-pressed", String(r.id === pickId));
+  card.setAttribute("aria-label", `${DOMAIN[r.domain].label}: ${r.title}, ${fmtTime(r.timestamp)}`);
   if (r.id === pickId) {
     card.classList.add("picked");
     card.style.color = color; // currentColor → the focus ring
@@ -207,15 +307,54 @@ function rowEl(r: HistoryRow): HTMLElement {
   link.style.color = color;
   link.append(eyeIcon(), document.createTextNode("View"));
   foot.append(link);
+  const compareButton = document.createElement("button");
+  compareButton.type = "button";
+  compareButton.className = "tl2-card-compare";
+  const isSelected = compareIds.includes(r.id);
+  compareButton.textContent = isSelected ? "Selected ✓" : "Compare";
+  compareButton.setAttribute("aria-pressed", String(isSelected));
+  compareButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    compareIds = isSelected ? compareIds.filter((id) => id !== r.id) : [...compareIds, r.id];
+    paint();
+  });
+  foot.append(compareButton);
   card.append(foot);
 
   card.addEventListener("click", () => {
-    pickId = r.id;
-    paint();
+    pickHistoryRow(r.id, orientation === "horizontal");
+  });
+  card.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      pickHistoryRow(r.id, true);
+    } else if (orientation === "horizontal" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      const nextIndex = rowIndex + (e.key === "ArrowRight" ? 1 : -1);
+      if (rows[nextIndex]) pickHistoryRow(rows[nextIndex]!.id, true);
+    }
   });
   wrap.append(card);
   row.append(wrap);
   return row;
+}
+
+function pickHistoryRow(id: string, focusCard: boolean): void {
+  pickId = id;
+  paint();
+  if (!focusCard || orientation !== "horizontal") return;
+  requestAnimationFrame(() => {
+    const root = lastRoot;
+    const card = [...(root?.querySelectorAll<HTMLElement>(".tl2-card") ?? [])]
+      .find((el) => el.dataset.historyId === id);
+    const scroll = root?.querySelector<HTMLElement>(".tl2-scroll");
+    if (!card || !scroll) return;
+    card.focus({ preventScroll: true });
+    const cardRect = card.getBoundingClientRect();
+    const scrollRect = scroll.getBoundingClientRect();
+    if (cardRect.left < scrollRect.left) scroll.scrollLeft -= scrollRect.left - cardRect.left;
+    else if (cardRect.right > scrollRect.right) scroll.scrollLeft += cardRect.right - scrollRect.right;
+  });
 }
 
 function domainChip(r: HistoryRow, color: string): HTMLElement {
@@ -242,7 +381,7 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   const back = document.createElement("button");
   back.className = "tl2-back";
   back.type = "button";
-  back.append(span("", "ff-mark ff-mark--back"), document.createTextNode("Timeline"));
+  back.append(span("", "ff-mark ff-mark--back"), document.createTextNode("Back to history"));
   back.addEventListener("click", () => {
     pickId = null;
     paint();
@@ -267,11 +406,10 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
     if (ni < 0 || ni >= rows.length) return;
     const target = rows[ni];
     if (!target) return;
-    pickId = target.id;
-    paint();
+    pickHistoryRow(target.id, orientation === "horizontal");
   };
-  acts.append(stepBtn("↑", () => step(-1)));
-  acts.append(stepBtn("↓", () => step(1)));
+  acts.append(stepBtn("↑", () => step(-1), "Previous event"));
+  acts.append(stepBtn("↓", () => step(1), "Next event"));
   if (r.kind === "checkpoint" && r.checkpointId) {
     const restore = document.createElement("button");
     restore.className = "tl2-restore";
@@ -282,11 +420,9 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
     acts.append(restore);
     if (cb.onDelete) {
       const del = document.createElement("button");
-      del.className = "tl2-step";
+      del.className = "tl2-step tl2-delete";
       del.type = "button";
       del.title = "Delete checkpoint";
-      del.style.width = "auto";
-      del.style.padding = "0 12px";
       del.textContent = "Delete";
       const onDelete = cb.onDelete;
       del.addEventListener("click", () => {
@@ -307,7 +443,7 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
     });
     acts.append(open);
   }
-  head.append(acts);
+  if (acts.childElementCount) head.append(acts);
   viewer.append(head);
 
   // The recorded change, rendered for what it actually is: a design-element
@@ -315,20 +451,60 @@ function viewerEl(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTM
   // is resolved purely (forward-core) against the live project state; this only
   // draws each variant. Checkpoints / unresolved targets keep the plain card.
   const stage = div("tl2-stage");
+  stage.append(eventDetailCard(r, rows, cb));
+  viewer.append(stage);
+  return viewer;
+}
+
+function eventDetailCard(r: HistoryRow, rows: HistoryRow[], cb: TimelineCallbacks): HTMLElement {
+  const color = DOMAIN[r.domain].color;
   const card = div("tl2-stage-card");
   card.append(domainChip(r, color));
   card.append(h("div", r.title, "tl2-stage-title"));
   card.append(h("div", actionLine(r), "tl2-stage-detail"));
-
-  // Design/checkpoint previews resolve geometry against the checkpoints, which
-  // arrive on their own param — merge them into the sources for the resolver.
   const detail = buildHistoryDetail(r, { ...lastSources, checkpoints: lastCheckpoints });
   const body = detailBody(detail, color, cb);
   if (body) card.append(body);
   else if (r.detail) card.append(h("div", r.detail, "tl2-stage-note"));
+  return card;
+}
 
-  stage.append(card);
-  viewer.append(stage);
+function compareEl(rows: HistoryRow[], allRows: HistoryRow[], cb: TimelineCallbacks): HTMLElement {
+  const viewer = div("tl2-viewer tl2-compare-viewer");
+  const head = div("tl2-viewer-head tl2-compare-head");
+  const back = document.createElement("button");
+  back.className = "tl2-back"; back.type = "button";
+  back.append(span("", "ff-mark ff-mark--back"), document.createTextNode("Back to history"));
+  back.addEventListener("click", () => { comparing = false; paint(); });
+  head.append(back, h("div", "Compare history items", "tl2-viewer-title"));
+  const add = document.createElement("button");
+  add.className = "tl2-compare-add"; add.type = "button"; add.textContent = "+ Add item";
+  add.addEventListener("click", () => { comparing = false; pickId = null; paint(); });
+  head.append(add);
+  const close = document.createElement("button");
+  close.className = "tl2-step"; close.type = "button"; close.textContent = "×";
+  close.setAttribute("aria-label", "Close comparison");
+  close.addEventListener("click", () => { comparing = false; compareIds = []; paint(); });
+  head.append(close); viewer.append(head);
+
+  const grid = div("tl2-compare-grid");
+  grid.style.setProperty("--compare-count", String(rows.length));
+  for (const row of rows) {
+    const color = DOMAIN[row.domain].color;
+    const date = new Date(row.timestamp);
+    const pane = div("tl2-compare-pane");
+    const paneHead = div("tl2-compare-pane-head");
+    paneHead.append(domainChip(row, color));
+    paneHead.append(h("div", row.title, "tl2-viewer-title"));
+    paneHead.append(h("div", `${MONTHS[date.getMonth()]} ${String(date.getDate()).padStart(2, "0")}, ${date.getFullYear()} · ${fmtTime(row.timestamp)} · ${row.author || "unknown"}`, "tl2-viewer-stamp"));
+    const remove = document.createElement("button");
+    remove.className = "tl2-compare-remove"; remove.type = "button"; remove.textContent = "Remove";
+    remove.addEventListener("click", () => { compareIds = compareIds.filter((id) => id !== row.id); comparing = false; paint(); });
+    paneHead.append(remove);
+    pane.append(paneHead, eventDetailCard(row, allRows, cb));
+    grid.append(pane);
+  }
+  viewer.append(grid);
   return viewer;
 }
 
@@ -806,11 +982,13 @@ function propRowEl(label: string, value: HTMLElement): HTMLElement {
   return row;
 }
 
-function stepBtn(glyph: string, onClick: () => void): HTMLButtonElement {
+function stepBtn(glyph: string, onClick: () => void, label: string): HTMLButtonElement {
   const b = document.createElement("button");
   b.className = "tl2-step";
   b.type = "button";
   b.textContent = glyph;
+  b.setAttribute("aria-label", label);
+  b.title = label;
   b.addEventListener("click", onClick);
   return b;
 }
