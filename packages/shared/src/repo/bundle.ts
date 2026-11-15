@@ -239,6 +239,16 @@ function layerDiff<T extends Named>(
   return out;
 }
 
+/**
+ * A backtick fence longer than any backtick run in `body`. Docs often hold their
+ * own ``` code blocks, and a plain ``` fence would end at the first one.
+ */
+function fenceFor(body: string): string {
+  let longest = 0;
+  for (const m of body.matchAll(/`+/g)) longest = Math.max(longest, m[0].length);
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
 /** Hidden marker so a CI job can find and update its own PR comment. */
 export const DIGEST_MARKER = "<!-- forward-digest -->";
 
@@ -274,9 +284,10 @@ export function renderDiffMarkdown(diff: ProjectDiff, opts: { title?: string; vi
       for (const log of c.changeLogs) lines.push(`  - ${escapeMd(firstLine(log))}`);
       const body = c.diff ? diffBlock(c.diff) : "";
       if (body) {
-        lines.push("", "  <details><summary>Doc diff</summary>", "", "  ```diff");
+        const fence = fenceFor(body);
+        lines.push("", "  <details><summary>Doc diff</summary>", "", `  ${fence}diff`);
         for (const l of body.split("\n")) lines.push(`  ${l}`);
-        lines.push("  ```", "", "  </details>");
+        lines.push(`  ${fence}`, "", "  </details>");
       }
     }
     lines.push("");
