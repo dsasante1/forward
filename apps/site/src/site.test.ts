@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir, userInfo } from "node:os";
 import { join, resolve } from "node:path";
@@ -21,6 +22,15 @@ const decode = (s: string) =>
 const textOf = (s: string) => decode(s.replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ");
 const ids = (s: string) => new Set([...s.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]!));
 const hrefs = (s: string) => [...s.matchAll(/\shref="([^"]+)"/g)].map((m) => decode(m[1]!));
+
+const vercel = JSON.parse(readFileSync(join(repo, "vercel.json"), "utf8")) as {
+  headers?: { source: string; headers: { key: string; value: string }[] }[];
+} & Record<string, unknown>;
+const csp = vercel.headers?.flatMap((h) => h.headers).find((h) => h.key === "Content-Security-Policy")?.value ?? "";
+const scriptSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("script-src ")) ?? "";
+/** Bodies of the classic inline <script> blocks a browser would run. */
+const inlineScripts = (s: string) => [...s.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+const cspHash = (body: string) => `'sha256-${createHash("sha256").update(body).digest("base64")}'`;
 
 describe.each(Object.keys(pages))("%s", (file) => {
   const page = html[file]!;
@@ -110,8 +120,6 @@ describe("what the pages tell people to run", () => {
 });
 
 describe("the deployment", () => {
-  const vercel = JSON.parse(readFileSync(join(repo, "vercel.json"), "utf8")) as Record<string, unknown>;
-
   it("builds forward-core, the canvas and the CLI before the site, and serves its output", () => {
     const steps = String(vercel.buildCommand).split("&&").map((s) => s.trim());
     expect(steps).toEqual([
@@ -126,6 +134,15 @@ describe("the deployment", () => {
   it("redirects /demo to /demo/, so the exported canvas finds its relative files", () => {
     expect(vercel.trailingSlash).toBe(true);
     expect(vercel.rewrites).toBeUndefined(); // a catch-all would swallow /demo/forward.json
+  });
+
+  it("lets the pages' inline scripts past the Content-Security-Policy by hash", () => {
+    expect(scriptSrc).toContain("'self'");
+    expect(scriptSrc).not.toContain("'unsafe-inline'");
+    for (const file of Object.keys(pages)) {
+      expect(inlineScripts(template(file)).length).toBeGreaterThan(0);
+      for (const body of inlineScripts(template(file))) expect(scriptSrc, file).toContain(cspHash(body));
+    }
   });
 });
 
@@ -149,7 +166,11 @@ describe("the demo", () => {
     });
     const dir = join(out, "demo");
     expect(readdirSync(dir).sort()).toEqual([".nojekyll", "THIRD_PARTY_NOTICES.txt", "assets", "forward.json", "index.html"]);
-    expect(readFileSync(join(dir, "index.html"), "utf8")).toContain('"mode":"static"');
+    const index = readFileSync(join(dir, "index.html"), "utf8");
+    expect(index).toContain('"mode":"static"');
+    // The exported canvas boots from an inline config script; vercel.json's CSP must allow it.
+    expect(inlineScripts(index).length).toBeGreaterThan(0);
+    for (const body of inlineScripts(index)) expect(scriptSrc).toContain(cspHash(body));
 
     const raw = readFileSync(join(dir, "forward.json"), "utf8");
     for (const s of [leak, "leak.invalid", "leaky-agent", tmpdir(), repo, homedir()]) expect(raw).not.toContain(s);
