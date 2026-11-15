@@ -5,6 +5,45 @@ tag (see [docs/releasing.md](docs/releasing.md)): `forward-mcp` from `mcp-v*`, t
 extension from `v*`, the docs-ci Action from `docs-ci-v*`. The Forward GitHub Action is
 released with `forward-mcp` and shares its tag.
 
+## forward-mcp 0.7.0 — 2026-11-15
+
+### Added
+
+- **Checkpoint tools.** `list_checkpoints`, `create_checkpoint`, `restore_checkpoint` (previews
+  the change unless `confirm: true`) and `delete_checkpoint` give agents the named, restorable
+  snapshots the canvas History panel has.
+- **Declared people.** `add_person` / `remove_person` declare someone in `.forward/people/` so
+  tasks can be assigned before their first commit; the roster, `forward validate` and the People
+  view include them, marked as declared. A declared entry grants no access.
+- Task tools accept a task key (`FWD-12`) as well as an id and resolve assignees by uid, name or
+  email, warning on unknown people.
+- `create_design` draws a whole screen in one call: a flat list of items that nest by ref with
+  parent-relative coordinates, components and instances included, saved all-or-nothing.
+- `create_element` and `update_element` accept `relative: true`, size text to its content,
+  inherit an instance's size from its master, and warn when an element lands outside its parent
+  or its text overflows. `update_element` moves nested children with their parent.
+- `forward call --batch <file | ->` runs many tool calls in one process from a JSON array or
+  JSON Lines; `"$name.path"` reads an earlier step's result. `forward <tool> --help` shows that
+  tool's arguments, including the fields of object and array arguments.
+- The canvas History view runs vertically or horizontally, filters by a date range, and
+  **compares two or more events side by side**.
+- The inspector has Properties and Docs tabs; Docs renders Markdown with Edit / Save / Cancel,
+  and the canvas doc callout shows a short preview that opens the Docs tab.
+- Multi-select, Group and Ungroup in the layers tree (renamed "UI").
+- Keyboard zoom in the design view (`+`/`=`, `-`, `0` to fit) and the Cloud, Sage and Blossom
+  light themes.
+- The task tracker fills the canvas, opens on the timeline, and gains status filters, an inline
+  edit form, due-date chips, and timeline zoom and date range.
+
+### Changed
+
+- Task, flow and MCP-server tools refuse an `endpointId` that names no documented element.
+
+### Fixed
+
+- A code block in an endpoint doc no longer breaks that endpoint's doc diff in the PR digest.
+- Editing a task in the canvas no longer clears its due date.
+
 ## forward-mcp 0.6.0 — 2026-11-07
 
 ### Added
