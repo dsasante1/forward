@@ -210,6 +210,29 @@ describe("git integration", () => {
     rmSync(baseRoot!, { recursive: true, force: true });
   });
 
+  it("fences a doc diff so a code block in the doc can't end it early", async () => {
+    const doc = (body: string) => `Add an item.\n\n**Body**\n\`\`\`json\n${body}\n\`\`\`\n\n**201** the item.`;
+    await api.saveElement(cfg, el("add"));
+    await api.bindApiToElement(cfg, "add", { title: "POST /items", description: doc('{ "name": "Oat milk" }') }, { version: "v1", changeLog: "" });
+    git("add", "-A");
+    git("commit", "-qm", "base");
+    await api.bindApiToElement(cfg, "add", { title: "POST /items", description: doc('{ "name": "Oat milk", "quantity": 2 }') }, { version: "v2", changeLog: "Quantity" });
+
+    const baseRoot = checkoutForwardAt(root, "HEAD");
+    const md = renderDiffMarkdown(diffProjects(loadBundle(baseRoot!, { timeline: false }), loadBundle(root, { timeline: false })));
+    rmSync(baseRoot!, { recursive: true, force: true });
+
+    const lines = md.split("\n");
+    const open = lines.findIndex((l) => /^\s*`{3,}diff$/.test(l));
+    const fence = lines[open]!.trim().slice(0, -"diff".length);
+    // CommonMark: a line of only backticks, at least as long as the opening run, closes the block.
+    const close = lines.findIndex((l, i) => i > open && /^\s*`+\s*$/.test(l) && l.trim().length >= fence.length);
+    const block = lines.slice(open + 1, close).join("\n");
+    expect(block).toContain('+ { "name": "Oat milk", "quantity": 2 }');
+    expect(block).toContain("**201** the item.");
+    expect(lines[close + 2]?.trim()).toBe("</details>");
+  });
+
   describe("contributor roster", () => {
     let n = 0;
     /** One commit touching `.forward/`, authored by `name <email>`. */
