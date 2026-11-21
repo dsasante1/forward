@@ -63,7 +63,7 @@ describe.each(Object.keys(pages))("%s", (file) => {
 
   it("restores the theme the toggle saved before first paint", () => {
     expect(template(file)).toContain(`localStorage.getItem("${THEME_KEY}")`);
-    expect(page).toContain('class="theme-toggle"');
+    expect(page).toContain('aria-label="Toggle dark theme"');
   });
 
   it("links only to the site's own pages, or to absolute https URLs", () => {

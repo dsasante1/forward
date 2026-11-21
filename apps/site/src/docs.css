@@ -1,3 +1,8 @@
+/* Page styles live in the `site` layer: above Tailwind's reset, below its
+   utilities (see ui.css, which declares the same order). */
+@layer theme, base, site, components, utilities;
+
+@layer site {
 /*
  * Documentation page — same mono & lime editorial / technical aesthetic as the
  * landing surface, but laid out as a docs shell (sticky sidebar + content).
@@ -137,24 +142,6 @@
   color: var(--ink);
   text-decoration: none;
 }
-.docs .d-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--sans);
-  font-size: 14px;
-  font-weight: 500;
-  padding: 9px 16px;
-  border-radius: 4px;
-  background: var(--ink);
-  color: var(--on-ink);
-  transition: transform 0.18s ease;
-}
-.docs .d-btn:hover {
-  transform: translateY(-1px);
-  text-decoration: none;
-}
-
 /* ---------- layout ---------- */
 .d-shell {
   max-width: 1280px;
@@ -175,10 +162,9 @@
   overflow-y: auto;
   padding: 34px 0 60px;
 }
-/* Collapsible wrapper — a plain sidebar on desktop, a tap-to-open menu on
-   mobile. It is rendered open (a closed <details> hides its body whatever the
-   CSS says) and DocsPage collapses it on narrow screens; on desktop the
-   summary is hidden, so it can't be closed. */
+/* Collapsible wrapper (coss Collapsible) — a plain sidebar on desktop, a
+   tap-to-open menu on mobile. DocsPage renders it open and collapses it on
+   narrow screens; on desktop the trigger is hidden, so it can't be closed. */
 .d-side-summary {
   display: none;
 }
@@ -592,6 +578,8 @@
   }
   .d-side-summary {
     display: flex;
+    width: 100%;
+    text-align: start;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -604,19 +592,19 @@
     text-transform: uppercase;
     color: var(--soft);
   }
-  .d-side-summary::-webkit-details-marker {
-    display: none;
+  .d-side-summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
-  .d-side-summary::after {
-    content: "+";
-    font-size: 16px;
+  /* The plus turns into a cross while the menu is open. */
+  .d-side-summary-icon {
+    width: 16px;
+    height: 16px;
     color: var(--faint);
+    transition: rotate 0.2s ease;
   }
-  .d-nav-collapse[open] .d-side-summary::after {
-    content: "\2013";
-  }
-  .d-nav-collapse:not([open]) > .d-side-body {
-    display: none;
+  .d-side-summary[data-panel-open] .d-side-summary-icon {
+    rotate: 45deg;
   }
   .d-side-body {
     display: grid;
@@ -658,4 +646,5 @@
   .d-section li {
     font-size: 15px;
   }
+}
 }

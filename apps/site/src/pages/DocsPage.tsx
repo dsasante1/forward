@@ -1,4 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { PlusIcon } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { BackToTop } from "../components/BackToTop.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
 import { DEMO_PATH, GITHUB_URL, MARKETPLACE_URL, NPM_URL } from "../site.js";
@@ -60,19 +63,20 @@ const ALL_IDS = NAV.flatMap((g) => g.items.map((i) => i.id));
 
 export function DocsPage() {
   const [active, setActive] = useState<string>(ALL_IDS[0] ?? "");
-  const menu = useRef<HTMLDetailsElement>(null);
-
-  // The section menu is rendered open (browsers hide a closed <details>' body
-  // whatever the CSS says, and wide screens have no toggle to reopen it). It
-  // collapses on narrow screens and reopens whenever the window widens.
+  // The section menu is rendered open (so the prerendered page has it, and wide
+  // screens have no toggle to reopen it). It collapses on narrow screens,
+  // reopens whenever the window widens, and closes again after a pick there.
+  const [menuOpen, setMenuOpen] = useState(true);
+  const [narrow, setNarrow] = useState(false);
   useEffect(() => {
-    const narrow = window.matchMedia("(max-width: 820px)");
+    const query = window.matchMedia("(max-width: 820px)");
     const sync = () => {
-      if (menu.current) menu.current.open = !narrow.matches;
+      setNarrow(query.matches);
+      setMenuOpen(!query.matches);
     };
     sync();
-    narrow.addEventListener("change", sync);
-    return () => narrow.removeEventListener("change", sync);
+    query.addEventListener("change", sync);
+    return () => query.removeEventListener("change", sync);
   }, []);
 
   // Scroll-spy: mark the section nearest the top of the viewport as active.
@@ -114,9 +118,9 @@ export function DocsPage() {
               GitHub
             </a>
             <ThemeToggle />
-            <a href={DEMO_PATH} className="d-btn">
-              Live demo <span className="ff-mark" aria-hidden />
-            </a>
+            <Button size="lg" render={<a href={DEMO_PATH} />}>
+              Live demo <span className="ff-mark transition-transform in-[[data-slot=button]:hover]:translate-x-0.5" aria-hidden />
+            </Button>
           </div>
         </nav>
       </div>
@@ -124,9 +128,12 @@ export function DocsPage() {
       <div className="d-shell">
         {/* ---------- left sidebar ---------- */}
         <aside className="d-side" aria-label="Documentation sections">
-          <details className="d-nav-collapse" open ref={menu}>
-            <summary className="d-side-summary">Documentation menu</summary>
-            <div className="d-side-body">
+          <Collapsible className="d-nav-collapse" open={menuOpen} onOpenChange={setMenuOpen}>
+            <CollapsibleTrigger className="d-side-summary">
+              Documentation menu
+              <PlusIcon className="d-side-summary-icon" aria-hidden="true" />
+            </CollapsibleTrigger>
+            <CollapsiblePanel className="d-side-body">
               {NAV.map((g) => (
                 <div className="d-side-group" key={g.group}>
                   <p className="d-side-group-h">{g.group}</p>
@@ -135,14 +142,16 @@ export function DocsPage() {
                       key={it.id}
                       href={`#${it.id}`}
                       className={`d-side-link${active === it.id ? " active" : ""}`}
+                      aria-current={active === it.id ? "location" : undefined}
+                      onClick={() => narrow && setMenuOpen(false)}
                     >
                       {it.label}
                     </a>
                   ))}
                 </div>
               ))}
-            </div>
-          </details>
+            </CollapsiblePanel>
+          </Collapsible>
         </aside>
 
         {/* ---------- content ---------- */}

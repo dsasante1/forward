@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { thirdPartyNotices } from "../../scripts/third-party-notices.mjs";
@@ -7,8 +8,10 @@ import { thirdPartyNotices } from "../../scripts/third-party-notices.mjs";
 // scripts/prerender.mjs and hydrated in the browser. `/demo/` is added after the
 // build by demo/build-demo.mjs (`forward export` of a sample project).
 export default defineConfig({
+  resolve: { alias: { "@": resolve(import.meta.dirname, "src") } },
   plugins: [
     react(),
+    tailwindcss(),
     {
       // React is inlined into the bundle; ship its license alongside.
       name: "third-party-notices",
