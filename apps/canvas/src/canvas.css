@@ -909,32 +909,33 @@ code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-
 }
 #history[hidden] { display: none; }
 
-/* Light-theme (e.g. "Paper") adaptation for the History overlay. The panel
-   follows the canvas --bg into a light background; these rules flip the
-   dark-tuned text/borders/buttons to dark so they stay legible. Scoped to
-   #history only — the rest of the chrome stays dark. Toggled by applyTheme(). */
-.fwd-canvas-root.theme-light #history {
-  --text: #2a2824; --text-2: #4a463e; --text-3: #5b5750;
-  --muted: #635f56; --muted-2: #65625a; --faint: #69655e;
+/* Light-background adaptation for the History overlay (.theme-light, set by
+   applyTheme() when --bg is light). The light presets (Paper, Cloud, Sage,
+   Rose) already supply dark text and lines, so these rules only re-tint the
+   few dark-tuned hardcoded colours below with the palette's own variables. */
+/* A light background picked onto a dark preset keeps that preset's light
+   text; .theme-light-fallback (also from applyTheme()) swaps in a neutral
+   dark set so the overlay stays legible. */
+.fwd-canvas-root.theme-light-fallback #history {
+  --text: #26282c; --text-2: #44474d; --text-3: #52565c;
+  --muted: #5a5e64; --muted-2: #5e6268; --faint: #63676d;
   --surface-2: #ffffff;
   --line: rgba(0, 0, 0, 0.08); --line-2: rgba(0, 0, 0, 0.12); --line-3: rgba(0, 0, 0, 0.16);
 }
-.fwd-canvas-root.theme-light #history .tl2-title,
-.fwd-canvas-root.theme-light #history .tl2-card-title,
-.fwd-canvas-root.theme-light #history .tl2-stage-title,
-.fwd-canvas-root.theme-light #history .tl2-viewer-title { color: #2a2824; }
-.fwd-canvas-root.theme-light #history .tl2-card-detail { color: #5b5750; }
-.fwd-canvas-root.theme-light #history .tl2-views { background: #ece8df; }
-.fwd-canvas-root.theme-light #history .tl2-orientations { background: #ece8df; }
-.fwd-canvas-root.theme-light #history .tl2-view.active { background: #ffffff; color: #2a2824; }
-.fwd-canvas-root.theme-light #history .tl2-orientation.active { background: #ffffff; color: #2a2824; }
-.fwd-canvas-root.theme-light #history .tl2-day { color: rgba(40, 38, 34, 0.14); }
+.fwd-canvas-root.theme-light #history .tl2-card-detail { color: var(--text-3); }
+/* Segmented-control track: a shade of the active --bg, so it keeps the
+   palette's hue (a fixed beige read brown on Cloud/Sage/Rose). */
+.fwd-canvas-root.theme-light #history .tl2-views,
+.fwd-canvas-root.theme-light #history .tl2-orientations { background: color-mix(in srgb, var(--bg), #000 5%); }
+.fwd-canvas-root.theme-light #history .tl2-view.active,
+.fwd-canvas-root.theme-light #history .tl2-orientation.active { background: #ffffff; color: var(--text); }
+.fwd-canvas-root.theme-light #history .tl2-day { color: color-mix(in srgb, var(--text) 14%, transparent); }
 .fwd-canvas-root.theme-light #history .tl2-rail-line { background: rgba(0, 0, 0, 0.1); }
 .fwd-canvas-root.theme-light #history .tl2-card:hover { border-color: rgba(0, 0, 0, 0.2); }
 .fwd-canvas-root.theme-light #history .tl2-sort:hover,
 .fwd-canvas-root.theme-light #history .tl2-back:hover,
 .fwd-canvas-root.theme-light #history .tl2-restore:hover,
-.fwd-canvas-root.theme-light #history .tl2-step:hover { border-color: rgba(0, 0, 0, 0.3); color: #000; }
+.fwd-canvas-root.theme-light #history .tl2-step:hover { border-color: rgba(0, 0, 0, 0.3); color: var(--text); }
 .fwd-canvas-root.theme-light #history .tl2-stage {
   background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
 }

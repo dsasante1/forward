@@ -4426,8 +4426,12 @@ function applyTheme(): void {
   }
   svg.classList.toggle("no-grid", !theme.grid);
   // The History overlay still has dark-tuned hardcoded colours; on a light
-  // palette (e.g. "Paper") flip its text/buttons to dark via .theme-light.
-  canvasRootEl?.classList.toggle("theme-light", isLightColor(theme.bg));
+  // background .theme-light re-tints them from the palette. The background is
+  // picked independently of the preset, so a light one over a dark preset's
+  // light text also gets .theme-light-fallback (a neutral dark text set).
+  const lightBg = isLightColor(theme.bg);
+  canvasRootEl?.classList.toggle("theme-light", lightBg);
+  canvasRootEl?.classList.toggle("theme-light-fallback", lightBg && isLightColor(theme.text));
 }
 
 /** Map the palette fields onto their CSS custom-property names. */
