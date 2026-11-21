@@ -61,7 +61,9 @@ import {
   type CanvasTheme,
   type ThemePreset,
   DEFAULT_THEME,
+  foregroundOn,
   renderThemeView,
+  upgradeSavedTheme,
 } from "./theme-view.js";
 import canvasCss from "./canvas.css?inline";
 
@@ -4424,8 +4426,12 @@ function applyTheme(): void {
   }
   svg.classList.toggle("no-grid", !theme.grid);
   // The History overlay still has dark-tuned hardcoded colours; on a light
-  // palette (e.g. "Paper") flip its text/buttons to dark via .theme-light.
-  canvasRootEl?.classList.toggle("theme-light", isLightColor(theme.bg));
+  // background .theme-light re-tints them from the palette. The background is
+  // picked independently of the preset, so a light one over a dark preset's
+  // light text also gets .theme-light-fallback (a neutral dark text set).
+  const lightBg = isLightColor(theme.bg);
+  canvasRootEl?.classList.toggle("theme-light", lightBg);
+  canvasRootEl?.classList.toggle("theme-light-fallback", lightBg && isLightColor(theme.text));
 }
 
 /** Map the palette fields onto their CSS custom-property names. */
@@ -4449,6 +4455,7 @@ function themeVars(t: CanvasTheme): Record<string, string> {
     "--muted-2": t.muted2,
     "--faint": t.faint,
     "--accent": t.accent,
+    "--primary-foreground": foregroundOn(t.accent),
   };
 }
 
@@ -4474,7 +4481,7 @@ function loadTheme(): void {
     // Ignore themes saved under the old (shape-fill) model: a full palette has a
     // `bg` field. Older saves lack it and would corrupt the new chrome vars.
     if (typeof saved.bg !== "string") return;
-    theme = { ...theme, ...saved };
+    theme = { ...theme, ...upgradeSavedTheme(saved) };
   } catch {
     // Corrupt/blocked storage just falls back to the default theme.
   }
@@ -6425,9 +6432,21 @@ function text(
   }
   return t;
 }
-function badge(content: string, x: number, y: number): SVGTextElement {
-  return text(content, x, y, "el-badge");
+/**
+ * The endpoint badge drawn on a documented element: a filled pill (coss Badge)
+ * so it stays legible on any fill, including the accent itself. Set in the mono
+ * face, whose 0.6em advance sizes the pill without measuring the DOM.
+ */
+function badge(content: string, x: number, y: number): SVGGElement {
+  const g = svgEl("g", { class: "el-badge" }) as SVGGElement;
+  const width = content.length * BADGE_FONT_PX * 0.6 + 8;
+  g.append(
+    svgEl("rect", { x: String(x - 4), y: String(y - 10), width: String(width), height: "14", rx: "3" }),
+    text(content, x, y),
+  );
+  return g;
 }
+const BADGE_FONT_PX = 9.5;
 function line(x1: number, y1: number, x2: number, y2: number): SVGLineElement {
   return svgEl("line", {
     x1: String(x1),

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { createRoot, hydrateRoot } from "react-dom/client";
+import "../ui.css";
 import "../styles.css";
 
 /** Hydrate the prerendered page, or render it fresh (the Vite dev server serves the bare template). */

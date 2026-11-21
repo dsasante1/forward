@@ -1,4 +1,6 @@
+import { CheckIcon, CopyIcon } from "lucide-react";
 import { useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
 import { BackToTop } from "../components/BackToTop.js";
 import { ThemeToggle } from "../components/ThemeToggle.js";
 import { DEMO_PATH, DOCS_PATH, GITHUB_URL, MARKETPLACE_URL, NPM_URL } from "../site.js";
@@ -50,9 +52,9 @@ export function LandingPage() {
               GitHub
             </a>
             <ThemeToggle />
-            <a className="l-btn l-btn-dark" href={DEMO_PATH}>
+            <Button size="lg" render={<a href={DEMO_PATH} />}>
               Live demo
-            </a>
+            </Button>
           </div>
         </nav>
       </div>
@@ -66,12 +68,12 @@ export function LandingPage() {
           and store it all in your own Git repository.
         </p>
         <div className="l-hero-cta">
-          <a className="l-btn l-btn-lg l-btn-dark" href={DEMO_PATH}>
-            Try the live demo <span className="l-arrow ff-mark" aria-hidden />
-          </a>
-          <a className="l-btn l-btn-lg l-btn-outline" href={`${DOCS_PATH}#getting-started`}>
+          <Button size="xl" render={<a href={DEMO_PATH} />}>
+            Try the live demo <span className="l-arrow ff-mark transition-transform in-[[data-slot=button]:hover]:translate-x-0.5" aria-hidden />
+          </Button>
+          <Button variant="outline" size="xl" render={<a href={`${DOCS_PATH}#getting-started`} />}>
             Get started
-          </a>
+          </Button>
         </div>
       </header>
 
@@ -956,15 +958,15 @@ export function LandingPage() {
           ))}
         </div>
         <div className="l-hero-cta">
-          <a className="l-btn l-btn-lg l-btn-dark" href={`${DOCS_PATH}#getting-started`}>
-            Get started <span className="l-arrow ff-mark" aria-hidden />
-          </a>
-          <a className="l-btn l-btn-lg l-btn-outline" href={DEMO_PATH}>
+          <Button size="xl" render={<a href={`${DOCS_PATH}#getting-started`} />}>
+            Get started <span className="l-arrow ff-mark transition-transform in-[[data-slot=button]:hover]:translate-x-0.5" aria-hidden />
+          </Button>
+          <Button variant="outline" size="xl" render={<a href={DEMO_PATH} />}>
             Live demo
-          </a>
-          <a className="l-btn l-btn-lg l-btn-outline" href={GITHUB_URL}>
+          </Button>
+          <Button variant="outline" size="xl" render={<a href={GITHUB_URL} />}>
             GitHub
-          </a>
+          </Button>
         </div>
       </section>
 
@@ -981,15 +983,15 @@ export function LandingPage() {
             </p>
             <InstallLine />
             <div className="l-cta-actions">
-              <a className="l-btn l-btn-lg l-btn-accent" href={DOCS_PATH}>
-                Read the docs <span className="l-arrow ff-mark" aria-hidden />
-              </a>
-              <a className="l-btn l-btn-lg l-btn-ghost-light" href={NPM_URL}>
+              <Button size="xl" render={<a href={DOCS_PATH} />}>
+                Read the docs <span className="l-arrow ff-mark transition-transform in-[[data-slot=button]:hover]:translate-x-0.5" aria-hidden />
+              </Button>
+              <Button variant="outline" size="xl" render={<a href={NPM_URL} />}>
                 forward-mcp on npm
-              </a>
-              <a className="l-btn l-btn-lg l-btn-ghost-light" href={MARKETPLACE_URL}>
+              </Button>
+              <Button variant="outline" size="xl" render={<a href={MARKETPLACE_URL} />}>
                 VS Code extension
-              </a>
+              </Button>
             </div>
             <div className="l-cta-fine">Apache-2.0 · Node 22+ · MCP-native</div>
           </div>
@@ -1041,9 +1043,10 @@ function InstallLine() {
         </span>
         {INSTALL_LINE}
       </code>{" "}
-      <button type="button" className="l-install-copy" onClick={copy}>
-        {copied ? "Copied" : "Copy"}
-      </button>
+      <Button variant="outline" size="sm" className="font-mono" onClick={copy} title="Copy install command">
+        {copied ? <CheckIcon aria-hidden="true" /> : <CopyIcon aria-hidden="true" />}
+        <span aria-live="polite">{copied ? "Copied" : "Copy"}</span>
+      </Button>
     </div>
   );
 }
